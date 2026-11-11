@@ -128,3 +128,15 @@ Instl.   Due Date   Cheque Num   Instl Amt   Principal   Interest   O/s Principa
   assert.deepEqual([l.bank, l.lan, l.tenure, l.emi, l.dueDay], ['HDFC', '900000002', 3, 101000, 5]);
   assert.deepEqual(l.warnings, []);
 });
+
+test('the picture for the vehicles picked: their name on it, and each loan\'s EMIs when asked', () => {
+  const h = { ...parseSchedule(hdfc), veh: 'XX01', unpaid: [2] };
+  const S = loansSummary([h], '2025-10-20');
+  const pages = loansPagesSvg(S, { asOn: '2025-10-20', name: 'XX 01', truckOf: () => 'XX 01', schedules: true }).join('');
+  assert.match(pages, /XX 01/);
+  assert.match(pages, /1 loan · ₹4,00,000 borrowed/);
+  assert.match(pages, /Not paid/);                                         // EMI #2, marked
+  assert.match(pages, /To pay/);                                           // #4, still to come
+  assert.doesNotMatch(pages, /undefined|NaN/);
+  assert.doesNotMatch(loansPagesSvg(S, { asOn: '2025-10-20' }).join(''), /To pay/);   // without: no EMI list
+});

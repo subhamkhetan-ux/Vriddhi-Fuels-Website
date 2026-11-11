@@ -2527,7 +2527,7 @@ async function viewLoans() {
   </section>`);
   bindLoans();
   bindCharts(main());
-  document.getElementById('share-loans')?.addEventListener('click', () => sharePictures('Loans & EMI', [{ label: 'Loans', make: async () => pageFiles(loansPagesSvg(L, { ...(await shareKit()), asOn: t, truckOf: (l) => loanTruck(l) }), `Loans and EMI ${fmtDate(t)}`) }]));
+  document.getElementById('share-loans')?.addEventListener('click', () => loanShareSheet());
 }
 function bindLoans() {
   const m = main();
@@ -2581,6 +2581,53 @@ function bindLoans() {
   }));
 }
 
+// Share: pick the vehicles (all to start), and whether to add each loan's EMIs; then the pictures for those only
+const loanKey = (l) => l.veh || `loan:${l.lan}`;
+function loanShareSheet(only = null) {
+  const loans = state.settings.loans || [];
+  const keys = [...new Set(loans.map(loanKey))].sort((a, b) => (a.startsWith('loan:') - b.startsWith('loan:')) || a.localeCompare(b));
+  const pick = new Set(only ? [only] : keys);
+  document.querySelector('.share-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'share-sheet';
+  const label = (k) => (k.startsWith('loan:') ? `No vehicle · ${k.slice(5)}` : plateText(k));
+  const loansOf = (k) => loans.filter((l) => loanKey(l) === k);
+  sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-label="Share loans">
+    <div class="row-between"><h3>Share loans</h3><button class="icon" data-close aria-label="Close">✕</button></div>
+    <p class="muted small">Pick the vehicles for the report — paid and still to go, by bank and each vehicle.</p>
+    <div class="row-gap pick-all"><button class="btn ghost small" type="button" data-all="1">All</button><button class="btn ghost small" type="button" data-all="0">None</button><span class="muted small" id="pick-n"></span></div>
+    <div class="pick-list">${keys.map((k) => `<label class="pick"><input type="checkbox" value="${esc(k)}"${pick.has(k) ? ' checked' : ''}><span class="hsrp">${esc(label(k))}</span><small>${esc(loansOf(k).map((l) => `${l.bank || 'Bank'} · ${rupees(l.emi)}`).join(', '))}</small></label>`).join('')}</div>
+    <label class="radio"><input type="checkbox" id="pick-sched"${pick.size === 1 ? ' checked' : ''}> Add each loan's EMIs, one by one (paid, not paid, to pay)</label>
+    <div class="actions"><button class="btn" type="button" id="pick-go">Make the pictures</button></div>
+  </div>`;
+  document.body.append(sheet);
+  const boxes = [...sheet.querySelectorAll('.pick input')];
+  const count = () => {
+    const n = boxes.filter((b) => b.checked).length;
+    sheet.querySelector('#pick-n').textContent = `${n} of ${keys.length} picked`;
+    sheet.querySelector('#pick-go').disabled = !n;
+  };
+  count();
+  boxes.forEach((b) => b.addEventListener('change', () => { count(); sheet.querySelector('#pick-sched').checked = boxes.filter((x) => x.checked).length === 1; }));
+  sheet.querySelectorAll('[data-all]').forEach((b) => b.addEventListener('click', () => { boxes.forEach((x) => { x.checked = b.dataset.all === '1'; }); count(); }));
+  const close = () => { sheet.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
+  sheet.querySelector('#pick-go').addEventListener('click', () => {
+    const ks = boxes.filter((b) => b.checked).map((b) => b.value);
+    const sel = loans.filter((l) => ks.includes(loanKey(l)));
+    const schedules = sheet.querySelector('#pick-sched').checked;
+    close();
+    const t = today();
+    const all = ks.length === keys.length;
+    const name = all ? '' : ks.length <= 3 ? ks.map(label).join(', ') : `${plural(ks.length, 'vehicle')}: ${ks.map((k) => (k.startsWith('loan:') ? k.slice(5) : shortVeh(k))).join(', ')}`;
+    const file = `Loans and EMI ${all ? '' : `${ks.length === 1 ? label(ks[0]).replace(/\s+/g, '') : plural(ks.length, 'vehicle')} `}${fmtDate(t)}`;
+    sharePictures(all ? 'Loans & EMI' : `Loans & EMI · ${ks.length === 1 ? label(ks[0]) : plural(ks.length, 'vehicle')}`, [{ label: 'Loans', make: async () => pageFiles(loansPagesSvg(loansSummary(sel, t), { ...(await shareKit()), asOn: t, truckOf: (l) => loanTruck(l), name, schedules }), file) }]);
+  });
+  sheet.querySelector('#pick-go').focus();
+}
+
 async function viewLoan(lan) {
   const loans = state.settings.loans || [];
   const loan = loans.find((l) => l.lan === lan);
@@ -2594,7 +2641,7 @@ async function viewLoan(lan) {
   setMain(`<section class="card">${vehicleList()}
     <p class="crumbs"><a href="#/loans">Loans &amp; EMI</a> ›</p>
     <div class="row-between"><h2>${loan.veh ? `<span class="hsrp">${esc(plateText(loan.veh))}</span>` : 'No vehicle yet'}</h2>
-      <label class="inline-label">Vehicle no. ${vehInput('id="loan-veh"', loan.veh)}</label></div>
+      <span class="row-gap">${shareBtn('share-loan')}<label class="inline-label">Vehicle no. ${vehInput('id="loan-veh"', loan.veh)}</label></span></div>
     <p class="muted small">${esc(loan.bank || 'Bank')} · loan ${esc(loan.lan)} · ${rupees(x.amount)} at ${esc(rateText(loan))} · ${rupees(loan.emi)} × ${x.tenure} on the ${ordinal(loan.dueDay)} · ${esc(dateYear(x.rows[0].date))} – ${esc(dateYear(x.ends))}</p>
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(x.principalLeft)}>${money(x.principalLeft)}</span><span class="sub">of ${money(x.amount)} · ${pctOf(x.principalPaid, x.amount)}% repaid</span></div>
@@ -2615,6 +2662,7 @@ async function viewLoan(lan) {
   <p class="center-p"><button class="btn ghost small" id="loan-remove" type="button">Remove this loan</button></p>`);
   const m = main();
   m.querySelector('#loan-all')?.addEventListener('click', () => { ui[lan] = true; rerender(); });
+  m.querySelector('#share-loan').addEventListener('click', () => loanShareSheet(loanKey(loan)));
   m.querySelector('#loan-veh').addEventListener('change', (e) => guard(async () => {
     const v = vehNo(e.target.value);
     const other = loans.find((l) => l !== loan && v && l.veh === v);
