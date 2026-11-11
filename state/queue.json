@@ -7701,7 +7701,9 @@
       "queued_at": "2026-11-11T12:45:30.392817+00:00",
       "error": "could not extract: payer",
       "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 50,00,000.00 on 11-Nov-26. Info: TRFR FROM:VRIDDHI FUELS.\r\n\r\nThe Available Balance in your account is Rs. 50,54,653.89.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-11T13:30:28.863405+00:00"
     }
   ]
 }
