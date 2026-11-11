@@ -7605,6 +7605,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-11T03:15:29.542028+00:00"
+    },
+    {
+      "entry_id": "5ea562afa8752741",
+      "gmail_msg_id": "1881536966020641104",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "11/11/26",
+      "date_serial": 46337,
+      "amount": 150000.0,
+      "raw_payer": "SHEETAL BADHAN",
+      "customer": "SHEETAL BADHAN",
+      "candidates": [
+        "SHEETAL BADHAN"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-11T05:15:31.045018+00:00",
+      "status": "matched"
     }
   ]
 }
