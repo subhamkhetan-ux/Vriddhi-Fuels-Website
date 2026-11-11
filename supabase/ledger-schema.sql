@@ -225,6 +225,21 @@ create table if not exists public.ledger_settings (
   updated_at timestamptz not null default now()
 );
 
+-- Loans & EMI: the vehicles' loans (our own tanker trucks, cars in the
+-- firm's name), from the banks' repayment schedules. One row per loan, by
+-- its account / agreement no. (lan); loan keeps it as the app reads it —
+-- {lan, bank, veh, kind, note, amount, rate, rateFrom, apr?, tenure, emi,
+-- dueDay, file, typed?, rows: [{n, date, emi, principal, interest,
+-- closing}]}. unpaid: the EMIs marked not paid (every EMI due till today
+-- counts as paid otherwise).
+create table if not exists public.ledger_loans (
+  lan        text primary key,
+  loan       jsonb not null,
+  unpaid     int[] not null default '{}',
+  updated_at timestamptz not null default now(),
+  updated_by text not null default ''
+);
+
 -- Quotes: the PI Log of the Tanker Billing workbook. One row per Proforma
 -- Invoice made (in the app, or in Excel and brought in with Quotes → Import),
 -- one per PI No. (case and spaces ignored). id is the sheet's Log ID; doc
@@ -369,7 +384,7 @@ declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
                            'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
-                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma'] loop
+                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma', 'ledger_loans'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -1276,6 +1291,73 @@ begin
                              where c.bulk_group = g.code and p.pay_date >= coalesce(g.period_from, '1900-01-01'::date)
                                and p.pay_date <= v_today), 0))
         from ledger_bulk_groups g) o), '[]'::jsonb));
+end $$;
+
+-- Loans & EMI ---------------------------------------------------------------
+create or replace function public.ledger_loans_list()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_agg(l.loan || jsonb_build_object('lan', l.lan, 'unpaid', to_jsonb(l.unpaid),
+                                                                 'updated_at', l.updated_at, 'updated_by', l.updated_by)
+                                    order by coalesce(l.loan ->> 'veh', ''), l.lan)
+                   from ledger_loans l), '[]'::jsonb);
+end $$;
+
+-- Add or replace a loan (by its account no.). p_unpaid null keeps the EMIs
+-- marked not paid; p_old_lan renames one (its account no. was typed wrong).
+create or replace function public.ledger_loan_save(p_loan jsonb, p_unpaid int[] default null, p_old_lan text default null)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_lan text := btrim(coalesce(p_loan ->> 'lan', ''));
+  v_old text := nullif(btrim(coalesce(p_old_lan, '')), '');
+  v_keep int[];
+begin
+  perform ledger_assert_member();
+  if v_lan = '' then raise exception 'The loan needs its account / agreement no.'; end if;
+  if jsonb_typeof(p_loan -> 'rows') is distinct from 'array' or jsonb_array_length(p_loan -> 'rows') = 0 then
+    raise exception 'The loan has no EMIs.';
+  end if;
+  if jsonb_array_length(p_loan -> 'rows') > 480 then raise exception 'Too many EMIs (at most 480).'; end if;
+  if length(p_loan::text) > 300000 then raise exception 'That loan is too big to save.'; end if;
+  select unpaid into v_keep from ledger_loans where lan = coalesce(v_old, v_lan);
+  if v_old is not null and v_old <> v_lan then
+    if exists (select 1 from ledger_loans where lan = v_lan) then
+      raise exception 'Loan % is already saved.', v_lan;
+    end if;
+    delete from ledger_loans where lan = v_old;
+  end if;
+  insert into ledger_loans (lan, loan, unpaid, updated_at, updated_by)
+  values (v_lan, p_loan - 'lan' - 'unpaid' - 'updated_at' - 'updated_by',
+          coalesce(p_unpaid, v_keep, '{}'), now(), coalesce(auth.jwt() ->> 'email', ''))
+  on conflict (lan) do update set loan = excluded.loan, unpaid = excluded.unpaid,
+    updated_at = now(), updated_by = excluded.updated_by;
+  return jsonb_build_object('lan', v_lan);
+end $$;
+
+create or replace function public.ledger_loan_delete(p_lan text)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  delete from ledger_loans where lan = btrim(coalesce(p_lan, ''));
+  if not found then raise exception 'No loan %.', p_lan; end if;
+end $$;
+
+-- Mark one EMI not paid (p_unpaid true) or paid again — on its own, so two
+-- phones marking different EMIs don't undo each other.
+create or replace function public.ledger_loan_mark(p_lan text, p_n int, p_unpaid boolean)
+returns jsonb language plpgsql set search_path = public as $$
+declare v int[];
+begin
+  perform ledger_assert_member();
+  update ledger_loans
+     set unpaid = (select coalesce(array_agg(distinct x order by x), '{}')
+                   from unnest(array_remove(unpaid, p_n) || case when p_unpaid then array[p_n] else '{}'::int[] end) x),
+         updated_at = now(), updated_by = coalesce(auth.jwt() ->> 'email', '')
+   where lan = btrim(coalesce(p_lan, ''))
+  returning unpaid into v;
+  if not found then raise exception 'No loan %.', p_lan; end if;
+  return to_jsonb(v);
 end $$;
 
 -- Payments of p_from..p_to one by one, with how they came in (Master Paid's

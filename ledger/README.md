@@ -266,6 +266,27 @@ its part when the parts add up ("HDFC" counts as HDFC 1010 when that's the
 only HDFC mode in the period). **Download Excel**: the summary and a sheet per
 mode. (Needs `supabase/ledger-schema.sql` re-run once.)
 
+**Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
+the firm's vehicles — our own tanker trucks and cars in the firm's name — from
+the banks' **repayment schedules**. **Add EMI schedules (PDF)** (several at
+once): the app reads every EMI (date, EMI, principal, interest, balance), the
+lender, account / agreement no., amount, rate (worked out from the schedule
+when it isn't printed; HDFC's APR is kept beside it) and tenure, and fills in
+the vehicle no. from the file name ("OD23U8210_Repayment_Schedule.pdf") and
+whether it's a tanker (a commercial vehicle loan) or a car — check them and
+save. A schedule that's a **scan or a photo** (no text, like Toyota
+Financial's) is **typed in**: amount, EMI, number of EMIs, first EMI date
+and the **last EMI** (that matches the bank to the rupee), and the **first
+EMI's interest** when the loan was paid out mid-month; the app works out
+every EMI the way the bank does. **Every EMI due till today counts as
+paid**; tap one on its loan to mark it **not paid** (Home's *Needs your
+attention* lists those). Shown: principal still owed, EMIs a month, interest
+paid and still to pay, a ring and bar of paid / still to go, the **next EMI
+of each loan** (Coming up), tankers vs cars, a card per vehicle, every EMI
+month by month (principal and interest), and each loan's full schedule.
+Kept in `ledger_loans` (one row per loan; needs `supabase/ledger-schema.sql`
+re-run once) — not in this repository.
+
 **Tally tab** (the Tally viewer): open your Tally data and see the
 company's financials, compare every customer's balance here with Tally, and
 see the lubricants bought month by month. The files are read on this device —
@@ -483,6 +504,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), the quotation's letterhead, logo for the ledger |
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/modes.js` | Payments by mode: modes matched however typed, split payments, Cash / XtraPower first |
+| `../fleet/js/loans.js` | Loans & EMI (shared with the fleet app): reading the banks' schedules, a loan from its terms, paid and left as of today |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
 | `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |

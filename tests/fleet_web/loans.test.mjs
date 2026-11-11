@@ -140,3 +140,41 @@ test('the picture for the vehicles picked: their name on it, and each loan\'s EM
   assert.doesNotMatch(pages, /undefined|NaN/);
   assert.doesNotMatch(loansPagesSvg(S, { asOn: '2025-10-20' }).join(''), /To pay/);   // without: no EMI list
 });
+
+// HDFC's newer layout: each label and value its own word (pdf.js spaces them out), the APR printed
+test('HDFC with the APR printed: agreement no., APR kept beside the rate the EMIs use; the lender; a vehicle no. in a file name', async () => {
+  const { bankOf, vehFromText } = await import('../../fleet/js/loans.js');
+  const text = `Repayment   Schedule   Date   :   27/02/2026
+Agreement   No.   900000002   UCIC   100000001
+Customer   DEMO   FUELS
+Tenure   3   Loan   Type   COMMERCIAL   VEHICLE   LOAN
+Total   Instl   3   Amount   Financed   300,000.00
+APR(%)   9.50   Frequency   Monthly
+Instl.   Due   Date   Cheque   Num   Instl   Amt   Principal   Interest   O/s   Principal
+Bank   Name:   HDFC   BANK   LTD
+1   05/05/2026   SI   101,000.00   98,750.00   2,250.00   201,250.00
+2   05/06/2026   SI   101,000.00   99,490.63   1,509.37   101,759.37
+3   05/07/2026   SI   102,522.56   101,759.37   763.19   0.00`;
+  const l = parseSchedule(text, { fileName: 'OD01T1234_Repayment_Schedule.pdf' });
+  assert.deepEqual([l.lan, l.bank, l.rateFrom, l.apr, l.rate], ['900000002', 'HDFC', 'derived', 9.5, 9]);
+  assert.equal(bankOf('TOYOTA FINANCIAL SERVICES INDIA LTD.'), 'Toyota Financial');
+  assert.equal(vehFromText('OD01T1234_Repayment_Schedule.pdf'), 'OD01T1234');
+  assert.equal(vehFromText('od 1 ab 1234 schedule'), 'OD01AB1234');
+  assert.equal(vehFromText('Repayment_Schedule.pdf'), '');
+});
+
+// a loan paid out mid-month: its first EMI's interest is for the part month, as printed
+test('a typed-in loan whose first EMI is for a part month', async () => {
+  const { loanFromTerms } = await import('../../fleet/js/loans.js');
+  const full = loanFromTerms({ veh: 'OD01C1', lan: 'X1', amount: 300000, emi: 26000, tenure: 12, first: '2025-01-20', rate: 10 });
+  const part = loanFromTerms({ veh: 'OD01C1', lan: 'X1', amount: 300000, emi: 26000, tenure: 12, first: '2025-01-20', rate: 10, firstInterest: 1500 });
+  assert.equal(full.rows[0].interest, 2500);                             // a whole month: 3,00,000 × 10% ÷ 12
+  assert.deepEqual([part.rows[0].interest, part.rows[0].principal, part.firstInterest], [1500, 24500, 1500]);
+  assert.equal(part.rows[1].interest, Math.round(275500 * 0.1 / 12));   // then on what's still owed
+  assert.equal(part.rows[11].closing, 0);
+  // with the last EMI too, the rate is worked out from it (the first EMI's part month kept)
+  const lastEmi = part.rows[11].emi;
+  const back = loanFromTerms({ veh: 'OD01C1', lan: 'X1', amount: 300000, emi: 26000, tenure: 12, first: '2025-01-20', lastEmi, firstInterest: 1500 });
+  assert.equal(back.rate, 10);
+  assert.ok(Math.abs(back.rows[11].emi - lastEmi) <= 1);
+});

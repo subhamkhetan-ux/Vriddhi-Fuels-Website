@@ -7,13 +7,13 @@ import { daybookChanges, daybookPayload, parseDaybook, sheetRows } from './daybo
 import { demoSeed } from './demo.js';
 import { fromQueue } from './payin.js';
 import {
-  barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate,
+  barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { poKey, poListChanges } from './po.js';
 import {
-  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
+  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
   useNarrowFont, zipBlob,
 } from './render.js';
 import {
@@ -46,6 +46,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
+import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
   analyseTally, coverage, decodeText, filterVouchers, hasMasters, KINDS, looksLikeXml, mergeTally, normName, parseDaybookSheet, parseTallyXml, spanOf,
@@ -229,7 +230,7 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 const TABS = [
   ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/quotes', 'Quotes'], ['#/statements', 'Statements'], ['#/payments', 'Payments'], ['#/pos', 'POs'],
-  ['#/customers', 'Customers'], ['#/sales', 'Sales'], ['#/tally', 'Tally'],
+  ['#/loans', 'Loans'], ['#/customers', 'Customers'], ['#/sales', 'Sales'], ['#/tally', 'Tally'],
 ];
 
 function renderShell() {
@@ -260,6 +261,8 @@ const ROUTES = [
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
   [/^#\/payments\/modes$/, () => viewPaymentModes()],
+  [/^#\/loans$/, () => viewLoans()],
+  [/^#\/loans\/(.+)$/, (m) => viewLoan(decodeURIComponent(m[1]))],
   [/^#\/tally(?:\/(fin|recon|stock))?$/, (m) => viewTally(m[1] || '')],
   [/^#\/account\/([cg])\/([^?]+)(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewAccount(m[1], decodeURIComponent(m[2]), m[3])],
 ];
@@ -294,7 +297,7 @@ async function route() {
 // Home
 // ---------------------------------------------------------------------------
 async function viewHome() {
-  const [sum, pod] = await Promise.all([state.store.summary(), state.store.poData()]);
+  const [sum, pod, loans] = await Promise.all([state.store.summary(), state.store.poData(), loansList(true).catch(() => [])]);
   const groups = poGroups(pod);
   const empty = !sum.last_sale_date;
   const todo = [];
@@ -307,6 +310,10 @@ async function viewHome() {
     if (g.toPick) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.toPick, 'bill')} to pick a PO for — more than one PO has room (Excel: “Select PO ▼”)</a>`);
     if (g.noPo) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.noPo, 'bill')} without a PO — add a new PO</a>`);
     if (g.needsUnit) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.needsUnit, 'bill')} need a unit</a>`);
+  }
+  // Loans & EMI: EMIs marked not paid
+  for (const x of loans.length ? loansSummary(loans, localToday()).loans.filter((y) => y.overdueN) : []) {
+    todo.push(`<a class="todo warn" href="#/loans/${encodeURIComponent(x.loan.lan)}"><b>${esc(plateText(x.loan.veh) || x.loan.lan)}:</b> ${plural(x.overdueN, 'EMI')} marked not paid · ${esc(rupees(x.overdueAmt))}</a>`);
   }
   const last = sum.last_import;
   const play = !state.greeted;                                   // the feather flies once per app open
@@ -2775,6 +2782,344 @@ function bindAppPayments(reload) {
     toast('Removed.');
     await reload();
   })));
+}
+
+// ---------------------------------------------------------------------------
+// Loans & EMI — the vehicles' loans (our own tanker trucks, cars in the
+// firm's name) from the banks' repayment schedules, as in the fleet app
+// (fleet/js/loans.js reads them). Every EMI due till today counts as paid
+// unless marked not paid. Kept in ledger_loans (one row per loan).
+// ---------------------------------------------------------------------------
+const LOANS_SCHEMA = 'The database needs an update for Loans & EMI: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).';
+const LOAN_KINDS = [['truck', 'Own tanker truck', 'Tanker', 'Tanker trucks'], ['car', 'Car (firm\'s name)', 'Car', 'Cars'], ['other', 'Other vehicle', 'Vehicle', 'Other vehicles']];
+const kindGroup = (k) => (LOAN_KINDS.find((x) => x[0] === k) || LOAN_KINDS[2])[3];
+const kindTag = (k) => (LOAN_KINDS.find((x) => x[0] === k) || LOAN_KINDS[2])[2];
+const kindName = (k) => (LOAN_KINDS.find((x) => x[0] === k) || LOAN_KINDS[2])[1];
+const kindSelect = (attrs, v) => `<select ${attrs}>${LOAN_KINDS.map(([k, n]) => `<option value="${k}"${k === (v || 'other') ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+const vehNo = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// OD23U8210 -> "OD 23 U 8210" (as on the number plate)
+const plateText = (v) => {
+  const m = vehNo(v).match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/);
+  return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : vehNo(v);
+};
+const plateHtml = (v) => (v ? `<span class="hsrp">${esc(plateText(v))}</span>` : '<b>No vehicle no.</b>');
+const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const rateText = (l) => (l.rate ? `${Number(l.rate).toFixed(2)}%${l.rateFrom === 'derived' ? ' (worked out from the schedule)' : l.rateFrom === 'terms' ? ' (typed in — worked out)' : ''}${l.apr ? ` · APR ${Number(l.apr).toFixed(2)}%` : ''}` : '—');
+const PF_KEYS = [
+  { key: 'pp', name: 'Principal paid', color: 'var(--good)' }, { key: 'ip', name: 'Interest paid', color: 'var(--s-ms)' },
+  { key: 'pl', name: 'Principal to go', color: 'color-mix(in srgb, var(--good) 30%, transparent)' }, { key: 'il', name: 'Interest to go', color: 'color-mix(in srgb, var(--s-ms) 30%, transparent)' },
+];
+// the schedule's kind of loan: a commercial vehicle (our tanker) or a car
+const kindFromText = (text) => (/commercial\s+vehicle|\bCV\b|truck|tanker|goods\s+carrier|tipper/i.test(text) ? 'truck'
+  : /\bcar\b|passenger|innova|hycross|fortuner|scorpio|xuv|creta|city|dzire/i.test(text) ? 'car' : '');
+
+async function loansList(fresh = false) {
+  if (!fresh && state.loans) return state.loans;
+  try {
+    state.loans = await state.store.loans();
+  } catch (err) {
+    if (/could not find the function|does not exist|schema cache/i.test(String((err && err.message) || err))) throw new Error(LOANS_SCHEMA);
+    throw err;
+  }
+  return state.loans;
+}
+// a loan as saved: the schedule without what's only for the review
+const loanToSave = (l) => {
+  const out = { ...l };
+  ['warnings', 'first', 'last', 'replaces', 'suggested', 'unpaid', 'updated_at', 'updated_by', 'text'].forEach((k) => delete out[k]);
+  out.veh = vehNo(out.veh);
+  return out;
+};
+
+// paid and to go, of all the loan(s) will cost: principal + interest. x: loanStatus() or loansSummary().total
+function payoffHtml(x) {
+  const P = [['pp', 'Principal paid', x.principalPaid], ['ip', 'Interest paid', x.interestPaid], ['pl', 'Principal to go', x.principalLeft], ['il', 'Interest to go', x.interestLeft]];
+  const all = P.reduce((a, p) => a + p[2], 0) || 1;
+  const paid = x.principalPaid + x.interestPaid;
+  const left = x.principalLeft + x.interestLeft;
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  let off = 0;
+  const ring = P.filter((p) => p[2] > 0).map(([k, , v]) => {
+    const len = (v / all) * C;
+    const seg = `<circle class="pf-${k}" r="${R}" cx="64" cy="64" fill="none" stroke-width="16" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 64 64)"/>`;
+    off += len;
+    return seg;
+  }).join('');
+  const togo = x.tenure - x.paidN - (x.overdueN || 0);
+  return `<div class="pf">
+    <svg class="pf-ring" viewBox="0 0 128 128" role="img" aria-label="${esc(`${pctOf(paid, all)}% of ${rupees(all)} paid`)}"><circle class="pf-track" r="${R}" cx="64" cy="64" fill="none" stroke-width="16"/>${ring}
+      <text x="64" y="62" text-anchor="middle" class="pf-c">${pctOf(paid, all)}%</text><text x="64" y="80" text-anchor="middle" class="pf-s">paid</text></svg>
+    <div class="pf-body">
+      <div class="pf-head"><span><small>Paid so far</small><b class="good-text">${money(paid)}</b></span><span class="r"><small>Still to go</small><b>${money(left)}</b></span></div>
+      <div class="pf-bar">${P.map(([k, n, v]) => (v > 0 ? `<i class="pf-${k}" style="width:${((v / all) * 100).toFixed(2)}%" title="${esc(`${n} ${rupees(v)}`)}"></i>` : '')).join('')}</div>
+      <div class="pf-key">${P.map(([k, n, v]) => `<span><i class="pf-${k}"></i>${esc(n)} <b>${money(v)}</b></span>`).join('')}</div>
+      <p class="pf-time">of <b>${money(all)}</b> in all (${money(x.amount)} borrowed + ${money(x.totalInterest)} interest) · <b>${x.paidN}</b> of ${x.tenure} EMIs paid · <b>${togo}</b> to go${x.ends ? ` · last ${esc(monthLabel(x.ends))}` : ''}</p>
+    </div>
+  </div>`;
+}
+
+const TERM_FIELDS = [['veh', 'Vehicle no.'], ['kind', 'Vehicle'], ['note', 'Note (model)'], ['bank', 'Bank / lender'], ['lan', 'Loan / agreement no.'],
+  ['amount', 'Amount financed (₹)'], ['emi', 'EMI (₹)'], ['tenure', 'Number of EMIs'], ['first', 'First EMI date'], ['lastEmi', 'Last EMI (₹)'],
+  ['firstInterest', 'First EMI\'s interest (₹)'], ['rate', 'Interest rate (% a year)']];
+function loanFormHtml(F) {
+  return `<section class="card" id="loan-form">
+    <h3>Type in a loan</h3>
+    <p class="muted small">For a schedule the app can't read (a scanned or photographed copy): from its first page fill in the amount, EMI, number of EMIs and first EMI date, and from its last page the <b>last EMI</b> — that matches the bank's schedule to the rupee. When the first EMI's interest is for part of a month (paid out mid-month), type it in too. The app works out every EMI the way the bank does: interest on what's still owed, the rest principal.${F.file ? ` <b>${esc(F.file)}</b> had no text to read.` : ''}</p>
+    <form class="row-form loan-terms" id="loan-terms">${TERM_FIELDS.map(([k, n]) => `<label>${esc(n)} ${k === 'kind' ? kindSelect('name="kind"', F.kind) : `<input name="${k}"${k === 'first' ? ' type="date"' : ['veh', 'note', 'bank', 'lan'].includes(k) ? '' : ' inputmode="decimal"'} value="${esc(F[k] || '')}"${k === 'veh' ? ' placeholder="OD23T1010" autocapitalize="characters"' : ''}>`}</label>`).join('')}</form>
+    <div id="loan-preview">${loanPreviewHtml(F)}</div>
+    <div class="actions"><button class="btn" id="terms-save" type="button">Save loan</button><button class="btn ghost" id="terms-cancel" type="button">Cancel</button></div>
+  </section>`;
+}
+function loanPreviewHtml(F) {
+  if (!F.amount && !F.emi) return '';
+  const l = loanFromTerms(F);
+  if (l.error) return `<p class="muted small">${esc(l.error)}</p>`;
+  const x = loanStatus(l, localToday());
+  const last = l.rows[l.rows.length - 1];
+  return `<div class="todo">Works out to <b>${l.rate}%</b> a year (from the ${esc(l.rateBy)}) · ${l.rows.length} EMIs, ${esc(fmtDate(l.rows[0].date))} – ${esc(fmtDate(last.date))}, last one ${rupees(last.emi)} · interest ${rupees(x.totalInterest)} in all · as of today ${x.paidN} paid, ${money(x.principalLeft)} principal owed
+    ${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</div>`;
+}
+
+// read the PDFs, then a table to check them and give each its vehicle
+async function addSchedules(files) {
+  const read = [];
+  const errors = [];
+  let scan = null;
+  for (const f of files) {
+    try {
+      const text = await pdfText(f);
+      if (!text.trim()) {
+        errors.push(`${f.name} is a scanned copy — there's no text in it to read. Type it in below: the amount, EMI, number of EMIs, first EMI date and the last EMI from it.`);
+        scan = scan || f.name;
+        continue;
+      }
+      const loan = parseSchedule(text, { fileName: f.name });
+      if (loan.error) { errors.push(loan.error); continue; }
+      loan.kind = kindFromText(text) || 'other';
+      loan.veh = vehFromText(f.name) || vehFromText(text);
+      read.push(loan);
+    } catch (err) {
+      errors.push(`${f.name}: ${err.message}`);
+    }
+  }
+  const have = await loansList();
+  for (const l of read) {
+    const old = have.find((x) => x.lan === l.lan);
+    if (old) { l.veh = old.veh || l.veh; l.kind = old.kind || l.kind; l.note = old.note || ''; l.replaces = true; }
+  }
+  state.loanReview = { read, errors };
+  if (scan && !state.loanForm) state.loanForm = { file: scan, veh: vehFromText(scan), kind: kindFromText(scan) || '' };
+  await viewLoans();
+}
+function loanReviewHtml(R) {
+  return `<section class="card" id="loan-review">
+    <h3>Check the schedules</h3>
+    ${R.errors.length ? `<div class="todos">${R.errors.map((e) => `<div class="todo warn">${esc(e)}</div>`).join('')}</div>` : ''}
+    ${R.read.length ? `<p class="muted small">Check each loan's vehicle no. and what it is — taken from the file name and the schedule where they say.</p>
+    <div class="table-wrap"><table class="compact ln-review"><thead><tr><th>Loan</th><th class="r">Amount</th><th class="r">EMI</th><th>Runs</th><th>Vehicle</th></tr></thead><tbody>
+      ${R.read.map((l, i) => `<tr><td><b>${esc(l.bank || 'Bank?')}</b> ${esc(l.lan)}<small class="block muted">${esc(l.file)} · ${esc(rateText(l))}${l.replaces ? ' · <b>replaces the one saved</b>' : ''}</small>${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</td>
+        <td class="r nowrap">${rupees(l.amount)}</td><td class="r nowrap">${rupees(l.emi)}<small class="block muted">× ${l.tenure}</small></td><td class="nowrap">${esc(fmtDate(l.first))} –<br>${esc(fmtDate(l.last))}<small class="block muted">on the ${ordinal(l.dueDay)}</small></td>
+        <td><input data-rv="${i}" data-k="veh" value="${esc(plateText(l.veh || ''))}" placeholder="Vehicle no." autocapitalize="characters" aria-label="Vehicle no.">
+          ${kindSelect(`data-rv="${i}" data-k="kind" aria-label="What it is"`, l.kind)}
+          <input data-rv="${i}" data-k="note" value="${esc(l.note || '')}" placeholder="Note (model)" aria-label="Note"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="actions"><button class="btn" id="review-save" type="button">Save ${plural(R.read.length, 'loan')}</button><button class="btn ghost" id="review-cancel" type="button">Cancel</button></div>` : '<div class="actions"><button class="btn ghost" id="review-cancel" type="button">Close</button></div>'}
+  </section>`;
+}
+
+async function viewLoans() {
+  const loans = await loansList();
+  const R = state.loanReview;
+  const add = `<span class="row-gap"><label class="file"><input type="file" id="loan-files" accept="application/pdf,.pdf" multiple><span class="btn small">Add EMI schedules (PDF)</span></label><button class="btn ghost small" id="loan-type" type="button">Type in a loan</button></span>`;
+  const form = state.loanForm ? loanFormHtml(state.loanForm) : '';
+  if (!loans.length) {
+    setMain(`<section class="card"><div class="row-between"><h2>Loans &amp; EMI</h2>${add}</div>
+      <p class="muted">Add each vehicle's EMI schedule — the PDF the bank gives (HDFC's repayment schedule, ICICI's amortisation schedule, Toyota Financial's, …); several at once. The app reads every EMI and shows what's paid and what's left — principal and interest — for each vehicle and all of them. Our own tanker trucks and cars in the firm's name alike. Every EMI due till today counts as paid; you can mark one not paid. A schedule that's a scan or a photo (no text) is typed in instead.</p></section>
+      ${R ? loanReviewHtml(R) : ''}${form}`);
+    bindLoans();
+    return;
+  }
+  const t = localToday();
+  const L = loansSummary(loans, t);
+  const T = L.total;
+  const tm = L.thisMonth;
+  const kinds = [...new Set(L.loans.map((x) => x.loan.kind || 'other'))];
+  const byKind = LOAN_KINDS.map(([k]) => k).filter((k) => kinds.includes(k)).map((k) => {
+    const S = L.loans.filter((x) => (x.loan.kind || 'other') === k);
+    const sum = (f) => S.reduce((a, x) => a + f(x), 0);
+    return { k, n: S.length, emi: sum((x) => (x.done ? 0 : x.loan.emi)), principalLeft: sum((x) => x.principalLeft), interestLeft: sum((x) => x.interestLeft), amount: sum((x) => x.amount), interestPaid: sum((x) => x.interestPaid), ends: S.map((x) => x.ends).sort().pop() };
+  });
+  const order = [...L.loans].sort((a, b) => LOAN_KINDS.findIndex((k) => k[0] === (a.loan.kind || 'other')) - LOAN_KINDS.findIndex((k) => k[0] === (b.loan.kind || 'other'))
+    || String(a.loan.veh || '~').localeCompare(String(b.loan.veh || '~')) || String(a.loan.lan).localeCompare(String(b.loan.lan)));
+  const coming = L.loans.filter((x) => x.next).map((x) => ({ x, r: x.next })).sort((a, b) => a.r.date.localeCompare(b.r.date));
+  setChartWidth(Math.min(main().clientWidth, 1100) - 38);
+  setMain(`<section class="card">
+    <div class="row-between"><h2>Loans &amp; EMI</h2>${add}</div>
+    <p class="muted small">${plural(T.loans, 'loan')} from the banks' schedules. Every EMI due till today counts as paid — if one wasn't, open its vehicle and mark it not paid.</p>
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val">${money(T.principalLeft)}</span><span class="sub">of ${money(T.amount)} borrowed · ${pctOf(T.principalPaid, T.amount)}% repaid</span></div>
+      <div class="kpi"><span class="lbl">EMIs a month</span><span class="val">${money(T.emi)}</span><span class="sub">${tm ? `this month ${money(tm.emi)}` : 'none this month'}</span></div>
+      <div class="kpi"><span class="lbl">Interest paid</span><span class="val">${money(T.interestPaid)}</span><span class="sub">of ${money(T.totalInterest)} in all</span></div>
+      <div class="kpi"><span class="lbl">Interest still to pay</span><span class="val">${money(T.interestLeft)}</span><span class="sub">till ${esc(T.ends ? monthLabel(T.ends) : '—')}</span></div>
+      <div class="kpi ${T.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${T.overdueN ? 'bad-text' : 'good-text'}">${T.overdueN ? money(T.overdueAmt) : '✓ none'}</span><span class="sub">${T.overdueN ? `${plural(T.overdueN, 'EMI')} marked not paid` : 'every EMI due is paid'}</span></div>
+    </div>
+    ${payoffHtml(T)}
+  </section>
+  ${R ? loanReviewHtml(R) : ''}${form}
+  ${coming.length ? `<section class="card"><h3>Coming up</h3><div class="ln-next">${coming.map(({ x, r }) => `<a class="ln-due" href="#/loans/${encodeURIComponent(x.loan.lan)}">
+      <span class="ln-d"><b>${esc(r.date.slice(8, 10))}</b><small>${esc(monthName(r.date.slice(0, 7)))}</small></span>
+      <span class="ln-who">${plateHtml(x.loan.veh)}<small>${esc(kindTag(x.loan.kind))} · ${esc(x.loan.bank || 'Bank')} · EMI ${r.n} of ${x.tenure}</small></span>
+      <b class="nowrap">${rupees(r.emi)}</b></a>`).join('')}</div></section>` : ''}
+  ${byKind.length > 1 ? `<section class="card"><h3>Tankers and cars</h3><div class="table-wrap"><table class="compact"><thead><tr><th></th><th class="r">EMIs a month</th><th class="r">Principal owed</th><th class="r hide-sm">Interest to pay</th><th class="r hide-sm">Last EMI</th></tr></thead><tbody>
+    ${byKind.map((b) => `<tr><td><b>${esc(kindGroup(b.k))}</b><small class="block muted">${plural(b.n, 'loan')}</small></td><td class="r">${rupees(b.emi)}</td><td class="r">${rupees(b.principalLeft)}<small class="block muted">of ${money(b.amount)}</small></td><td class="r hide-sm">${rupees(b.interestLeft)}<small class="block muted">${money(b.interestPaid)} paid</small></td><td class="r hide-sm">${esc(b.ends ? fmtDate(b.ends) : '—')}</td></tr>`).join('')}
+    <tr class="sum"><td><b>All</b></td><td class="r"><b>${rupees(T.emi)}</b></td><td class="r"><b>${rupees(T.principalLeft)}</b></td><td class="r hide-sm"><b>${rupees(T.interestLeft)}</b></td><td class="hide-sm"></td></tr>
+  </tbody></table></div></section>` : ''}
+  <section class="card"><h3>Each vehicle <span class="muted small">tap one for its EMIs</span></h3>
+    <div class="ln-list">${order.map((x) => `<a class="ln-row${x.overdueN ? ' bad' : ''}" href="#/loans/${encodeURIComponent(x.loan.lan)}">
+      <span class="ln-top">${plateHtml(x.loan.veh)}<span class="ln-who">${esc(kindTag(x.loan.kind))}${x.loan.note ? ` · ${esc(x.loan.note)}` : ''}<small>${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}</small></span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
+      <span class="ln-emi">EMI <b>${rupees(x.loan.emi)}</b> on the ${ordinal(x.loan.dueDay)} · ${x.paidN} of ${x.tenure} paid${x.next ? ` · next ${esc(fmtDate(x.next.date))}` : ''}</span>
+      <span class="pf-bar sm">${[['pp', x.principalPaid], ['ip', x.interestPaid], ['pl', x.principalLeft], ['il', x.interestLeft]].map(([k, v]) => (v > 0 ? `<i class="pf-${k}" style="width:${((v / (x.totalPayable || 1)) * 100).toFixed(2)}%"></i>` : '')).join('')}</span>
+      <span class="ln-nums"><span>Paid <b class="good-text">${money(x.principalPaid + x.interestPaid)}</b></span><span>To go <b>${money(x.principalLeft + x.interestLeft)}</b></span><span>Principal owed <b>${money(x.principalLeft)}</b></span></span>
+    </a>`).join('')}</div>
+  </section>
+  <section class="card"><h3>Month by month <span class="muted small">every EMI — paid months solid, months to go faded</span></h3>
+    ${legend(PF_KEYS)}
+    ${stackedBars(L.months.map((m) => ({
+    label: monthName(m.month), parts: m.past ? { pp: m.principal, ip: m.interest } : { pl: m.principal, il: m.interest },
+    tip: `<b>${esc(monthLabel(`${m.month}-01`))}</b>${m.past ? (m.unpaid ? ` · ${plural(m.unpaid, 'EMI')} not paid` : ' · paid') : ' · to pay'}<br>EMIs ${money(m.emi, { exact: true })}<br><i style="background:var(--good)"></i>Principal ${money(m.principal, { exact: true })}<br><i style="background:var(--s-ms)"></i>Interest ${money(m.interest, { exact: true })}`,
+  })), PF_KEYS, { label: 'EMIs per month, principal and interest' })}
+    <p class="muted small">Interest is most of an EMI early on and shrinks every month as the principal is paid down.${tm ? ` This month: ${money(tm.principal)} principal + ${money(tm.interest)} interest.` : ''}</p>
+  </section>`);
+  bindLoans();
+  bindCharts(main());
+}
+
+function bindLoans() {
+  const m = main();
+  m.querySelector('#loan-files')?.addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    if (!files.length) return;
+    toast(`Reading ${plural(files.length, 'schedule')}…`);
+    guard(() => addSchedules(files));
+  });
+  m.querySelectorAll('[data-rv]').forEach((el) => el.addEventListener('change', () => {
+    const l = state.loanReview.read[Number(el.dataset.rv)];
+    const k = el.dataset.k;
+    l[k] = k === 'veh' ? vehNo(el.value) : el.value.trim();
+    if (k === 'veh') el.value = plateText(l.veh);
+  }));
+  m.querySelector('#loan-type')?.addEventListener('click', () => {
+    state.loanForm = state.loanForm || {};
+    guard(viewLoans).then(() => document.getElementById('loan-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  });
+  const form = m.querySelector('#loan-terms');
+  const readForm = () => { const F = state.loanForm; for (const [k] of TERM_FIELDS) F[k] = form[k].value; return F; };
+  form?.addEventListener('input', () => { m.querySelector('#loan-preview').innerHTML = loanPreviewHtml(readForm()); });
+  m.querySelector('#terms-cancel')?.addEventListener('click', () => { state.loanForm = null; guard(viewLoans); });
+  m.querySelector('#terms-save')?.addEventListener('click', (e) => guard(async () => {
+    const F = readForm();
+    if (!vehNo(F.veh)) { toast('Fill in the vehicle no.', 'bad'); return; }
+    if (!String(F.lan || '').trim()) { toast('Fill in the loan / agreement no.', 'bad'); return; }
+    const l = loanFromTerms(F);
+    if (l.error) { toast(l.error, 'bad'); return; }
+    const have = await loansList();
+    if (have.some((x) => x.lan === l.lan) && !window.confirm(`Loan ${l.lan} is already saved. Replace it with this one?`)) return;
+    e.target.disabled = true;
+    await state.store.saveLoan({ ...loanToSave(l), kind: F.kind || 'other', note: String(F.note || '').trim(), file: F.file || '' });
+    state.loanForm = null;
+    await loansList(true);
+    toast(`Saved loan ${l.lan} (${plateText(l.veh)}).`);
+    await viewLoans();
+  }));
+  m.querySelector('#review-cancel')?.addEventListener('click', () => { state.loanReview = null; guard(viewLoans); });
+  m.querySelector('#review-save')?.addEventListener('click', (e) => guard(async () => {
+    const R = state.loanReview;
+    if (R.read.some((l) => !vehNo(l.veh)) && !window.confirm('A loan has no vehicle no. Save anyway? (You can add it on the loan later.)')) return;
+    const vehs = R.read.map((l) => vehNo(l.veh)).filter(Boolean);
+    if (new Set(vehs).size < vehs.length && !window.confirm('Two of these loans have the same vehicle. Save anyway?')) return;
+    e.target.disabled = true;
+    for (const l of R.read) await state.store.saveLoan(loanToSave(l));
+    state.loanReview = null;
+    await loansList(true);
+    toast(`Saved ${plural(R.read.length, 'loan')}.`);
+    await viewLoans();
+  }));
+}
+
+async function viewLoan(lan) {
+  const loans = await loansList();
+  const loan = loans.find((l) => l.lan === lan);
+  if (!loan) { setMain('<section class="card"><p>No such loan.</p><a class="btn ghost" href="#/loans">All loans</a></section>'); return; }
+  const t = localToday();
+  const x = loanStatus(loan, t);
+  const ui = state.loanRows || (state.loanRows = {});
+  const lastDue = x.rows.filter((r) => r.status !== 'upcoming').length;
+  const shown = ui[lan] ? x.rows : x.rows.slice(Math.max(0, lastDue - 3), Math.max(lastDue + 3, 6));
+  const cut = shown.length < x.rows.length;
+  setMain(`<section class="card">
+    <p class="crumbs"><a href="#/loans">Loans &amp; EMI</a> ›</p>
+    <div class="row-between"><h2>${plateHtml(loan.veh)} <span class="muted small">${esc(kindName(loan.kind))}${loan.note ? ` · ${esc(loan.note)}` : ''}</span></h2></div>
+    <p class="muted small">${esc(loan.bank || 'Bank')} · loan ${esc(loan.lan)} · ${rupees(x.amount)} at ${esc(rateText(loan))} · ${rupees(loan.emi)} × ${x.tenure} on the ${ordinal(loan.dueDay)} · ${esc(fmtDate(x.rows[0].date))} – ${esc(fmtDate(x.ends))}${loan.typed ? ' · typed in from the schedule' : loan.file ? ` · from ${esc(loan.file)}` : ''}</p>
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val">${money(x.principalLeft)}</span><span class="sub">of ${money(x.amount)} · ${pctOf(x.principalPaid, x.amount)}% repaid</span></div>
+      <div class="kpi"><span class="lbl">EMIs paid</span><span class="val">${x.paidN} <small>of ${x.tenure}</small></span><span class="sub">${x.upcomingN} to go${x.next ? ` · next ${esc(fmtDate(x.next.date))}` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Interest paid</span><span class="val">${money(x.interestPaid)}</span><span class="sub">of ${money(x.totalInterest)} in all</span></div>
+      <div class="kpi"><span class="lbl">Interest still to pay</span><span class="val">${money(x.interestLeft)}</span><span class="sub">total payable ${money(x.totalPayable)}</span></div>
+      <div class="kpi ${x.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${x.overdueN ? 'bad-text' : 'good-text'}">${x.overdueN ? money(x.overdueAmt) : '✓ none'}</span><span class="sub">${x.overdueN ? x.overdue.map((r) => `#${r.n} ${fmtDate(r.date)}`).join(', ') : 'every EMI due is paid'}</span></div>
+    </div>
+    ${payoffHtml(x)}
+  </section>
+  <section class="card"><h3>EMIs <span class="muted small">every EMI due till today counts as paid — tap one to mark it not paid (or paid again)</span></h3>
+    <div class="table-wrap"><table class="compact ln-table"><thead><tr><th>#</th><th>Due</th><th class="r">EMI</th><th class="r hide-sm">Principal</th><th class="r">Interest</th><th class="r hide-sm">Owed after</th><th>Paid?</th></tr></thead><tbody>
+      ${shown.map((r) => `<tr class="ln-${r.status}${r.date.slice(0, 7) === t.slice(0, 7) ? ' ln-now' : ''}"><td>${r.n}</td><td class="nowrap">${esc(fmtDate(r.date).replace(/ \d\d(\d\d)$/, ' $1'))}</td><td class="r">${rupees(r.emi)}</td><td class="r hide-sm">${rupees(r.principal)}</td><td class="r">${rupees(r.interest)}</td><td class="r hide-sm">${rupees(r.closing)}</td>
+        <td>${r.status === 'upcoming' ? '<span class="muted small">to pay</span>' : `<button class="ln-st ${r.status}" type="button" data-n="${r.n}" aria-pressed="${r.status === 'unpaid'}">${r.status === 'paid' ? '✓ Paid' : '✗ Not paid'}</button>`}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2">All ${x.tenure}</td><td class="r">${rupees(x.totalPayable)}</td><td class="r hide-sm">${rupees(x.amount)}</td><td class="r">${rupees(x.totalInterest)}</td><td class="hide-sm"></td><td></td></tr></tfoot></table></div>
+    ${cut ? `<button class="btn ghost small" id="loan-all" type="button">Show all ${x.tenure} EMIs</button>` : ''}
+  </section>
+  <section class="card"><h3>This loan's vehicle</h3>
+    <form class="row-form" id="loan-edit">
+      <label>Vehicle no. <input name="veh" value="${esc(plateText(loan.veh || ''))}" autocapitalize="characters"></label>
+      <label>Vehicle ${kindSelect('name="kind"', loan.kind)}</label>
+      <label>Note (model) <input name="note" value="${esc(loan.note || '')}"></label>
+      <label>Bank / lender <input name="bank" value="${esc(loan.bank || '')}"></label>
+      <button class="btn small" type="submit">Save</button>
+    </form>
+    <p class="muted small">To change the EMIs themselves, add the bank's schedule again (or type the loan in again) — it replaces this one and keeps the EMIs marked not paid.${loan.updated_by ? ` Last changed by ${esc(loan.updated_by)}.` : ''}</p>
+    <p><button class="btn ghost small" id="loan-remove" type="button">Remove this loan</button></p>
+  </section>`);
+  const m = main();
+  m.querySelector('#loan-all')?.addEventListener('click', () => { ui[lan] = true; guard(() => viewLoan(lan)); });
+  m.querySelector('#loan-edit').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    guard(async () => {
+      const v = vehNo(f.veh.value);
+      const other = loans.find((l) => l !== loan && v && l.veh === v);
+      if (other && !window.confirm(`${plateText(v)} already has loan ${other.lan}. Give it this one too?`)) return;
+      await state.store.saveLoan(loanToSave({ ...loan, veh: v, kind: f.kind.value, note: f.note.value.trim(), bank: f.bank.value.trim() }));
+      await loansList(true);
+      toast('Saved.');
+      await viewLoan(lan);
+    });
+  });
+  m.querySelectorAll('.ln-st').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const n = Number(b.dataset.n);
+    const was = (loan.unpaid || []).includes(n);
+    b.disabled = true;
+    await state.store.markLoan(lan, n, !was);
+    await loansList(true);
+    const r = x.rows.find((y) => y.n === n);
+    toast(`EMI #${n} (${fmtDate(r.date)}) marked ${was ? 'paid' : 'not paid'}.`);
+    await viewLoan(lan);
+  })));
+  m.querySelector('#loan-remove').addEventListener('click', () => guard(async () => {
+    if (!window.confirm(`Remove loan ${lan}${loan.veh ? ` (${plateText(loan.veh)})` : ''} and its EMIs from the app? (The bank's loan isn't touched — you can add the schedule again.)`)) return;
+    await state.store.deleteLoan(lan);
+    await loansList(true);
+    toast(`Loan ${lan} removed.`);
+    location.hash = '#/loans';
+  }));
 }
 
 // ---------------------------------------------------------------------------
