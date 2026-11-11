@@ -7,6 +7,10 @@
 //                    unless marked not paid; principal and interest paid and
 //                    still to pay, the next EMI, what's overdue
 //   loansSummary()   the fleet and each bank, and month by month
+//   loanFromTerms()  a loan typed in (when the bank's PDF is a scan with no
+//                    text): its schedule worked out from the amount, EMI,
+//                    number of EMIs, first EMI date and — to match the bank
+//                    to the rupee — the last EMI
 //   suggestTrucks()  which truck a new loan is probably for, from the EMI the
 //                    Trip Register charges each truck a month
 // A loan as kept in Setup (settings.loans): { lan, bank, veh, amount, rate,
@@ -29,7 +33,8 @@ function isoOf(s) {
   return `${m[3]}-${String(mon).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
 }
 const NUM = '([\\d,]+(?:\\.\\d+)?)';
-const ROW = new RegExp(`^\\s*(\\d{1,3})\\s+(\\d{1,2}[/-](?:\\d{1,2}|[A-Za-z]{3})[/-]\\d{4})\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`);
+// a row: no., due date, (a cheque / mode column like "SI", on some), EMI, principal, interest, balance
+const ROW = new RegExp(`^\\s*(\\d{1,3})\\s+(\\d{1,2}[/-](?:\\d{1,2}|[A-Za-z]{3})[/-]\\d{4})(?:\\s+[A-Z]{1,6})?\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`);
 const mode = (xs) => {
   const c = new Map();
   xs.forEach((x) => c.set(x, (c.get(x) || 0) + 1));
@@ -154,4 +159,59 @@ export function suggestTrucks(loans, trips = []) {
     if (free.length) { out.set(l.lan, free[0]); taken.add(free[0]); }
   }
   return out;
+}
+
+// ---- a loan from its terms ---------------------------------------------------------------------
+// The banks work a schedule like this: each month's interest is the balance × the monthly rate,
+// rounded to the rupee; the rest of the EMI is principal; the last EMI is whatever clears the
+// balance. The rate comes from the last EMI when it's given (that pins it to the bank's own,
+// to within a rupee a row), else from the rate given, else from the EMI (the annuity formula).
+const sameDayMonthsOn = (iso, k) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + k, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+};
+function amortise(amount, emi, tenure, r, first) {
+  let bal = amount;
+  const rows = [];
+  for (let n = 1; n <= tenure; n++) {
+    const interest = Math.round(bal * r);
+    const principal = n === tenure ? bal : Math.min(bal, emi - interest);
+    bal = r2(bal - principal);
+    rows.push({ n, date: sameDayMonthsOn(first, n - 1), emi: r2(principal + interest), principal: r2(principal), interest, closing: Math.max(0, bal) });
+    if (bal <= 0 && n < tenure) break;
+  }
+  return rows;
+}
+const solve = (f, target, lo = 1e-6, hi = 0.05) => {
+  for (let k = 0; k < 200; k++) { const mid = (lo + hi) / 2; if (f(mid) < target) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+};
+// terms: { veh, bank, lan, amount, emi, tenure, first (yyyy-mm-dd), lastEmi?, rate? (% a year) } → a loan, or { error }
+export function loanFromTerms(terms) {
+  const amount = Number(terms.amount);
+  const emi = Number(terms.emi);
+  const tenure = Math.round(Number(terms.tenure));
+  const first = String(terms.first || '');
+  if (!(amount > 0) || !(emi > 0) || !(tenure >= 1 && tenure <= 360) || !/^\d{4}-\d{2}-\d{2}$/.test(first)) return { error: 'Fill in the amount financed, the EMI, the number of EMIs and the first EMI date.' };
+  if (emi * tenure <= amount) return { error: `${tenure} EMIs of ₹${emi.toLocaleString('en-IN')} don't even repay the ₹${amount.toLocaleString('en-IN')} lent — check the numbers.` };
+  const lastEmi = Number(terms.lastEmi) > 0 ? Number(terms.lastEmi) : null;
+  const given = Number(terms.rate) > 0 ? Number(terms.rate) : null;
+  let r;
+  let rateFrom;
+  if (lastEmi) { r = solve((x) => { const rows = amortise(amount, emi, tenure, x, first); return rows.length < tenure ? 0 : rows[tenure - 1].emi; }, lastEmi); rateFrom = 'last EMI'; }
+  else if (given) { r = given / 1200; rateFrom = 'given'; }
+  else { r = solve((x) => -(emi * (1 - (1 + x) ** -tenure) / x), -amount); rateFrom = 'EMI'; }
+  const rows = amortise(amount, emi, tenure, r, first);
+  const warnings = [];
+  if (rows.length < tenure) warnings.push(`at ${r2(r * 1200)}% the loan is paid off in ${rows.length} EMIs, not ${tenure} — check the rate`);
+  const lastRow = rows[rows.length - 1];
+  if (lastEmi && Math.abs(lastRow.emi - lastEmi) > 2) warnings.push(`the last EMI works out to ₹${lastRow.emi.toLocaleString('en-IN')}, not ₹${lastEmi.toLocaleString('en-IN')} — check the numbers`);
+  if (lastRow.emi > emi * 1.5) warnings.push(`the last EMI comes to ₹${Math.round(lastRow.emi).toLocaleString('en-IN')} — far more than the others; check the rate`);
+  return {
+    lan: String(terms.lan || '').trim() || `typed-${first}`, bank: String(terms.bank || '').trim(), veh: String(terms.veh || '').toUpperCase().replace(/[\s-]+/g, ''),
+    amount, rate: r2(r * 1200), rateFrom: 'terms', rateBy: rateFrom, tenure, emi, dueDay: Number(first.slice(8, 10)), first, last: lastRow.date,
+    file: '', typed: true, rows, unpaid: [], warnings,
+  };
 }

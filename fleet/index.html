@@ -763,7 +763,9 @@ table.ln-table tr.ln-now td { box-shadow: inset 0 -2px 0 var(--accent); }
 .ln-st { font: inherit; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; cursor: pointer; border: 1px solid transparent; }
 .ln-st.paid { color: var(--good); background: var(--good-bg); border-color: rgba(47,208,138,.3); }
 .ln-st.unpaid { color: var(--bad); background: var(--bad-bg); border-color: rgba(255,107,94,.35); }
-table.ln-review select { margin: 0; min-width: 130px; }
+table.ln-review td { vertical-align: top; }
+input.veh-in { margin: 0; min-width: 150px; max-width: 200px; text-transform: uppercase; font-family: var(--mono); letter-spacing: .04em; }
+.loan-terms label { flex: 1 1 200px; }
 .show-sm-block { display: none; }
 @media (max-width: 640px) { .po { grid-template-columns: 1fr; justify-items: center; } .po-body { width: 100%; } .po-ring { width: 130px; height: 130px; } .ln-list { grid-template-columns: 1fr; } .show-sm-block { display: block; } table.ln-table th, table.ln-table td { padding-left: 6px; padding-right: 6px; } }
 /* day book */

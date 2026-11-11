@@ -23,7 +23,7 @@ import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
 import { bufferOf, extraKind, fillProgress, fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
 import { irregularIndex, irregulars } from './irregular.js';
-import { loanStatus, loansSummary, ordinal, parseSchedule, suggestTrucks } from './loans.js';
+import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, suggestTrucks } from './loans.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
@@ -2359,8 +2359,34 @@ function tyreBillHtml(months) {
 // unless marked not paid on its loan.
 // ---------------------------------------------------------------------------
 const PO_KEYS = [{ key: 'pp', name: 'Principal paid', color: 'var(--good)' }, { key: 'ip', name: 'Interest paid', color: 'var(--s-2)' }, { key: 'pl', name: 'Principal to go', color: 'color-mix(in srgb, var(--good) 30%, transparent)' }, { key: 'il', name: 'Interest to go', color: 'color-mix(in srgb, var(--s-2) 30%, transparent)' }];
-const loanTruck = (l) => (l.veh ? plateText(l.veh) : 'No truck yet');
-const truckOption = (v, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(plateText(v))}</option>`;
+const loanTruck = (l) => (l.veh ? plateText(l.veh) : 'No vehicle yet');
+// a vehicle no. as typed → as kept: OD 02 AB 1234 → OD02AB1234. Any vehicle, the fleet's offered (not only trucks on trips)
+const vehNo = (v) => String(v || '').toUpperCase().replace(/[\s.-]+/g, '');
+const vehicleList = () => {
+  const vs = [...new Set([...(state.data ? vehiclesOf(state.data) : []), ...(state.settings.loans || []).map((l) => l.veh).filter(Boolean)])].sort();
+  return `<datalist id="loan-vehicles">${vs.map((v) => `<option value="${esc(v)}">${esc(plateText(v))}</option>`).join('')}</datalist>`;
+};
+const vehInput = (attrs, v) => `<input class="veh-in" list="loan-vehicles" ${attrs} value="${esc(v || '')}" placeholder="e.g. OD02AB1234" autocomplete="off" spellcheck="false">`;
+// type a loan in (a scanned schedule has no text to read): the form, and what it works out to
+const TERM_FIELDS = [['veh', 'Vehicle no.'], ['bank', 'Bank'], ['lan', 'Loan / agreement no.'], ['amount', 'Amount financed (₹)'], ['emi', 'EMI (₹)'], ['tenure', 'Number of EMIs'], ['first', 'First EMI date'], ['lastEmi', 'Last EMI (₹) — optional'], ['rate', 'Rate % a year — optional']];
+function loanFormHtml(F) {
+  return `<section class="card" id="loan-form">
+    <h3>Type in a loan</h3>
+    <p class="muted small">For a schedule the app can't read (a scanned copy): from its first page, fill in the amount, EMI, number of EMIs and first EMI date — and the last EMI, from its last page, to match the bank's schedule to the rupee. The app works out every EMI the way the bank does: interest on what's still owed, the rest principal.</p>
+    <form class="row-form loan-terms" id="loan-terms">${TERM_FIELDS.map(([k, n]) => `<label>${esc(n)} ${k === 'veh' ? vehInput('name="veh"', F.veh) : `<input name="${k}"${k === 'first' ? ' type="date"' : k === 'bank' || k === 'lan' ? '' : ' inputmode="decimal"'} value="${esc(F[k] || '')}">`}</label>`).join('')}</form>
+    <div id="loan-preview">${loanPreviewHtml(F)}</div>
+    <div class="actions"><button class="btn" id="terms-save" type="button">Save loan</button><button class="btn ghost" id="terms-cancel" type="button">Cancel</button></div>
+  </section>`;
+}
+function loanPreviewHtml(F) {
+  if (!F.amount && !F.emi) return '';
+  const l = loanFromTerms(F);
+  if (l.error) return `<p class="muted small">${esc(l.error)}</p>`;
+  const x = loanStatus(l, today());
+  const last = l.rows[l.rows.length - 1];
+  return `<div class="todo info">Works out to <b>${l.rate}%</b> a year (from the ${esc(l.rateBy)}) · ${l.rows.length} EMIs, ${esc(dateYear(l.rows[0].date))} – ${esc(dateYear(last.date))}, last one ${rupees(last.emi)} · interest ${rupees(x.totalInterest)} in all · as of today ${x.paidN} paid, ${money(x.principalLeft)} principal owed
+    ${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</div>`;
+}
 // paid and to go, of all the loan(s) will cost: principal + interest. x: loanStatus() or loansSummary().total
 function payoffHtml(x) {
   const P = [['pp', 'Principal paid', x.principalPaid], ['ip', 'Interest paid', x.interestPaid], ['pl', 'Principal to go', x.principalLeft], ['il', 'Interest to go', x.interestLeft]];
@@ -2389,7 +2415,7 @@ function payoffHtml(x) {
   </div>`;
 }
 const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
-const rateText = (l) => (l.rate ? `${Number(l.rate).toFixed(2)}%${l.rateFrom === 'derived' ? ' (from the schedule)' : ''}` : '—');
+const rateText = (l) => (l.rate ? `${Number(l.rate).toFixed(2)}%${l.rateFrom === 'derived' ? ' (from the schedule)' : l.rateFrom === 'terms' ? ' (typed in — worked out)' : ''}` : '—');
 
 // save the loans: the rest of the settings as saved now (another device may have changed Setup), only the loans replaced
 async function saveLoans(loans, done = 'Saved.') {
@@ -2418,7 +2444,9 @@ async function addSchedules(files) {
   const errors = [];
   for (const f of files) {
     try {
-      const loan = parseSchedule(await pdfText(f), { fileName: f.name });
+      const text = await pdfText(f);
+      if (!text.trim()) { errors.push(`${f.name} is a scanned copy — there's no text in it to read. Use “Type in a loan” with the amount, EMI, number of EMIs, first and last EMI from it.`); continue; }
+      const loan = parseSchedule(text, { fileName: f.name });
       if (loan.error) errors.push(loan.error); else read.push(loan);
     } catch (err) {
       errors.push(`${f.name}: ${err.message}`);
@@ -2432,15 +2460,14 @@ async function addSchedules(files) {
   rerender();
 }
 function loanReviewHtml(R) {
-  const trucks = state.data ? vehiclesOf(state.data) : [];
-  return `<section class="card" id="loan-review">
+  return `<section class="card" id="loan-review">${vehicleList()}
     <h3>Check the schedules</h3>
     ${R.errors.length ? `<div class="todos">${R.errors.map((e) => `<div class="todo bad">${esc(e)}</div>`).join('')}</div>` : ''}
-    ${R.read.length ? `<p class="muted small">Pick each loan's truck. ${R.read.some((l) => l.suggested) ? 'The ones marked <b>suggested</b> are guessed from the EMI the Trip Register charges each truck — check them.' : ''}</p>
-    <div class="table-wrap"><table class="compact ln-review"><thead><tr><th>Loan</th><th class="r">Amount</th><th class="r">EMI</th><th>Runs</th><th>Truck</th></tr></thead><tbody>
+    ${R.read.length ? `<p class="muted small">Pick or type each loan's vehicle no. ${R.read.some((l) => l.suggested) ? 'The ones marked <b>suggested</b> are guessed from the EMI the Trip Register charges each truck — check them.' : ''}</p>
+    <div class="table-wrap"><table class="compact ln-review"><thead><tr><th>Loan</th><th class="r">Amount</th><th class="r">EMI</th><th>Runs</th><th>Vehicle no.</th></tr></thead><tbody>
       ${R.read.map((l, i) => `<tr><td><b>${esc(l.bank || 'Bank?')}</b> ${esc(l.lan)}<small class="block muted">${esc(l.file)} · ${esc(rateText(l))}${l.replaces ? ' · <b>replaces the one saved</b>' : ''}</small>${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</td>
         <td class="r">${rupees(l.amount)}</td><td class="r">${rupees(l.emi)}<small class="block muted">× ${l.tenure}</small></td><td>${esc(dateYear(l.first))} – ${esc(dateYear(l.last))}<small class="block muted">on the ${ordinal(l.dueDay)}</small></td>
-        <td><select data-review="${i}"><option value="">— pick —</option>${trucks.map((v) => truckOption(v, l.veh === v)).join('')}</select>${l.suggested ? '<small class="block info-text">suggested</small>' : ''}</td></tr>`).join('')}
+        <td>${vehInput(`data-review="${i}"`, l.veh)}${l.suggested ? '<small class="block info-text">suggested</small>' : ''}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="actions"><button class="btn" id="review-save" type="button">Save ${plural(R.read.length, 'loan')}</button><button class="btn ghost" id="review-cancel" type="button">Cancel</button></div>` : '<div class="actions"><button class="btn ghost" id="review-cancel" type="button">Close</button></div>'}
   </section>`;
@@ -2449,11 +2476,12 @@ function loanReviewHtml(R) {
 async function viewLoans() {
   const loans = state.settings.loans || [];
   const R = state.ui.loanReview;
-  const add = `<label class="btn small file-btn">Add EMI schedules (PDF)<input type="file" id="loan-files" accept="application/pdf,.pdf" multiple hidden></label>`;
+  const add = `<span class="row-gap"><label class="btn small file-btn">Add EMI schedules (PDF)<input type="file" id="loan-files" accept="application/pdf,.pdf" multiple hidden></label><button class="btn ghost small" id="loan-type" type="button">Type in a loan</button></span>`;
+  const form = state.ui.loanForm ? loanFormHtml(state.ui.loanForm) : '';
   if (!loans.length) {
     setMain(`<section class="card"><div class="row-between"><h2>Loans &amp; EMI</h2>${add}</div>
-      <p class="muted">Add each truck's EMI schedule — the PDF the bank gives (HDFC's repayment schedule, ICICI's amortisation schedule). You can pick several at once. The app reads every instalment and shows what's paid and what's left: principal and interest, for each truck, each bank and the fleet. Every EMI due till today counts as paid; you can mark one not paid.</p></section>
-      ${R ? loanReviewHtml(R) : ''}`);
+      <p class="muted">Add each vehicle's EMI schedule — the PDF the bank gives (HDFC's repayment schedule, ICICI's amortisation schedule). You can pick several at once. The app reads every instalment and shows what's paid and what's left: principal and interest, for each vehicle, each bank and the fleet. Every EMI due till today counts as paid; you can mark one not paid. A schedule that's a scan (no text) can be typed in instead. Any vehicle in the firm's name can have its loan here — not only the trucks on trips.</p></section>
+      ${R ? loanReviewHtml(R) : ''}${form}`);
     bindLoans();
     return;
   }
@@ -2465,7 +2493,7 @@ async function viewLoans() {
   setChartWidth(main().clientWidth - 38);
   setMain(`<section class="card">
     <div class="row-between"><h2>Loans &amp; EMI</h2><span class="row-gap">${shareBtn('share-loans')}${add}</span></div>
-    <p class="muted small">${plural(T.loans, 'loan')} from the banks' schedules. Every EMI due till today counts as paid — if one wasn't, open its truck and mark it not paid.</p>
+    <p class="muted small">${plural(T.loans, 'loan')} from the banks' schedules. Every EMI due till today counts as paid — if one wasn't, open its vehicle and mark it not paid.</p>
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(T.principalLeft)}>${money(T.principalLeft)}</span><span class="sub">of ${money(T.amount)} borrowed · ${pctOf(T.principalPaid, T.amount)}% repaid</span></div>
       <div class="kpi"><span class="lbl">Principal repaid</span><span class="val good-text" ${exact(T.principalPaid)}>${money(T.principalPaid)}</span><span class="sub">${T.paidN} of ${T.tenure} EMIs paid</span></div>
@@ -2476,14 +2504,14 @@ async function viewLoans() {
     </div>
     ${payoffHtml(T)}
   </section>
-  ${R ? loanReviewHtml(R) : ''}
+  ${R ? loanReviewHtml(R) : ''}${form}
   ${L.banks.length > 1 ? `<section class="card"><h3>By bank</h3><div class="table-wrap"><table class="compact"><thead><tr><th>Bank</th><th class="r">EMI a month</th><th class="r">Principal owed</th><th class="r hide-sm">Interest to pay</th><th class="r hide-sm">Last EMI</th></tr></thead><tbody>
     ${L.banks.map((b) => { const one = L.loans.find((x) => (x.loan.bank || 'Other') === b.bank).loan; return `<tr><td><b>${esc(b.bank)}</b><small class="block muted">${plural(b.loans, 'loan')} · ${esc(rateText(one))}</small></td><td class="r">${rupees(b.emi)}</td><td class="r">${rupees(b.principalLeft)}<small class="block muted">of ${money(b.amount)}</small><small class="block muted show-sm-block">+ ${money(b.interestLeft)} interest</small></td><td class="r hide-sm">${rupees(b.interestLeft)}<small class="block muted">${money(b.interestPaid)} paid</small></td><td class="r hide-sm">${esc(b.ends ? dateYear(b.ends) : '—')}</td></tr>`; }).join('')}
     <tr class="sum"><td><b>All</b></td><td class="r"><b>${rupees(T.emi)}</b></td><td class="r"><b>${rupees(T.principalLeft)}</b></td><td class="r hide-sm"><b>${rupees(T.interestLeft)}</b></td><td class="hide-sm"></td></tr>
   </tbody></table></div></section>` : ''}
-  <section class="card"><h3>Each truck <span class="muted small">tap one for its EMIs</span></h3>
+  <section class="card"><h3>Each vehicle <span class="muted small">tap one for its EMIs</span></h3>
     <div class="ln-list">${byTruck.map((x) => `<a class="ln-row${x.overdueN ? ' bad' : ''}" href="#/loans/${encodeURIComponent(x.loan.lan)}">
-      <span class="ln-top">${x.loan.veh ? `<span class="hsrp">${esc(plateText(x.loan.veh))}</span>` : '<b>No truck yet</b>'}<span class="ln-who">${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}${x.loan.veh ? '' : '<small>open to pick its truck</small>'}</span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
+      <span class="ln-top">${x.loan.veh ? `<span class="hsrp">${esc(plateText(x.loan.veh))}</span>` : '<b>No truck yet</b>'}<span class="ln-who">${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}${x.loan.veh ? '' : '<small>open to pick its vehicle</small>'}</span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
       <span class="ln-emi">EMI <b>${rupees(x.loan.emi)}</b> on the ${ordinal(x.loan.dueDay)} · ${x.paidN} of ${x.tenure} paid${x.next ? ` · next ${esc(dateYear(x.next.date))}` : ''}</span>
       <span class="po-bar sm">${[['pp', x.principalPaid], ['ip', x.interestPaid], ['pl', x.principalLeft], ['il', x.interestLeft]].map(([k, v]) => (v > 0 ? `<i class="po-${k}" style="width:${((v / (x.totalPayable || 1)) * 100).toFixed(2)}%"></i>` : '')).join('')}</span>
       <span class="ln-nums"><span>Paid <b class="good-text">${money(x.principalPaid + x.interestPaid)}</b></span><span>To go <b>${money(x.principalLeft + x.interestLeft)}</b></span><span>Principal owed <b>${money(x.principalLeft)}</b></span></span>
@@ -2511,14 +2539,39 @@ function bindLoans() {
   });
   m.querySelectorAll('[data-review]').forEach((s) => s.addEventListener('change', () => {
     const l = state.ui.loanReview.read[Number(s.dataset.review)];
-    l.veh = s.value;
+    l.veh = vehNo(s.value);
+    s.value = l.veh;
     l.suggested = false;
+  }));
+  m.querySelector('#loan-type')?.addEventListener('click', () => { state.ui.loanForm = state.ui.loanForm || {}; rerender(); setTimeout(() => document.getElementById('loan-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
+  const form = m.querySelector('#loan-terms');
+  form?.addEventListener('input', () => {
+    const F = state.ui.loanForm;
+    for (const [k] of TERM_FIELDS) F[k] = form[k].value;
+    m.querySelector('#loan-preview').innerHTML = loanPreviewHtml(F);
+  });
+  m.querySelector('#terms-cancel')?.addEventListener('click', () => { state.ui.loanForm = null; rerender(); });
+  m.querySelector('#terms-save')?.addEventListener('click', (e) => guard(async () => {
+    const F = state.ui.loanForm;
+    for (const [k] of TERM_FIELDS) F[k] = form[k].value;
+    if (!vehNo(F.veh)) { toast('Fill in the vehicle no.', 'bad'); return; }
+    const l = loanFromTerms(F);
+    if (l.error) { toast(l.error, 'bad'); return; }
+    const have = state.settings.loans || [];
+    const old = have.find((x) => x.lan === l.lan);
+    if (old && !window.confirm(`Loan ${l.lan} is already saved. Replace it with this one?`)) return;
+    e.target.disabled = true;
+    const { warnings, first, last, ...loan } = l;
+    if (old) loan.unpaid = old.unpaid || [];
+    state.ui.loanForm = null;
+    await saveLoans([...have.filter((x) => x.lan !== l.lan), loan], `Saved loan ${l.lan} (${plateText(loan.veh)}).`);
+    rerender();
   }));
   m.querySelector('#review-cancel')?.addEventListener('click', () => { state.ui.loanReview = null; rerender(); });
   m.querySelector('#review-save')?.addEventListener('click', (e) => guard(async () => {
     const R = state.ui.loanReview;
     const vehs = R.read.map((l) => l.veh).filter(Boolean);
-    if (new Set(vehs).size < vehs.length && !window.confirm('Two of these loans have the same truck. Save anyway?')) return;
+    if (new Set(vehs).size < vehs.length && !window.confirm('Two of these loans have the same vehicle. Save anyway?')) return;
     e.target.disabled = true;
     const keep = (state.settings.loans || []).filter((x) => !R.read.some((l) => l.lan === x.lan));
     const loans = [...keep, ...R.read.map(({ replaces, suggested, warnings, first, last, ...l }) => l)];
@@ -2538,11 +2591,10 @@ async function viewLoan(lan) {
   const all = ui[lan];
   const lastDue = x.rows.filter((r) => r.status !== 'upcoming').length;
   const shown = all ? x.rows : x.rows.slice(0, Math.max(lastDue + 3, 6));
-  const trucks = state.data ? vehiclesOf(state.data) : [];
-  setMain(`<section class="card">
+  setMain(`<section class="card">${vehicleList()}
     <p class="crumbs"><a href="#/loans">Loans &amp; EMI</a> ›</p>
-    <div class="row-between"><h2>${loan.veh ? `<span class="hsrp">${esc(plateText(loan.veh))}</span>` : 'No truck yet'}</h2>
-      <label class="inline-label">Truck <select id="loan-veh"><option value="">— pick —</option>${trucks.map((v) => truckOption(v, loan.veh === v)).join('')}</select></label></div>
+    <div class="row-between"><h2>${loan.veh ? `<span class="hsrp">${esc(plateText(loan.veh))}</span>` : 'No vehicle yet'}</h2>
+      <label class="inline-label">Vehicle no. ${vehInput('id="loan-veh"', loan.veh)}</label></div>
     <p class="muted small">${esc(loan.bank || 'Bank')} · loan ${esc(loan.lan)} · ${rupees(x.amount)} at ${esc(rateText(loan))} · ${rupees(loan.emi)} × ${x.tenure} on the ${ordinal(loan.dueDay)} · ${esc(dateYear(x.rows[0].date))} – ${esc(dateYear(x.ends))}</p>
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(x.principalLeft)}>${money(x.principalLeft)}</span><span class="sub">of ${money(x.amount)} · ${pctOf(x.principalPaid, x.amount)}% repaid</span></div>
@@ -2564,10 +2616,10 @@ async function viewLoan(lan) {
   const m = main();
   m.querySelector('#loan-all')?.addEventListener('click', () => { ui[lan] = true; rerender(); });
   m.querySelector('#loan-veh').addEventListener('change', (e) => guard(async () => {
-    const v = e.target.value;
+    const v = vehNo(e.target.value);
     const other = loans.find((l) => l !== loan && v && l.veh === v);
-    if (other && !window.confirm(`${shortVeh(v)} already has loan ${other.lan}. Give it this one too?`)) { e.target.value = loan.veh || ''; return; }
-    await saveLoans(loans.map((l) => (l.lan === lan ? { ...l, veh: v } : l)), v ? `Loan ${lan} is ${shortVeh(v)}'s.` : 'Truck cleared.');
+    if (other && !window.confirm(`${plateText(v)} already has loan ${other.lan}. Give it this one too?`)) { e.target.value = loan.veh || ''; return; }
+    await saveLoans(loans.map((l) => (l.lan === lan ? { ...l, veh: v } : l)), v ? `Loan ${lan} is ${plateText(v)}'s.` : 'Vehicle cleared.');
     rerender();
   }));
   m.querySelectorAll('.ln-st').forEach((b) => b.addEventListener('click', () => guard(async () => {

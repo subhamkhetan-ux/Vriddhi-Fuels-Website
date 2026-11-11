@@ -92,3 +92,39 @@ test('due days read as 5th, 7th, 1st, 22nd, 11th', async () => {
   const { ordinal } = await import('../../fleet/js/loans.js');
   assert.deepEqual([5, 7, 1, 2, 3, 22, 11, 12, 13, 21].map(ordinal), ['5th', '7th', '1st', '2nd', '3rd', '22nd', '11th', '12th', '13th', '21st']);
 });
+
+test('a loan typed in from its terms: the bank\'s schedule worked out — the last EMI pins the rate', async () => {
+  const { loanFromTerms } = await import('../../fleet/js/loans.js');
+  const r = 0.09 / 12;
+  const emi = Math.round((500000 * r) / (1 - (1 + r) ** -36));            // ₹15,900
+  const bank = loanFromTerms({ veh: 'xx 09 ab 1234', bank: 'Demo Bank', lan: 'D-1', amount: 500000, emi, tenure: 36, first: '2026-01-31', rate: 9 });
+  assert.equal(bank.veh, 'XX09AB1234');                                  // any vehicle no., as typed, kept plain
+  assert.equal(bank.rows.length, 36);
+  assert.deepEqual(bank.rows.slice(0, 3).map((x) => x.date), ['2026-01-31', '2026-02-28', '2026-03-31']);   // the same day, or the month's last
+  assert.equal(bank.rows[0].interest, 3750);                             // 5,00,000 × 9% ÷ 12
+  assert.equal(bank.rows[35].closing, 0);
+  const lastEmi = bank.rows[35].emi;
+  // typed in with the last EMI: the same rate and the same schedule, to the rupee
+  const typed = loanFromTerms({ veh: 'XX09AB1234', lan: 'D-1', amount: 500000, emi, tenure: 36, first: '2026-01-31', lastEmi });
+  assert.equal(typed.rate, 9);
+  assert.equal(typed.rateBy, 'last EMI');
+  assert.ok(typed.rows.every((x, i) => Math.abs(x.interest - bank.rows[i].interest) <= 1 && Math.abs(x.closing - bank.rows[i].closing) <= 1));
+  // with only the EMI: the annuity rate
+  assert.ok(Math.abs(loanFromTerms({ amount: 500000, emi, tenure: 36, first: '2026-01-31' }).rate - 9) < 0.05);
+  assert.deepEqual(typed.warnings, []);
+  assert.match(loanFromTerms({ amount: 500000, emi: 10000, tenure: 36, first: '2026-01-31' }).error, /don't even repay/);
+  assert.match(loanFromTerms({ amount: 500000 }).error, /Fill in/);
+});
+
+test('a schedule with a cheque / mode column (SI) between the date and the amounts is read too', () => {
+  const t = `HDFC BANK   Repayment Schedule
+Agreement No.   900000002
+Amount Financed   300,000.00
+Instl.   Due Date   Cheque Num   Instl Amt   Principal   Interest   O/s Principal
+1   05/04/2026   SI   101,000.00   98,600.00   2,400.00   201,400.00
+2   05/05/2026   SI   101,000.00   99,389.00   1,611.00   102,011.00
+3   05/06/2026   SI   102,827.00   102,011.00   816.00   0.00`;
+  const l = parseSchedule(t);
+  assert.deepEqual([l.bank, l.lan, l.tenure, l.emi, l.dueDay], ['HDFC', '900000002', 3, 101000, 5]);
+  assert.deepEqual(l.warnings, []);
+});

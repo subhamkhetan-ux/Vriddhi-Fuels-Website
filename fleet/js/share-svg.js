@@ -893,10 +893,10 @@ export function loansPagesSvg(L, { asOn = '', images = {}, fontCss = '', truckOf
     ));
     blocks.push(gap(14));
   }
-  blocks.push(section('Each truck', `${S.paidN} of ${S.tenure} EMIs paid`));
+  blocks.push(section('Each vehicle', `${S.paidN} of ${S.tenure} EMIs paid`));
   const rows = [...L.loans].sort((a, b) => String(a.loan.veh || '~').localeCompare(String(b.loan.veh || '~')));
   blocks.push(...table(
-    [{ label: 'Truck', at: 18, max: 300 }, { label: 'EMI', at: -760, align: 'end' }, { label: 'Paid', at: -600, align: 'end' }, { label: 'Principal owed', at: -320, align: 'end' }, { label: 'Interest to pay', at: -18, align: 'end' }],
+    [{ label: 'Vehicle', at: 18, max: 300 }, { label: 'EMI', at: -760, align: 'end' }, { label: 'Paid', at: -600, align: 'end' }, { label: 'Principal owed', at: -320, align: 'end' }, { label: 'Interest to pay', at: -18, align: 'end' }],
     rows.map((x) => ({ tint: x.overdueN ? C.bad : null, cells: [
       { text: truckOf(x.loan), weight: 800, sub: `${x.loan.bank || 'Bank'} · ${x.loan.lan}` },
       { text: rupees(x.loan.emi), sub: `on the ${ordinal(x.loan.dueDay)}` },
