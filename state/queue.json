@@ -7648,7 +7648,9 @@
       "queued_at": "2026-11-11T06:16:49.354865+00:00",
       "status": "review",
       "error": "could not extract: payer",
-      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 11-Nov-26. Info: INF*INFT*046675779021*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 12,02,402.46.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 11-Nov-26. Info: INF*INFT*046675779021*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 12,02,402.46.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
+      "materialized": true,
+      "materialized_at": "2026-11-12T04:00:24.919154+00:00"
     },
     {
       "entry_id": "8b52d210be02cfc7",
@@ -7724,7 +7726,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-12T02:15:29.330483+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-12T04:00:24.919154+00:00"
     }
   ]
 }
