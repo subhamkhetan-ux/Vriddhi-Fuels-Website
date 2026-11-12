@@ -25,10 +25,12 @@ set -euo pipefail
 
 USER_NAME=xprelay
 HOME_DIR=/var/lib/xprelay
-# XtraPower's site: what the key may reach. Keep in step with relay-setup.sh,
-# which sends the same hosts here. More hosts can follow the key:
+# What the key may reach: XtraPower's portal (beta), its login and data API
+# (betaapi: the login itself goes there), and Google's reCAPTCHA, which the
+# login runs invisibly (so it sees the same address as the login). Keep in
+# step with relay-setup.sh. Other hosts can follow the key instead:
 #   bash infra/xtrapower/relay-server.sh 'KEY' beta.iocxtrapower.com other.host
-DEFAULT_HOSTS="beta.iocxtrapower.com"
+DEFAULT_HOSTS="beta.iocxtrapower.com betaapi.iocxtrapower.com www.google.com www.gstatic.com www.recaptcha.net"
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
