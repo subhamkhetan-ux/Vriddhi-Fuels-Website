@@ -94,3 +94,16 @@ test('formulas the app can\'t read are reported, not guessed', () => {
   assert.equal(basicFormat('0.00', 2), '2.00');
   assert.equal(basicFormat('dd/mm/yyyy', isoToSerial('2026-11-06')), '06/11/2026');
 });
+
+test('LAMBDA in LET (the credit note\'s amount in words), and number formats SheetJS can\'t read', async () => {
+  const { display } = await import('../../ledger/js/formula.js');
+  const c = makeCalc(book({ A1: { v: 7 }, A2: { f: 'LET(_xlpm.w,LAMBDA(_xlpm.x,_xlpm.x*2+A1),_xlpm.w(5)+_xlpm.w(1))' }, A3: { f: 'LET(_xlpm.f,LAMBDA(_xlpm.a,_xlpm.b,_xlpm.a-_xlpm.b),_xlpm.f(10,3))' } }));
+  assert.equal(c.value('S', 'A2'), 17 + 9);
+  assert.equal(c.value('S', 'A3'), 7);
+  // "##,##0.00" (two # before the comma) is a thousands separator to Excel; SheetJS refuses it
+  const strict = (f, v) => { if (/##,##/.test(f)) throw new Error('unsupported'); return basicFormat(f, v); };
+  assert.equal(display(4444.44, '##,##0.00', strict), '4,444.44');
+  assert.equal(basicFormat('000', 7), '007');
+  assert.equal(basicFormat('mmmm\\ yyyy', isoToSerial('2026-11-01')), 'November 2026');
+  assert.equal(basicFormat('dd\\-mmm\\-yyyy', isoToSerial('2026-03-23')), '23-Mar-2026');
+});

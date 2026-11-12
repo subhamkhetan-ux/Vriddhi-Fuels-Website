@@ -149,3 +149,22 @@ test('memory store follows the SQL rules', async () => {
   assert.deepEqual([upd.ledger, upd.archived], ['Movers', true]);
   assert.equal((await s.imports(1))[0].kind, 'daybook');
 });
+
+test('demo store: credit notes logged once per number, reprints counted, the workbook\'s log imported', async () => {
+  const { memoryStore: mk } = await import('../../ledger/js/store.js');
+  const s = mk();
+  const cn = { cn_no: 'BNK/001', cn_date: '2026-11-12', customer: 'Demo Power Ltd', credit: 18000, row: { 'Credit Note No.': 'BNK/001' } };
+  assert.equal((await s.cnSave(cn)).status, 'logged');
+  assert.equal((await s.cnSave({ ...cn, cn_no: ' bnk/001 ' })).status, 'exists');
+  await assert.rejects(s.cnSave({ ...cn, cn_no: 'BNK/002', credit: 0 }), /credit amount/);
+  assert.equal((await s.cnReprinted(1)).reprints, 1);
+  const res = await s.tankerImport('TB.xlsm', { customers: [], data: {}, pi_log: [], cn_log: [
+    { log_id: 1, cn_no: 'BNK/001', customer: 'Someone Else', credit: 1, row: {} },
+    { log_id: 2, cn_no: 'BNK/002', customer: 'Crew One Logistics', credit: 3600, reprints: 2, row: {} },
+  ] });
+  assert.deepEqual([res.cn, res.cn_kept], [1, 1]);
+  const log = await s.cnList();
+  assert.deepEqual(log.map((r) => [r.cn_no, r.customer, r.source, r.reprints]), [['BNK/001', 'Demo Power Ltd', 'app', 1], ['BNK/002', 'Crew One Logistics', 'workbook', 2]]);
+  await s.cnDelete(2);
+  await assert.rejects(s.cnDelete(2), /No credit note/);
+});

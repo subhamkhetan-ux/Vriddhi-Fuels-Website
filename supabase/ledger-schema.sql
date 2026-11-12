@@ -225,6 +225,27 @@ create table if not exists public.ledger_settings (
   updated_at timestamptz not null default now()
 );
 
+-- Credit notes (the Bank Pay CrNote sheet and its XP Cr Note Log): one row
+-- per note, by its Credit Note No. (case and spaces ignored); id is the
+-- log's Log ID. row keeps the log's columns as the workbook names them
+-- ({"Credit Note No.": …, "Amount Paid (₹)": …}); doc what the app needs
+-- to make it again (reprints).
+create table if not exists public.ledger_credit_notes (
+  id           int primary key,
+  cn_no        text not null,
+  cn_key       text generated always as (lower(btrim(cn_no))) stored unique,
+  cn_date      date,
+  customer     text not null default '',
+  credit       numeric,
+  row          jsonb not null default '{}'::jsonb,
+  doc          jsonb,
+  printed_at   timestamptz not null default now(),
+  printed_by   text not null default '',
+  reprints     int not null default 0,
+  last_reprint timestamptz,
+  source       text not null default 'app' check (source in ('app', 'workbook'))
+);
+
 -- Loans & EMI: the vehicles' loans (our own tanker trucks, cars in the
 -- firm's name), from the banks' repayment schedules. One row per loan, by
 -- its account / agreement no. (lan); loan keeps it as the app reads it —
@@ -384,7 +405,7 @@ declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
                            'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
-                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma', 'ledger_loans'] loop
+                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma', 'ledger_loans', 'ledger_credit_notes'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -1125,7 +1146,7 @@ create or replace function public.ledger_setting_set(p_key text, p_value jsonb)
 returns void language plpgsql set search_path = public as $$
 begin
   perform ledger_assert_member();
-  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp') then
+  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp') then
     raise exception 'Unknown setting %.', p_key;
   end if;
   if length(coalesce(p_value::text, '')) > 700000 then raise exception 'That picture is too big (keep it under 500 KB).'; end if;
@@ -1464,6 +1485,8 @@ declare
   v_upd    int := 0;
   v_kept   int := 0;
   v_img    int := 0;
+  v_cn     int := 0;
+  v_cn_kept int := 0;
   r        record;
   v_old    ledger_proforma%rowtype;
   v_id     int;
@@ -1496,7 +1519,7 @@ begin
           'imported_at', now(), 'by_email', coalesce(auth.jwt() ->> 'email', '')), now())
   on conflict (key) do update set value = excluded.value, updated_at = now();
 
-  foreach k in array array['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp'] loop
+  foreach k in array array['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp', 'cn_letterhead', 'cn_stamp'] loop
     if coalesce(p_payload -> 'images' ->> k, '') like 'data:image/%' then
       if length(p_payload -> 'images' ->> k) > 2000000 then
         raise exception 'The % picture in the workbook is too big (keep it under 1.5 MB).', k;
@@ -1557,14 +1580,44 @@ begin
       printed_by = excluded.printed_by, source = 'workbook', doc = null;
   end loop;
 
+  -- the credit notes' log (XP Cr Note Log): the workbook's notes; one made in
+  -- the app with the same number is kept as the app's
+  for r in
+    select x.*
+    from jsonb_to_recordset(coalesce(p_payload -> 'cn_log', '[]'::jsonb)) as x(
+      log_id int, cn_no text, cn_date date, customer text, credit numeric, printed_at timestamptz,
+      printed_by text, reprints int, last_reprint timestamptz, "row" jsonb)
+    where btrim(coalesce(x.cn_no, '')) <> ''
+  loop
+    if exists (select 1 from ledger_credit_notes where cn_key = lower(btrim(r.cn_no)) and source = 'app') then
+      v_cn_kept := v_cn_kept + 1;
+      continue;
+    end if;
+    select id into v_id from ledger_credit_notes where cn_key = lower(btrim(r.cn_no));
+    if not found then
+      v_id := case when r.log_id is not null and r.log_id > 0
+                    and not exists (select 1 from ledger_credit_notes where id = r.log_id) then r.log_id
+                   else (select coalesce(max(id), 0) + 1 from ledger_credit_notes) end;
+    end if;
+    insert into ledger_credit_notes as c (id, cn_no, cn_date, customer, credit, row, doc, printed_at, printed_by,
+                                          reprints, last_reprint, source)
+    values (v_id, btrim(r.cn_no), r.cn_date, coalesce(r.customer, ''), r.credit, coalesce(r."row", '{}'::jsonb), null,
+            coalesce(r.printed_at, now()), coalesce(r.printed_by, ''), coalesce(r.reprints, 0), r.last_reprint, 'workbook')
+    on conflict (id) do update set cn_no = excluded.cn_no, cn_date = excluded.cn_date, customer = excluded.customer,
+      credit = excluded.credit, row = excluded.row, printed_at = excluded.printed_at, printed_by = excluded.printed_by,
+      reprints = greatest(c.reprints, excluded.reprints), last_reprint = coalesce(excluded.last_reprint, c.last_reprint),
+      source = 'workbook', doc = null;
+    v_cn := v_cn + 1;
+  end loop;
+
   -- the app's check of Excel's PI Log against its own (kept with the data above)
   update ledger_imports set counts = jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd,
-           'pi_kept', v_kept, 'images', v_img,
+           'pi_kept', v_kept, 'images', v_img, 'cn', v_cn, 'cn_kept', v_cn_kept,
            'pi_differ', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'differ', '[]'::jsonb)),
            'pi_not_in_excel', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'missing_in_excel', '[]'::jsonb)))
   where id = v_import;
   return jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd, 'pi_kept', v_kept,
-                            'images', v_img, 'import_id', v_import);
+                            'images', v_img, 'cn', v_cn, 'cn_kept', v_cn_kept, 'import_id', v_import);
 end $$;
 
 create or replace function public.ledger_pi_list()
@@ -1618,6 +1671,62 @@ begin
     printed_by = excluded.printed_by, source = 'app', doc = excluded.doc
   returning * into v_row;
   return jsonb_build_object('status', case when v_found then 'replaced' else 'logged' end, 'row', to_jsonb(v_row) - 'pi_key');
+end $$;
+
+-- Credit notes: the log, and Save/Print & Log (PrintAndLogXPCreditNote): a
+-- number already in the log is refused (as the macro does — reprint it from
+-- the log, or change the number); a new note gets the next Log ID.
+create or replace function public.ledger_cn_list()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_agg(to_jsonb(c) - 'cn_key' order by c.id) from ledger_credit_notes c), '[]'::jsonb);
+end $$;
+
+create or replace function public.ledger_cn_save(p_cn jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_no  text := btrim(coalesce(p_cn ->> 'cn_no', ''));
+  v_old ledger_credit_notes%rowtype;
+  v_id  int;
+  v_row ledger_credit_notes%rowtype;
+begin
+  perform ledger_assert_member();
+  if v_no = '' then raise exception 'Enter the Credit Note No.'; end if;
+  if btrim(coalesce(p_cn ->> 'customer', '')) = '' then raise exception 'Select a customer.'; end if;
+  if coalesce((p_cn ->> 'credit')::numeric, 0) <= 0 then raise exception 'The credit amount is missing or zero.'; end if;
+  lock table ledger_credit_notes in share row exclusive mode;
+  select * into v_old from ledger_credit_notes where cn_key = lower(v_no);
+  if found then
+    return jsonb_build_object('status', 'exists', 'existing', to_jsonb(v_old) - 'cn_key');
+  end if;
+  v_id := (select coalesce(max(id), 0) + 1 from ledger_credit_notes);
+  insert into ledger_credit_notes (id, cn_no, cn_date, customer, credit, row, doc, printed_at, printed_by, source)
+  values (v_id, v_no, nullif(p_cn ->> 'cn_date', '')::date, btrim(p_cn ->> 'customer'), (p_cn ->> 'credit')::numeric,
+          coalesce(p_cn -> 'row', '{}'::jsonb) || jsonb_build_object('Log ID', v_id),
+          case when jsonb_typeof(p_cn -> 'doc') = 'object' then p_cn -> 'doc' end, now(),
+          coalesce(nullif(p_cn ->> 'printed_by', ''), auth.jwt() ->> 'email', ''), 'app')
+  returning * into v_row;
+  return jsonb_build_object('status', 'logged', 'row', to_jsonb(v_row) - 'cn_key');
+end $$;
+
+-- ReprintXPCreditNote: one more duplicate copy made
+create or replace function public.ledger_cn_reprinted(p_id int)
+returns jsonb language plpgsql set search_path = public as $$
+declare v_row ledger_credit_notes%rowtype;
+begin
+  perform ledger_assert_member();
+  update ledger_credit_notes set reprints = reprints + 1, last_reprint = now() where id = p_id returning * into v_row;
+  if not found then raise exception 'No credit note %.', p_id; end if;
+  return to_jsonb(v_row) - 'cn_key';
+end $$;
+
+create or replace function public.ledger_cn_delete(p_id int)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  delete from ledger_credit_notes where id = p_id;
+  if not found then raise exception 'No credit note %.', p_id; end if;
 end $$;
 
 create or replace function public.ledger_pi_delete(p_id int)

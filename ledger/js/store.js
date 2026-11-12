@@ -55,6 +55,10 @@ export function supabaseStore(client) {
     piList: () => rpc('ledger_pi_list'),
     piSave: (pi, replace = false) => rpc('ledger_pi_save', { p_pi: pi, p_replace: replace }),
     piDelete: (id) => rpc('ledger_pi_delete', { p_id: id }),
+    cnList: () => rpc('ledger_cn_list'),
+    cnSave: (cn) => rpc('ledger_cn_save', { p_cn: cn }),
+    cnReprinted: (id) => rpc('ledger_cn_reprinted', { p_id: id }),
+    cnDelete: (id) => rpc('ledger_cn_delete', { p_id: id }),
   };
 }
 
@@ -70,7 +74,7 @@ const now = () => new Date().toISOString();
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
     customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
-    discarded: new Map(), proforma: [], loans: new Map(),
+    discarded: new Map(), proforma: [], loans: new Map(), creditNotes: [],
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -543,7 +547,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 
@@ -789,7 +793,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       }
       db.settings.tanker_billing = { ...clone(p.data), file_name: fileName || '', imported_at: now(), by_email: email };
       let images = 0;
-      for (const k of ['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp']) {
+      for (const k of ['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp', 'cn_letterhead', 'cn_stamp']) {
         const url = p.images && p.images[k];
         if (typeof url === 'string' && url.startsWith('data:image/')) {
           db.settings[k] = { data_url: url, name: 'Tanker Billing workbook' };
@@ -811,12 +815,26 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         const row = { ...piRow({ ...r, pi_no: no }), id, printed_at: r.printed_at || now(), printed_by: r.printed_by || '', source: 'workbook', doc: null };
         db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
       }
+      // the credit notes' log: the workbook's; one made in the app with the same number stays the app's
+      let cn = 0; let cnKept = 0;
+      for (const r of p.cn_log || []) {
+        const no = trim(r.cn_no);
+        if (!no) continue;
+        const old = db.creditNotes.find((x) => x.cn_no.trim().toLowerCase() === no.toLowerCase());
+        if (old && old.source === 'app') { cnKept++; continue; }
+        const id = old ? old.id : r.log_id > 0 && !db.creditNotes.some((x) => x.id === r.log_id) ? r.log_id : Math.max(0, ...db.creditNotes.map((x) => x.id)) + 1;
+        const row = { id, cn_no: no, cn_date: r.cn_date || null, customer: trim(r.customer), credit: r.credit ?? null, row: clone(r.row || {}), doc: null,
+          printed_at: r.printed_at || now(), printed_by: r.printed_by || '', reprints: Math.max(old ? old.reprints : 0, r.reprints || 0),
+          last_reprint: r.last_reprint || (old ? old.last_reprint : null), source: 'workbook' };
+        db.creditNotes = db.creditNotes.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
+        cn++;
+      }
       const check = (p.data && p.data.pi_check) || {};
       imp.counts = {
-        customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images,
+        customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images, cn, cn_kept: cnKept,
         pi_differ: (check.differ || []).length, pi_not_in_excel: (check.missing_in_excel || []).length,
       };
-      return { customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images, import_id: imp.id };
+      return { customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images, cn, cn_kept: cnKept, import_id: imp.id };
     },
 
     async piList() {
@@ -837,6 +855,35 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       };
       db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
       return { status: old ? 'replaced' : 'logged', row: clone(row) };
+    },
+
+    // Credit notes — same rules as ledger_cn_list / _save / _reprinted / _delete in SQL
+    async cnList() {
+      return clone(db.creditNotes);
+    },
+    async cnSave(cn) {
+      const no = trim(cn && cn.cn_no);
+      if (!no) fail('Enter the Credit Note No.');
+      if (!trim(cn.customer)) fail('Select a customer.');
+      if (!(Number(cn.credit) > 0)) fail('The credit amount is missing or zero.');
+      const old = db.creditNotes.find((x) => x.cn_no.trim().toLowerCase() === no.toLowerCase());
+      if (old) return { status: 'exists', existing: clone(old) };
+      const id = Math.max(0, ...db.creditNotes.map((x) => x.id)) + 1;
+      const row = { id, cn_no: no, cn_date: cn.cn_date || null, customer: trim(cn.customer), credit: Number(cn.credit), row: { ...clone(cn.row || {}), 'Log ID': id },
+        doc: cn.doc && typeof cn.doc === 'object' ? clone(cn.doc) : null, printed_at: now(), printed_by: cn.printed_by || email, reprints: 0, last_reprint: null, source: 'app' };
+      db.creditNotes.push(row);
+      return { status: 'logged', row: clone(row) };
+    },
+    async cnReprinted(id) {
+      const r = db.creditNotes.find((x) => x.id === id);
+      if (!r) fail(`No credit note ${id}.`);
+      r.reprints += 1;
+      r.last_reprint = now();
+      return clone(r);
+    },
+    async cnDelete(id) {
+      if (!db.creditNotes.some((x) => x.id === id)) fail(`No credit note ${id}.`);
+      db.creditNotes = db.creditNotes.filter((x) => x.id !== id);
     },
 
     async piDelete(id) {

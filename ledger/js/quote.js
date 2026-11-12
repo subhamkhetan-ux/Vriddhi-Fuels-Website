@@ -301,7 +301,7 @@ export function picturePaths(files) {
     return parts.join('/');
   };
   const out = {};
-  for (const [key, sheetName] of [['quotation', 'Quotation Maker'], ['proforma', 'Proforma Invoice']]) {
+  for (const [key, sheetName] of [['quotation', 'Quotation Maker'], ['proforma', 'Proforma Invoice'], ['creditnote', 'Bank Pay CrNote']]) {
     const sm = new RegExp(`<sheet [^>]*name="${sheetName}"[^>]*r:id="(rId\\d+)"`).exec(wbXml);
     if (!sm) continue;
     const sheetPath = resolve('xl/workbook.xml', target(wbRels, sm[1]) || '');
