@@ -172,6 +172,81 @@ def test_pairing_uses_account_hints_with_many_accounts():
     assert summary["accounted_ok"] and not review
 
 
+@pytest.mark.parametrize("narr", [
+    "INF/INFT/046676222371/ICICICA4716",          # ICICI's own wording (Nov 2026)
+    "INF/INFT/046676222371/ICICI CA 4716",
+    "IMPS/ICICI XXXXXXXX4716/TRF",
+    "TRF TO ICICI-046805004716",                   # the whole number still works
+])
+def test_short_tag_names_the_icici_current_account(narr):
+    cl = C.classify(_row(narr, withdrawal=259.40), [], statement_ledger=ICICI_OD)
+    assert cl.vtype == C.CONTRA and cl.counter_ledger == ICICI
+
+
+@pytest.mark.parametrize("narr", [
+    "NEFT/IN42631553416048/HDFC0001819/SheetalHDFC",   # an IFSC, not an account
+    "INF/INFT/046665974831/SunilKhetanICIC",            # a person, no digits
+    "ICICICA9999",                                       # digits end no account of ours
+    "ICICICA4716",                                       # ...but on its own statement: not a transfer
+])
+def test_short_tag_does_not_invent_transfers(narr):
+    cl = C.classify(_row(narr, withdrawal=100), [], statement_ledger=ICICI)
+    assert cl.tier not in ("own-account", "same-txn-id") and cl.counter_ledger not in C._BANK_LEDGERS
+
+
+def _txn(narr, txn_id, deposit=0.0, withdrawal=0.0, date=dt.date(2026, 11, 11)):
+    r = _row(narr, deposit=deposit, withdrawal=withdrawal, date=date)
+    r.txn_id = txn_id
+    return r
+
+
+def test_same_bank_txn_id_pairs_the_two_legs_whatever_the_narration():
+    # Real shape: ICICI OD -> ICICI C/A, 11 Nov 2026 — same Tran. Id on both statements.
+    od = [_txn("INF/INFT/046676550281/SOME NEW WORDING", "S9469598", withdrawal=2500000)]
+    ca = [_txn("INF/INFT/046676550281/VRIDDHI FUELS", "S9469598", deposit=2500000)]
+    _, review, summary = _entries([(ICICI_OD, od), (ICICI, ca)])
+    contras = [e for e in summary["entries"] if e["type"] == "Contra"]
+    assert [(c["account"], c["counter_ledger"], c["srclines"]) for c in contras] == \
+        [(ICICI_OD, ICICI, 2)]
+    assert not review and summary["accounted_ok"]
+
+
+@pytest.mark.parametrize("case", ["amount", "date", "same_side", "same_account", "three"])
+def test_txn_id_link_needs_an_exact_two_leg_match(case):
+    w = _txn("PAYMENT TO ACME", "S1", withdrawal=1000)
+    d = _txn("ACME REFUND", "S1", deposit=1000)
+    stmts = [(ICICI_OD, [w]), (ICICI, [d])]
+    if case == "amount":
+        d.deposit = 999
+    elif case == "date":
+        d.date = dt.date(2026, 11, 12)
+    elif case == "same_side":
+        d.deposit, d.withdrawal = 0.0, 1000
+    elif case == "same_account":
+        stmts = [(ICICI, [w, d])]
+    elif case == "three":
+        stmts.append((CA, [_txn("ACME", "S1", deposit=1000)]))
+    classified = [(a, r, C.classify(r, [], statement_ledger=a)) for a, rows in stmts for r in rows]
+    assert all(cl.tier != "same-txn-id" for _a, _r, cl in BR._link_by_txn_id(classified))
+
+
+def test_statement_reads_the_bank_transaction_id(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["A/C No:", "046805005893"]); ws.append([])
+    ws.append(["S.N.", "Tran. Id", "Value Date", "Transaction Date", "Transaction Posted Date",
+               "Cheque. No./Ref. No.", "Transaction Remarks", "Withdrawal Amt (INR)",
+               "Deposit Amt (INR)", "Balance (INR)"])
+    ws.append(["1", "S9149125", "11/Nov/2026", "11/Nov/2026", "11/11/2026 12:19:50 PM", "",
+               "INF/INFT/046676222371/ICICICA4716", "259.40", "", "-2,49,00,000.00"])
+    p = tmp_path / "od.xlsx"
+    wb.save(str(p))
+    rows, summary = S.parse_excel(str(p))
+    assert rows[0].txn_id == "S9149125" and rows[0].withdrawal == 259.40
+    assert rows[0].narration.endswith("ICICICA4716") and rows[0].date == dt.date(2026, 11, 11)
+
+
 def test_transfer_credited_next_day_still_pairs():
     w = _row("NEFT DR-ICIC0000468-VRIDDHI FUELS", withdrawal=75000, date=dt.date(2026, 9, 30))
     d = _row("NEFT CR-HDFC0000240-VRIDDHI FUELS-VRIDDHI FUELS", deposit=75000,

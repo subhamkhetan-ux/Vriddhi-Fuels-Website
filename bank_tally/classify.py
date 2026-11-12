@@ -156,13 +156,37 @@ class Classification:
 def _own_account_in(narration: str, exclude: str | None) -> str | None:
     """The other own account named in a narration — as a whole number (not a
     piece of a longer reference) and never ``exclude`` (the statement's own
-    ledger: a line naming its own account isn't a transfer)."""
+    ledger: a line naming its own account isn't a transfer). Failing that, a
+    short tag naming it by bank + last digits (``ICICICA4716``)."""
     for acct, ledger in OWN_ACCOUNTS.items():
         if ledger == exclude:
             continue
         if re.search(rf"(?<!\d){acct}(?!\d)", narration):
             return ledger
-    return None
+    return _own_account_tag(narration, exclude)
+
+
+def _own_account_tag(narration: str, exclude: str | None) -> str | None:
+    """An own account named by its bank and last digits, as banks write the
+    other leg of a transfer between linked accounts: ``ICICICA4716`` (ICICI
+    current a/c …4716), ``HDFC OD 2542``, ``ICICI XXXXXXXX5893``. The bank must
+    be the one in that account's ledger name, the digits (4 or more) must end
+    its number, and exactly one own account may fit — else None."""
+    up = narration.upper()
+    hits = set()
+    for acct, ledger in OWN_ACCOUNTS.items():
+        if ledger == exclude:
+            continue
+        for bank in _IFSC_BANK.values():
+            if not re.search(rf"\b(?:{bank})\b", ledger.upper()):
+                continue
+            for m in re.finditer(rf"(?<![A-Z])(?:{bank})\s*(?:C/?A|O/?D|CC|SB|SA|A/?C)?"
+                                 rf"[\s/:-]*X*(\d{{4,}})(?!\d)", up):
+                if re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", re.sub(r"\s", "", m.group(0))):
+                    continue                 # an IFSC (HDFC0001819), not an account
+                if acct.endswith(m.group(1)):
+                    hits.add(ledger)
+    return hits.pop() if len(hits) == 1 else None
 
 
 _BANK_TAG = re.compile(r"^[A-Z]{4}(\d{5,}|0[A-Z0-9]{6})?$")   # UTIB / ICIC0SF0002
