@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Dancing+Script:wght@700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Dancing+Script:wght@700&family=Kalam:wght@700&display=swap">
 <style>
 /* Same family as /payments: glass panels over a true-black, orange-lit base. */
 :root {
@@ -516,6 +516,76 @@ table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px 
 .custom-range label { flex: 1 1 140px; }
 /* ---- Tally viewer ---- */
 .view-chips { margin: 4px 0 14px; }
+/* Register: the DSR book and the Stock Register, drawn as the paper pages they're copied into */
+/* the paper page is wider than the app's column: on a wide screen its card takes the window's width */
+@media (min-width: 1100px) { .reg-paper-card { width: min(1640px, calc(100vw - 48px)); margin-left: 50%; transform: translateX(-50%); } }
+.paper-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px -6px 6px; padding: 4px 6px 14px; }
+.paper { width: max-content; margin: 0 auto; background: #fbfaf5; color: #111; border-radius: 3px; padding: 18px 20px 22px;
+  box-shadow: 0 22px 44px -22px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.25);
+  background-image: linear-gradient(90deg, rgba(0,0,0,.025), rgba(0,0,0,0) 30px, rgba(0,0,0,0) calc(100% - 30px), rgba(0,0,0,.035)); }
+.paper-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 16px; margin: 0 0 8px; }
+.paper-head .hindi { font: 600 17px/1.2 "Noto Sans Devanagari", "Kohinoor Devanagari", "Mangal", sans-serif; color: #111; }
+.paper-head h2 { font: 800 21px/1.1 Arial, "Helvetica Neue", sans-serif; color: #000; letter-spacing: .01em; margin: 0; text-align: center; white-space: nowrap; }
+.paper-head .month { justify-self: end; font: 700 12px/1 Arial, sans-serif; color: #000; white-space: nowrap; }
+.paper-head .month u { font: 700 19px/1 "Kalam", "Segoe Print", cursive; color: #c8102e; letter-spacing: .06em; text-decoration-thickness: 1px; text-underline-offset: 4px; margin-left: 2px; }
+table.paper-t { border-collapse: collapse; width: auto; font: 13px/1.15 Arial, "Helvetica Neue", sans-serif; color: #111; border: 2px solid #111; background: transparent; }
+table.paper-t th, table.paper-t td { border: 1px solid #222; padding: 3px 6px; height: 23px; text-align: left; vertical-align: middle; }
+table.paper-t thead th { font: 700 11.5px/1.15 Arial, sans-serif; color: #000; text-transform: uppercase; letter-spacing: 0; text-align: center; white-space: nowrap; background: transparent; }
+table.paper-t thead th.v { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9.5px; padding: 4px 2px; min-width: 22px; }
+table.paper-t thead th.small { font-size: 8px; }
+table.paper-t thead th.pump { min-width: 70px; font-weight: 600; }
+table.paper-t thead th.pump.unused { min-width: 42px; }
+table.paper-t thead th.w { min-width: 66px; }
+table.paper-t th.date { text-align: center; font: 700 12.5px/1 Arial, sans-serif; color: #000; min-width: 44px; background: transparent; }
+table.paper-t th.date.ly { font-size: 9.5px; line-height: 1.05; }
+table.paper-t td.ink { color: #1c2fa0; font: 500 14.5px/1.1 "Segoe UI", Roboto, Arial, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: .01em; }
+table.paper-t td.ink.m { font-size: 13.5px; }
+table.paper-t td.ink.q { color: #9aa0b8; text-align: center; cursor: help; }
+table.paper-t .nil { display: block; text-align: right; font-size: 15px; }
+table.paper-t td.gap, table.paper-t th.gap { border-top: 0; border-bottom: 0; min-width: 8px; padding: 0; }
+table.paper-t .remarks { min-width: 110px; border-left: 2px solid #111; }
+table.paper-t tr.tot th, table.paper-t tr.tot td { border-top: 2px solid #111; }
+table.paper-t tbody tr:hover td { background: transparent; }
+table.paper-t tr.today td, table.paper-t tr.today th { background: rgba(255,230,60,.42); }
+table.paper-t tr.today td.gap { background: transparent; }
+table.paper-t td.hl { background: rgba(255,230,60,.42); }
+table.paper-t tr.today td.nohl { background: transparent; }
+table.paper-t td.ink.typed { text-decoration: underline dotted #1c2fa0; text-underline-offset: 3px; }
+table.paper-t td.edit { padding: 1px 2px; background: #fffbe0; }
+table.paper-t .dip-in { width: 54px; padding: 2px 4px; border: 1px solid #9aa3c7; border-radius: 3px; background: #fff; color: #1c2fa0; font: 500 14px/1.1 "Segoe UI", Roboto, Arial, sans-serif; box-shadow: none; }
+table.paper-t .dip-in:focus { border-color: #1c2fa0; box-shadow: 0 0 0 2px rgba(28,47,160,.2); }
+table.paper-t .dip-in.saved { border-color: #2fa36b; }
+.kpi .adj-open { width: 100%; max-width: 170px; font: 800 22px/1.1 var(--display); padding: 2px 8px; }
+table.adj .adj-in { width: 84px; padding: 4px 8px; text-align: right; display: inline-block; }
+table.adj small { margin-left: 6px; }
+.reg-alert { display: block; margin: 8px 0 4px; font-size: 14px; }
+table.adj th.grp { text-align: center; color: var(--muted); }
+table.adj .sep { border-left: 1px solid var(--glass-line); }
+table.adj tr.future td { color: var(--faint); }
+table.adj tfoot th, table.adj tfoot td { border-top: 1px solid var(--glass-line); font-weight: 700; }
+.paper .reg-flag { background: #ffd666; color: #7a4a00; }
+.paper-row { display: flex; gap: 22px; align-items: flex-start; }
+table.paper-t.side th { text-align: left; font: 700 12px/1.1 Arial, sans-serif; white-space: nowrap; color: #000; text-transform: none; letter-spacing: 0; }
+table.paper-t.side td.ink { min-width: 110px; text-align: right; }
+.paper.stock table.paper-t td.ink { text-align: right; min-width: 92px; }
+.paper.stock .paper-head h2 { font-size: 18px; }
+@media print {
+  body { background: #fff !important; }
+  .top, .tabs, #auto-bar, .view-chips, .card:not(.reg-paper-card), .reg-paper-card > :not(.paper-scroll) { display: none !important; }
+  .reg-paper-card { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
+  .paper-scroll { overflow: visible; margin: 0; padding: 0; }
+  .paper { box-shadow: none; padding: 0; background: #fff; zoom: .74; }
+  .reg-paper-card { width: auto !important; margin: 0 !important; transform: none !important; }
+  .reg-flag { display: none !important; }
+  table.paper-t th, table.paper-t td { height: 20px; padding-top: 2px; padding-bottom: 2px; }
+  table.paper-t tr.today td, table.paper-t tr.today th, table.paper-t td.hl { background: transparent; }
+  @page { size: A4 landscape; margin: 8mm; }
+}
+.reg-flag { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%; background: var(--warn-bg); color: var(--warn); font: 700 10px/1 var(--display); font-style: normal; vertical-align: 1px; cursor: help; }
+.reg-kpis .kpi .val small, .kpis .kpi .val small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.reg-kpi .sub b { color: var(--ink); }
+.reg-kpi .sub .bad-text b, .reg-kpi .sub .good-text b, table.adj .bad-text b, table.adj .good-text b { color: inherit; }
+.reg-kpi.k-hsd { box-shadow: inset 3px 0 0 #ff9e42; } .reg-kpi.k-ms { box-shadow: inset 3px 0 0 #2fd08a; } .reg-kpi.k-xg { box-shadow: inset 3px 0 0 #8fc1ff; }
 a.chip:hover { text-decoration: none; color: var(--ink); }
 a.chip.on:hover { color: #fff; }
 .chip-gap { flex: 0 0 10px; }

@@ -3,6 +3,7 @@
 
 import { fyOf } from './util.js';
 import { loanFromTerms } from '../../fleet/js/loans.js';
+import { demoRegister } from './register-demo.js';
 
 function rng(seed) {                      // small deterministic PRNG (mulberry32)
   let a = seed >>> 0;
@@ -185,6 +186,7 @@ export function demoSeed(today = new Date(), workbook = null) {
     daybooks: [{ fileName: `DayBook ${isoDay(today, -1)}.xlsx`, rows: lastRows }],
     edits: [(api) => api.tankerImport('Demo Tanker Billing.xlsm', tankerBilling)],
     loans: demoLoans(today),
+    register: demoRegister(today),
   };
 }
 

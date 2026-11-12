@@ -12,6 +12,12 @@
 // when those two are the same.
 
 export const MARGIN = { HSD: 2.58, XG: 2.58, MS: 4 };
+// Petrol and XtraGreen are sold at the pumps: the Register's E-DSR has every
+// day's sale through them (cash, cards, credit — all of it). Where it has a
+// day, the litres beyond that day's credit bills are counted as cash & other
+// pump sales, at the day's RSP (so they earn the full margin). Diesel's bulk
+// supplies don't all go through the pumps, so HSD stays as billed.
+export const PUMP_FUELS = ['MS', 'XG'];
 export const FUELS = ['HSD', 'MS', 'XG'];
 export const PRODUCT_NAME = { HSD: 'Diesel', MS: 'Petrol', XG: 'XtraGreen', OTHER: 'Other' };
 
@@ -70,8 +76,9 @@ export function earningOf(product, qty, amount, rsp) {
 
 const blankProducts = () => Object.fromEntries(['HSD', 'MS', 'XG', 'OTHER'].map((p) => [p, { qty: 0, amount: 0, earning: 0, bills: 0 }]));
 
-// data: store.dashboard(from', to') (from' <= from); period: {from, to}
-export function analyse(data, { from, to }) {
+// data: store.dashboard(from', to') (from' <= from); period: {from, to};
+// pump: {'YYYY-MM-DD|MS': litres} — the E-DSR's day sales (register.js pumpSales())
+export function analyse(data, { from, to }, pump = null) {
   const cust = new Map((data.customers || []).map(([k, name, ledger, group]) => [k, { name, ledger, group }]));
   const groupName = new Map((data.groups || []).map(([code, title]) => [code, shortGroup(code, title)]));
   const rsp = dayRsp(data.rsp);
@@ -85,7 +92,8 @@ export function analyse(data, { from, to }) {
   const daily = new Map(days.map((d) => [d, { date: d, qty: { HSD: 0, MS: 0, XG: 0 }, amount: 0, earning: 0 }]));
   const products = blankProducts();
   const entities = new Map();
-  const segments = { bulk: { qty: 0, amount: 0, earning: 0 }, retail: { qty: 0, amount: 0, earning: 0 } };
+  const segments = { bulk: { qty: 0, amount: 0, earning: 0 }, retail: { qty: 0, amount: 0, earning: 0 }, pump: { qty: 0, amount: 0, earning: 0 } };
+  const creditDay = new Map();                                  // 'date|product' -> billed litres
   const months = new Map();
   const month = (d) => {
     const m = d.slice(0, 7);
@@ -105,6 +113,7 @@ export function analyse(data, { from, to }) {
     pr.qty += fuel ? qty : 0; pr.amount += amt; pr.earning += e; pr.bills += Number(n) || 0;
     const day = daily.get(d);
     if (day) { if (fuel) day.qty[p] += qty; day.amount += amt; day.earning += e; }
+    if (fuel) creditDay.set(`${d}|${p}`, (creditDay.get(`${d}|${p}`) || 0) + qty);
     const mo = month(d);
     mo.qty += fuel ? qty : 0; mo.amount += amt; mo.earning += e;
     const ent = entityOf(k);
@@ -116,6 +125,33 @@ export function analyse(data, { from, to }) {
     ep.qty += fuel ? qty : 0; ep.amount += amt; ep.earning += e; ep.bills += Number(n) || 0;
     const sg = segments[ent.kind];
     sg.qty += fuel ? qty : 0; sg.amount += amt; sg.earning += e;
+  }
+  // the pumps' own sale (E-DSR): what wasn't billed on credit
+  const pumpInfo = {};
+  for (const p of PUMP_FUELS) {
+    products[p].credit = products[p].qty;
+    if (!pump) continue;
+    const info = { days: 0, sold: 0, credit: 0, other: 0, last: null, short: 0 };
+    for (const d of days) {
+      const sold = pump[`${d}|${p}`];
+      if (sold == null) continue;
+      const credit = creditDay.get(`${d}|${p}`) || 0;
+      const other = Math.max(0, round2(sold - credit));
+      if (sold < credit - 0.5) info.short += 1;                 // billed more than the pumps sold that day
+      info.days += 1; info.sold += sold; info.credit += credit; info.other += other; info.last = d;
+      if (!other) continue;
+      const r = rsp.at(p, d);
+      const amt = r != null ? other * r : 0;
+      const e = r != null ? other * MARGIN[p] : 0;
+      if (r == null) noRsp += 1;
+      products[p].qty += other; products[p].amount += amt; products[p].earning += e;
+      const day = daily.get(d);
+      day.qty[p] += other; day.amount += amt; day.earning += e;
+      const mo = month(d);
+      mo.qty += other; mo.amount += amt; mo.earning += e;
+      segments.pump.qty += other; segments.pump.amount += amt; segments.pump.earning += e;
+    }
+    if (info.days) pumpInfo[p] = { ...info, sold: round2(info.sold), credit: round2(info.credit), other: round2(info.other) };
   }
   let collections = 0;
   for (const [d, k, amt] of data.payments || []) {
@@ -135,6 +171,7 @@ export function analyse(data, { from, to }) {
 
   const fuelQty = FUELS.reduce((a, p) => a + products[p].qty, 0);
   const amount = Object.values(products).reduce((a, x) => a + x.amount, 0);
+  const billed = amount - segments.pump.amount;
   const earning = Object.values(products).reduce((a, x) => a + x.earning, 0);
   const rspSeries = Object.fromEntries(FUELS.map((p) => [p, days.map((d) => ({ date: d, rsp: rsp.at(p, d) }))]));
   const outByEntity = new Map(outstanding.map((o) => [o.id, o.balance]));
@@ -142,13 +179,13 @@ export function analyse(data, { from, to }) {
   return {
     from, to, days: days.length,
     kpi: {
-      amount: round2(amount), qty: round2(fuelQty), earning: round2(earning), collections: round2(collections),
+      amount: round2(amount), billed: round2(billed), qty: round2(fuelQty), earning: round2(earning), collections: round2(collections),
       perLitre: fuelQty ? round2(earning / fuelQty) : 0,
       outstanding: round2(due.reduce((a, o) => a + o.balance, 0)), advance: round2(advance.reduce((a, o) => a + o.balance, 0)),
       customers: list.filter((e) => e.bills).length, noRsp,
     },
     products, daily: [...daily.values()], months: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
-    customers: list.sort((a, b) => b.qty - a.qty || b.amount - a.amount), segments, outstanding, due, advance, rspSeries,
+    customers: list.sort((a, b) => b.qty - a.qty || b.amount - a.amount), segments, pump: pumpInfo, outstanding, due, advance, rspSeries,
   };
 }
 

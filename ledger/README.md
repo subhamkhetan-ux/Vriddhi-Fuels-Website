@@ -269,6 +269,105 @@ its part when the parts add up ("HDFC" counts as HDFC 1010 when that's the
 only HDFC mode in the period). **Download Excel**: the summary and a sheet per
 mode. (Needs `supabase/ledger-schema.sql` re-run once.)
 
+**Register tab** (right of Home): the pump's **Daily Stock Register** — the
+paper DSR book, a table per product (HSD, MS, XtraGreen) and month — and the
+**Stock Register**, from the three workbooks kept on the Mac:
+
+| Workbook | What the app takes |
+|---|---|
+| **E-DSR.xlsx** (Petrol / Diesel / XtraGreen) | The month (from "DIESEL MONTH OF NOVEMBER 2026"), the opening book stock, each day's receipts, each nozzle's opening meter reading (machines from the merged labels above them) and testing. Sale = the next morning's readings − this morning's − testing, cumulative sale, as its own formulas. |
+| **Stock Register.xlsm** (MS / HSD / XG, Macro Log) | Each day's **Actual Tank Stock** (the next morning's dip stock), the opening shortage and HSD's testing adjustment; every morning its macro logged (**Macro Log**, "LOGGED to F…"). |
+| **DIP Chart.xlsm** (Stock to Dip, Log) | The tank chart (dip in cm → litres, one chart for every tank), **this morning's stock of each tank** (HSD's two tanks), dated by its `=TODAY()`, and its **Log** sheet of mornings. |
+
+Both are drawn as the **paper pages** they're copied into every morning —
+white ruled paper, black print, entries in blue ink: the DSR page as the
+printed book (उत्पाद / PRODUCT title, the month in red, TANK 1–4 with DIP and
+WATER DIP, OPENING : METER READING with PUMPS 1–8 (MS: 1–6 and a REMARKS
+column, XtraGreen: 1–5), TESTING, SALES, COMMUTATIVE SALES, all 31 date
+lines, TOTAL and LAST YEAR SALES), figures written as by hand: whole litres
+and meter readings, dips to a mm, testing as typed, sales to the paisa; ×
+for no receipt; today's line highlighted. The Stock Register page is the
+workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
+Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
+the page (A4 landscape). On a wide screen the page takes the window's width.
+
+This morning's line is highlighted (but not its receipt and total stock —
+what comes in today isn't known yet, so no × either), and on the line before
+it the receipt, total stock,
+testing, sale and cumulative sale those readings complete. **Edit dips**
+turns the dips into boxes: a dip typed there (one misread, or HSD's per-tank
+dips the DIP Chart didn't keep) is kept (`dips:YYYY-MM`) and written over
+the DIP Chart's, dotted-underlined; a **!** says when typed dips don't come
+to the morning's stock on the chart. Clear a box to go back.
+
+**Testing adjustment & actual shortage** (Stock Register tab, under the
+page). The Stock Register's shortage is a **made-up figure** of two parts:
+the **testing adjustment** — the DSR's testing is written higher than what's
+really tested, which keeps the book stock (and so the shortage on the books)
+higher — and the stock's **actual variation** (what the shortage would be if
+the DSR's testing were the actual). The app keeps them apart:
+**actual shortage = the Stock Register's shortage − the testing adjustment**.
+
+- **Actual testing** can be typed for **every day of the month**, ahead
+  too; a day not typed takes the day before's (to start: HSD 30, MS 20,
+  XtraGreen 10 L); a day the DSR has 0 has none. Each day adds DSR testing −
+  actual testing to the adjustment.
+- The month's **opening adjustment** is typed, else **last month's
+  closing** (so a new month's Stock Register opens with it by itself), else
+  the Stock Register's *Testing Adjustment* cell.
+- Shown: the Stock Register's shortage, the testing adjustment, the
+  **actual shortage** and the actual variation this month (from the actual
+  shortage at the opening: the Stock Register's opening shortage − the
+  opening adjustment); opening / added (DSR vs actual testing) / closing
+  adjustment; and every day: DSR and actual testing, the day's adjustment
+  and its running total, the Stock Register's shortage − the testing
+  adjustment = the actual shortage, and the day's actual variation.
+  *This morning* shows both shortages per product; the paper page's box
+  keeps the Stock Register's own figures (plus the adjustment) as copied.
+  Kept as `adjust:YYYY-MM`.
+- **Signs:** in the app a **shortage is − (red) and a gain + (green)** —
+  the Stock Register's shortage, the testing adjustment's and the actual
+  share of it, the variations, and *This morning*. The paper Stock Register
+  page keeps the workbook's own signs (a shortage is +), as it's copied.
+- **Keeping the books in shortage:** when a product's Stock Register
+  variation this month is a **gain of more than 40 L** (the tank holds more
+  than the books say), Home's *Needs your attention*, the Register page and
+  *This morning* warn to raise the testing adjustment — with about how many
+  litres more DSR testing a day, over the days left, make the gain up.
+
+*Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
+morning's dip stock), receipt, total stock, the opening **meter reading** of
+every nozzle by machine, testing, **sale** and **cumulative sale**, a total
+row — today's row marked. The opening stock is the DIP Chart's reading
+(else its Log, else the Stock Register's Actual Tank Stock of the day
+before, else its Macro Log); the dips are that stock read back on the chart
+(the nearest row, as *Stock to Dip* does). Where the Stock Register's stock
+differs from the DIP Chart's (a morning logged before the DIP Chart was
+updated), a **!** says so. HSD's per-tank dips are known for the days the
+app has the DIP Chart's reading — from the first day it's brought in (the
+workbooks keep only the total for earlier days). *Stock Register*: book
+stock (opening + receipts − sale), the **actual tank stock**, **shortage**
+(closing book − actual) and **variation** (its change from the day before;
+the first day from the opening shortage), as the workbook works them out.
+*This morning*: each product's stock, dips and shortage.
+
+The workbooks are reused month after month, so each month is **kept in the
+app** once brought in (`ledger_register`: `dsr:YYYY-MM`, `stock:YYYY-MM`,
+`dipchart`, and `tanklog` — every morning's stock, added to by each import,
+never replaced — plus what's typed: `dips:YYYY-MM`, `adjust:YYYY-MM`); pick a month at the top of the table. The Mac's sync sends
+the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
+(several at once; which is which is worked out from their sheets). Needs
+`supabase/ledger-schema.sql` re-run once. The demo has a made-up month.
+
+**Petrol and XtraGreen sales on Home** come from the pumps once the E-DSR
+is in: the app's sales are the credit bills, but the E-DSR has every day's
+sale through the pumps. For each day it has, the litres beyond that day's
+credit bills count as **cash & others**, at the day's RSP (earning the full
+margin) — in *By product* (credit · cash & others), the litres per day, the
+months and **Bulk vs Retail vs Cash**. Collections are compared with the
+credit sales. Diesel stays as billed (bulk supplies don't all go through the
+pumps).
+
 **Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
 the firm's vehicles — our own tanker trucks and cars in the firm's name — from
 the banks' **repayment schedules**. **Add EMI schedules (PDF)** (several at
@@ -458,12 +557,13 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 
 - **From your Mac:** the Google Drive sync on the Mac (`vriddhi_gdrive.sh`,
   run by *Vriddhi 3 — Google Drive.command*) also uploads **Master
-  Ledger.xlsm** and **Tanker Billing.xlsm** to the app's private storage
+  Ledger.xlsm**, **Tanker Billing.xlsm**, **E-DSR.xlsx**, **Stock
+  Register.xlsm** and **DIP Chart.xlsm** (for *Register*) to the app's private storage
   (Supabase Storage bucket `ledger-uploads`, members only) whenever they
   changed. **The app imports them by itself** as soon as it's open on any
   device (and again when it comes back into view) — no preview, no tap: a
   bar at the top says *Bringing in … from your Mac*, then what came in.
-  Import → *From your Mac* lists both (*imported*, with *Import again* for
+  Import → *From your Mac* lists them (*imported*, with *Import again* for
   the usual preview); if one can't be imported, Home says why and offers the
   preview. The script signs in
   as a ledger member; its password is kept in the Mac's Keychain, not in the
@@ -506,6 +606,9 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/daybook.js` | Reads a Tally DayBook like `ImportDayBook` |
 | `js/master.js` | Reads the Master Ledger (sale sheets, Master Paid, Outstanding, Customer GST, every `*_Bulk` sheet) |
 | `js/po.js` | The PO rule of the Bulk sheets |
+| `js/register.js` | Register: reads the E-DSR, Stock Register and DIP Chart; each morning's dip stock and dips; a product's month (the DSR book and the Stock Register) |
+| `js/register-view.js` | Register: the DSR book's and the Stock Register's tables, *This morning* |
+| `js/register-demo.js` | Register: the demo's made-up month (tank chart, readings, receipts, dips) |
 | `js/store.js` | Talks to the database (`ledger_*` functions); also the in-memory demo store |
 | `js/bills.js` | Which bills go in which PDF (Module8 / Module7 rules) |
 | `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs, JPEGs and zips |
