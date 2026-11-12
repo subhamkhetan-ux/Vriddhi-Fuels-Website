@@ -10,6 +10,11 @@ const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'Au
 export const monthLabel = (m) => `${MON[+m.slice(5, 7) - 1]} ${m.slice(0, 4)}`;
 const SRC = { chart: 'the DIP Chart', log: 'the DIP Chart\'s Log', stock: 'the Stock Register', mac: 'the Stock Register\'s Macro Log' };
 export const srcName = (s) => SRC[s] || s;
+// shortage and gain, as the app shows them (the paper pages keep the Stock
+// Register's own signs): a shortage is − and a gain +, red and green
+export const gainLoss = (n) => (n == null ? '' : `${n < 0 ? '+' : n > 0 ? '−' : ''}${L2.format(Math.abs(n))}`);
+export const gainClass = (n) => (n > 0.005 ? 'bad-text' : n < -0.005 ? 'good-text' : '');
+const gl = (n, bold = false) => (n == null ? '' : `<span class="${gainClass(n)}">${bold ? '<b>' : ''}${gainLoss(n)}${bold ? '</b>' : ''}</span>`);
 const flag = (title) => `<i class="reg-flag" title="${esc(title)}" aria-label="${esc(title)}">!</i>`;
 
 // ---- the paper books ---------------------------------------------------------
@@ -138,8 +143,8 @@ export function morningHtml(latest, shortages = {}) {
     return `<div class="kpi reg-kpi k-${p.key.toLowerCase()}"><span class="lbl">${esc(p.short)}</span>
       <span class="val">${x.stock == null ? '—' : `${litres(x.stock)}<small>&nbsp;L</small>`}</span>
       <span class="sub">${dips}</span>
-      ${sh && sh.value != null ? `<span class="sub">Stock Register shortage <b>${litres(sh.value)}</b> L${sh.day ? ` <span class="faint">(to ${sh.day})</span>` : ''}</span>` : ''}
-      ${sh && sh.actual != null ? `<span class="sub">Actual shortage <b>${litres(sh.actual)}</b> L <span class="faint">(less the testing adjustment)</span></span>` : ''}${warn}</div>`;
+      ${sh && sh.value != null ? `<span class="sub">Stock Register ${gl(sh.value, true)} L${sh.day ? ` <span class="faint">(to ${sh.day})</span>` : ''}</span>` : ''}
+      ${sh && sh.actual != null ? `<span class="sub">Actual ${gl(sh.actual, true)} L <span class="faint">(less the testing adjustment)</span></span>` : ''}${warn}</div>`;
   }).join('')}</div>`;
 }
 
@@ -161,16 +166,16 @@ export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null 
       <td class="r">${future ? '<span class="faint">—</span>' : two(x.dsr)}</td>
       <td class="r"><input class="adj-in" inputmode="decimal" data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}"></td>
       <td class="r">${sgn(x.adj)}</td><td class="r">${two(x.running)}</td>
-      <td class="r sep">${two(sp.shortage)}</td><td class="r">${two(sp.adjust)}</td><td class="r"><b>${two(sp.actual)}</b></td>
-      <td class="r ${sp.actualVar > 0 ? 'bad-text' : sp.actualVar < 0 ? 'good-text' : ''}">${sgn(sp.actualVar)}</td></tr>`;
+      <td class="r sep">${gl(sp.shortage)}</td><td class="r">${gl(sp.adjust)}</td><td class="r">${gl(sp.actual, true)}</td>
+      <td class="r">${gl(sp.actualVar)}</td></tr>`;
   }).join('');
   return `<div class="row-between"><h2>Testing adjustment &amp; actual shortage <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2></div>
-    <p class="muted small">The Stock Register's shortage is made up of two parts: the <b>testing adjustment</b> (the DSR's testing written higher than what's really tested, so the book stock stays higher) and the stock's <b>actual variation</b> — what the shortage would be if the DSR's testing were the actual. Actual shortage = the Stock Register's shortage − the testing adjustment.</p>
+    <p class="muted small">The Stock Register's shortage is made up of two parts: the <b>testing adjustment</b> (the DSR's testing written higher than what's really tested, so the book stock stays higher) and the stock's <b>actual variation</b> — what the shortage would be if the DSR's testing were the actual. Actual = the Stock Register's shortage less the testing adjustment. Shown here: a shortage is <b class="bad-text">−</b>, a gain <b class="good-text">+</b>.</p>
     <div class="kpis">
-      <div class="kpi"><span class="lbl">Stock Register shortage${to}</span><span class="val">${two(split.shortage)}</span><span class="sub">made up — testing adjustment + actual</span></div>
-      <div class="kpi"><span class="lbl">Testing adjustment${to}</span><span class="val">${two(split.adjust)}</span><span class="sub">opening ${two(adj.open ?? 0)} ${adj.added >= 0 ? '+' : '−'} ${two(Math.abs(adj.added))} this month</span></div>
-      <div class="kpi hero"><span class="lbl">Actual shortage${to}</span><span class="val">${two(split.actual)}<small>&nbsp;L</small></span><span class="sub">the stock's real loss${split.actual < 0 ? ' (a gain)' : ''}</span></div>
-      <div class="kpi"><span class="lbl">Actual variation this month</span><span class="val ${split.actualVar > 0 ? 'bad-text' : split.actualVar < 0 ? 'good-text' : ''}">${sgn(split.actualVar)}</span><span class="sub">${pm.openShortage != null ? `from ${two(round(pm.openShortage - (adj.open ?? 0)))} at the opening (Stock Register ${two(pm.openShortage)} − adjustment ${two(adj.open ?? 0)})` : `Stock Register's ${sgn(split.variation)} − testing ${sgn(round(split.variation - split.actualVar))}`}</span></div>
+      <div class="kpi"><span class="lbl">Stock Register shortage${to}</span><span class="val">${gl(split.shortage)}</span><span class="sub">made up — testing adjustment + actual</span></div>
+      <div class="kpi"><span class="lbl">of it: testing adjustment${to}</span><span class="val">${gl(split.adjust)}</span><span class="sub">opening ${two(adj.open ?? 0)} ${adj.added >= 0 ? '+' : '−'} ${two(Math.abs(adj.added))} this month (litres of testing)</span></div>
+      <div class="kpi hero"><span class="lbl">of it: actual${to}</span><span class="val">${gainLoss(split.actual)}<small>&nbsp;L</small></span><span class="sub">the stock's real ${split.actual > 0 ? 'shortage' : split.actual < 0 ? 'gain' : 'variation'}</span></div>
+      <div class="kpi"><span class="lbl">Actual variation this month</span><span class="val">${gl(split.actualVar)}</span><span class="sub">${pm.openShortage != null ? `from ${gainLoss(round(pm.openShortage - (adj.open ?? 0)))} at the opening (Stock Register ${gainLoss(pm.openShortage)}, of it testing adjustment ${gainLoss(adj.open ?? 0)})` : ''}</span></div>
     </div>
     <div class="kpis">
       <div class="kpi"><span class="lbl">Opening adjustment</span>
@@ -184,10 +189,10 @@ export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null 
     <div class="table-wrap"><table class="compact adj">
       <thead><tr><th rowspan="2">Date</th><th colspan="4" class="grp">Testing</th><th colspan="4" class="grp sep">Shortage</th></tr>
         <tr><th class="r">DSR</th><th class="r">Actual</th><th class="r">Adjustment</th><th class="r">Running</th>
-        <th class="r sep">Stock Register</th><th class="r">− Testing adj.</th><th class="r">= Actual</th><th class="r">Actual variation</th></tr></thead>
+        <th class="r sep">Stock Register</th><th class="r">of it: testing adj.</th><th class="r">of it: actual</th><th class="r">Actual variation</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><th>Total</th><td class="r">${two(adj.dsrTotal)}</td><td class="r">${two(adj.actualTotal)}</td><td class="r">${sgn(adj.added)}</td><td class="r">${two(adj.closing)}</td>
-        <td class="r sep">${two(split.shortage)}</td><td class="r">${two(split.adjust)}</td><td class="r"><b>${two(split.actual)}</b></td><td class="r">${sgn(split.actualVar)}</td></tr></tfoot>
+        <td class="r sep">${gl(split.shortage)}</td><td class="r">${gl(split.adjust)}</td><td class="r">${gl(split.actual, true)}</td><td class="r">${gl(split.actualVar)}</td></tr></tfoot>
     </table></div>
     <p class="muted small">Every day's actual testing can be typed, ahead too — a day not typed takes the day before's (to start: HSD 30, MS 20, XtraGreen 10 L); a day the DSR has no testing has none. Leave the opening blank to carry last month's closing.</p>`;
 }

@@ -325,6 +325,10 @@ the DSR's testing were the actual). The app keeps them apart:
   *This morning* shows both shortages per product; the paper page's box
   keeps the Stock Register's own figures (plus the adjustment) as copied.
   Kept as `adjust:YYYY-MM`.
+- **Signs:** in the app a **shortage is − (red) and a gain + (green)** —
+  the Stock Register's shortage, the testing adjustment's and the actual
+  share of it, the variations, and *This morning*. The paper Stock Register
+  page keeps the workbook's own signs (a shortage is +), as it's copied.
 - **Keeping the books in shortage:** when a product's Stock Register
   variation this month is a **gain of more than 40 L** (the tank holds more
   than the books say), Home's *Needs your attention*, the Register page and

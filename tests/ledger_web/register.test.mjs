@@ -9,7 +9,7 @@ import {
   registerAlerts, shortageAlert, testingAdjust,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
-import { adjustHtml, alertText, dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
+import { adjustHtml, alertText, dsrTableHtml, gainLoss, stockTableHtml } from '../../ledger/js/register-view.js';
 import { memoryStore } from '../../ledger/js/store.js';
 import { isoToSerial } from '../../ledger/js/util.js';
 
@@ -260,7 +260,13 @@ test('register: the testing adjustment — actual testing carried day to day, mo
     [[2600, 530, 2070, 10], [2780, 700, 2080, 10], [2775, 700, 2075, -5], [2950, 860, 2090, 15]]);
   assert.deepEqual([split.shortage, split.adjust, split.actual, split.variation, split.actualVar, split.day], [2950, 860, 2090, 400, 30, 4]);
   const html = adjustHtml(n, pm, split, { nextMonth: '2026-12' });
-  assert.match(html, /Actual shortage <span class="faint">to 4 Nov<\/span><\/span><span class="val">2,090.00/);
+  // shown as − for a shortage, + for a gain
+  assert.match(html, /of it: actual <span class="faint">to 4 Nov<\/span><\/span><span class="val">−2,090.00/);
+  assert.match(html, /<span class="bad-text">−2,950.00<\/span>/);       // the Stock Register's shortage
+  assert.match(html, /<span class="bad-text">−30.00<\/span>/);         // the month's actual variation: 30 L more shortage
+  assert.equal(gainLoss(12.5), '−12.50');
+  assert.equal(gainLoss(-12.5), '+12.50');
+  assert.equal(gainLoss(0), '0.00');
   assert.match(html, /December 2026's opening/);
   assert.equal((html.match(/class="adj-in"/g) || []).length, 30);           // every day of the month
 });
