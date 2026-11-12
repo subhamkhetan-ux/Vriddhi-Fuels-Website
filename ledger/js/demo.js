@@ -169,7 +169,7 @@ export function demoSeed(today = new Date(), workbook = null) {
       { company: 'Sample Metals Ltd', hsd_rate: 90.02, address: ['Sample Metals Plant', 'Testpur.', 'GSTIN : 21AAACS0000C1Z3'], payment: ['Payment Details for XtraPower Account:', 'Virtual Account No. – DEMOXP0000000000', 'IFS Code – DEMO0000001', 'Branch Name – DEMO BANK, HEAD OFFICE', 'Beneficiary Name – Demo Oil Company'], po_label: 'P.O. No.:', po_no: 'SM-2026-01', price_tier: 'Twin Price' },
       { company: 'Crew One Logistics', hsd_rate: 91.02, address: ['Crew Camp, Sample Mines', 'Testpur.', ''], payment: pay, po_label: '', po_no: '', price_tier: 'HSD RSP' },
     ],
-    // the workbook itself (sheets, formulas, Module1) — made-up data, see tanker/demo_workbook.mjs
+    // the workbook itself (sheets, formulas, Module1) — made-up data, see ledger/tools/demo_workbook.mjs
     data: workbook ? { model: workbook } : {},
     pi_log: [{
       log_id: 1, pi_no: `PI/${fy}/001`, pi_date: isoDay(today, -3), valid_to: monthHalf(isoDay(today, -3)), customer: 'Demo Power Ltd', gstin: 'GSTIN: 21AAACD0000A1Z1',

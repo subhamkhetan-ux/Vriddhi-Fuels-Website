@@ -1,8 +1,7 @@
-name: Deploy tanker + tally apps to GitHub Pages
+name: Deploy the Tally app to GitHub Pages
 
-# Publishes ONLY the tanker bill app, the Tally voucher app (whose billing
-# module reads the tanker app's assets and the same data file) and that one
-# data file, plus the in-browser Tally import tools (tally-tools/), which bundle
+# Publishes ONLY the Tally voucher app (with the bill assets it reads from
+# tanker/), plus the in-browser Tally import tools (tally-tools/), which bundle
 # the bank/IOCL/fleet app code with the three lists they read: state/
 # customers.json, bank_aliases.json and tally_ledgers.json. It does NOT publish
 # the rest of the repo (beyond the static PDF Toolkit in pdf/) — importantly
@@ -13,7 +12,7 @@ name: Deploy tanker + tally apps to GitHub Pages
 # "GitHub Actions" (it is "Deploy from a branch" today — see below).
 
 # Not run on push: this repo's Pages source is "Deploy from a branch" (main),
-# which already serves every app (ledger/, tally/, tanker/, pdf/, tally-tools/
+# which already serves every app (ledger/, tally/, fleet/, pdf/, tally-tools/
 # …). Run on push, this narrower build raced that deploy and, when it
 # finished last, replaced the whole site with just the folders above — the
 # Ledger app (and tally/ledger-po.js, tally/daybook.js) then 404'd until the
@@ -40,26 +39,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Assemble site (tanker + tally apps and their data only)
+      - name: Assemble site (Tally app and the bill assets it uses)
         run: |
-          mkdir -p _site/tanker _site/tally _site/state
-          cp tanker/index.html _site/tanker/index.html
+          mkdir -p _site/tanker _site/tally
           cp tanker/docx-export.js _site/tanker/docx-export.js
           cp -r tanker/assets _site/tanker/assets
           # Tally voucher app. Its billing module reuses /tanker/'s docx
-          # builder, fonts and letterhead, and reads the same data file.
+          # builder, fonts and letterhead.
           cp tally/index.html tally/billing.js tally/slips.js tally/config.js tally/sw.js \
              tally/theme.css tally/theme.js tally/bridge.js tally/bridge.css tally/report-export.js \
              tally/manifest.webmanifest _site/tally/
           cp -r tally/vendor _site/tally/vendor
           cp "Vriddhi Fuels Logo.png" _site/               # app icon
-          cp state/tanker_billing.json _site/state/tanker_billing.json
           # root redirect -> the app
           cat > _site/index.html <<'HTML'
           <!doctype html><meta charset="utf-8">
-          <meta http-equiv="refresh" content="0; url=./tanker/">
-          <title>Vriddhi Fuels — Tanker Billing</title>
-          <a href="./tanker/">Open Tanker Billing</a> ·
+          <meta http-equiv="refresh" content="0; url=./tally/">
+          <title>Vriddhi Fuels</title>
           <a href="./tally/">Open Tally Vouchers</a> ·
           <a href="./pdf/">Open PDF Toolkit</a>
           HTML
