@@ -7750,6 +7750,69 @@
       },
       "queued_at": "2026-11-12T07:45:24.690785+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "59cd700f3cab7460",
+      "gmail_msg_id": "1881649363842123817",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "12/11/26",
+      "date_serial": 46338,
+      "amount": 397600.0,
+      "raw_payer": "BKD LOGISTICS PVT LTD",
+      "customer": "Bkd Logistics Private Limited",
+      "candidates": [
+        "Bkd Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-12T11:00:25.910821+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "f80391a11fba8f3f",
+      "gmail_msg_id": "1881649480932938568",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "12/11/26",
+      "date_serial": 46338,
+      "amount": 397600.0,
+      "raw_payer": "BHASKAR EARTHMOVER PVT",
+      "customer": "Bhaskar Earthmover Private Limited",
+      "candidates": [
+        "Bhaskar Earthmover Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-12T11:00:25.911727+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "7f26bd935aa9504a",
+      "gmail_msg_id": "1881649697762724830",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "12/11/26",
+      "date_serial": 46338,
+      "amount": 397600.0,
+      "raw_payer": "MAA KARNI EARTHMOVER P",
+      "customer": "Maa Karni Earthmover Private Limited",
+      "candidates": [
+        "Maa Karni Earthmover Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-12T11:00:25.912874+00:00",
+      "status": "matched"
     }
   ]
 }
