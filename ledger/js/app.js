@@ -328,10 +328,27 @@ async function viewHome() {
       <h1 class="jsk${play ? ' play' : ''}"><span class="jsk-text">Jai Shree Krishna</span><img class="jsk-feather" src="assets/morpankh.png" alt=""></h1>
       <p class="greet-dates"><span>Today is <b>${esc(longDate(localToday()))}</b></span><span>Master File is updated until <b>${sum.master_until ? esc(fmtDate(sum.master_until)) : 'not uploaded yet'}</b></span></p>
     </section>`}
+    <div id="mac-home"></div>
     ${empty ? '' : `<div id="dash">${loadingHtml('Working out the figures…')}</div>`}
     ${todo.length ? `<section class="card"><h3>Needs your attention</h3><div class="todos">${todo.join('')}</div></section>` : (empty ? '' : '<section class="card good-card"><b>All caught up.</b> Every bulk bill has a PO and every customer has a ledger.</section>')}
     ${groups.length ? `<section class="card"><h3>PO lists</h3><div class="grid">${groups.map(poCard).join('')}</div></section>` : ''}
     ${last ? `<p class="muted small">Last upload: ${last.kind === 'daybook' ? 'DayBook' : 'Master Ledger'} “${esc(last.file_name)}” · ${new Date(last.created_at).toLocaleString('en-IN')}${last.by_email ? ` · ${esc(last.by_email)}` : ''}</p>` : ''}`);
+  // workbooks the Mac uploaded and not imported yet
+  macUploadsList().then((ups) => {
+    const fresh = ups.filter((u) => u.fresh);
+    const mac = document.getElementById('mac-home');
+    if (!fresh.length || !mac) return;
+    mac.innerHTML = `<section class="card"><h3>New from your Mac</h3>
+      <p class="muted small">Uploaded by the Google Drive sync — review what changed and import.</p>
+      <div class="todos">${fresh.map((u) => `<div class="todo warn"><b>${esc(u.label)}</b> · uploaded ${esc(upWhen(u.updated_at))}
+        <span class="row-gap"><button class="btn small" data-mac-open="${esc(u.name)}">Review &amp; import</button><button class="btn ghost small" data-mac-skip="${esc(u.name)}">Skip this one</button></span></div>`).join('')}</div></section>`;
+    mac.querySelectorAll('[data-mac-open]').forEach((b) => b.addEventListener('click', () => { state.pendingUpload = fresh.find((u) => u.name === b.dataset.macOpen); location.hash = '#/import'; }));
+    mac.querySelectorAll('[data-mac-skip]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+      await markUploadSeen(fresh.find((u) => u.name === b.dataset.macSkip));
+      b.closest('.todo').remove();
+      if (!mac.querySelector('.todo')) mac.innerHTML = '';
+    })));
+  }).catch(() => {});
   const box = document.getElementById('dash');
   if (box) {
     try {
@@ -1380,6 +1397,7 @@ async function viewImport() {
   const [imports, sum] = await Promise.all([state.store.imports(10), state.store.summary()]);
   setMain(`
     ${salesCard(sum)}
+    <div id="mac-import"></div>
     <section class="card" id="daybook-card">
       <h2>Import sales — Tally DayBook</h2>
       <p class="muted">HSD, MS and XG credit vouchers are added, and <b>Tally is the source of truth</b>: a bill already in the app takes the DayBook's date, customer, vehicle, litres, rate and amount — so importing a corrected DayBook again corrects the app. What you typed against a bill here (unit, PO, TDS, shortage, remarks) stays.</p>
@@ -1408,6 +1426,51 @@ async function viewImport() {
   main().querySelector('[data-pick-daybook]')?.addEventListener('click', () => document.getElementById('daybook-file').click());
   document.getElementById('master-file').addEventListener('change', (e) => e.target.files[0] && masterChosen(e.target.files[0], e.target));
   bindTankerImport('tb-file-import', 'tb-out-import');
+  // the workbooks the Mac uploaded: listed here; one picked on Home is opened straight away
+  const ups = await macUploadsList();
+  const box = document.getElementById('mac-import');
+  if (ups.length && box) {
+    box.innerHTML = `<section class="card"><h3>From your Mac</h3>
+      <p class="muted small">Uploaded by the Google Drive sync on your Mac (<code>vriddhi_gdrive.sh</code>) — the same file, imported here with the usual preview.</p>
+      <div class="todos">${ups.map((u) => `<div class="todo${u.fresh ? ' warn' : ''}"><b>${esc(u.label)}</b> · uploaded ${esc(upWhen(u.updated_at))}${u.size ? ` · ${(u.size / 1048576).toFixed(1)} MB` : ''}
+        ${u.fresh ? '<span class="tag warn">new</span>' : '<span class="muted small">imported</span>'}
+        <button class="btn small" data-mac-import="${esc(u.name)}">${u.fresh ? 'Review &amp; import' : 'Import again'}</button></div>`).join('')}</div></section>`;
+    box.querySelectorAll('[data-mac-import]').forEach((b) => b.addEventListener('click', () => guard(() => openMacUpload(ups.find((u) => u.name === b.dataset.macImport)))));
+  }
+  if (state.pendingUpload) {
+    const u = state.pendingUpload;
+    state.pendingUpload = null;
+    await openMacUpload(u);
+  }
+}
+
+// ---- the Mac's uploads (vriddhi_gdrive.sh → Storage bucket ledger-uploads) ----
+const MAC_FILES = { 'master-ledger.xlsm': { kind: 'master', label: 'Master Ledger.xlsm' }, 'tanker-billing.xlsm': { kind: 'tanker', label: 'Tanker Billing.xlsm' } };
+const upWhen = (t) => (t ? new Date(t).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+// [{name, label, kind, updated_at, size, fresh}] — fresh: not imported yet (or uploaded again since)
+async function macUploadsList() {
+  if (!state.store.macUploads) return [];
+  const [list, seen] = await Promise.all([state.store.macUploads().catch(() => []), state.store.setting('mac_uploads').catch(() => null)]);
+  return list.filter((o) => MAC_FILES[o.name]).map((o) => ({
+    ...o, ...MAC_FILES[o.name], fresh: !(seen && seen[o.name] && seen[o.name] >= o.updated_at),
+  })).sort((a, b) => a.label.localeCompare(b.label));
+}
+async function markUploadSeen(u) {
+  const seen = (await state.store.setting('mac_uploads').catch(() => null)) || {};
+  await state.store.setSetting('mac_uploads', { ...seen, [u.name]: u.updated_at }).catch(() => null);
+}
+// fetch an upload and open the import preview with it, as if chosen on this device
+async function openMacUpload(u) {
+  if (!u) return;
+  const out = document.getElementById(u.kind === 'master' ? 'master-out' : 'tb-out-import');
+  if (!out) { state.pendingUpload = u; location.hash = '#/import'; return; }
+  out.innerHTML = loadingHtml(`Fetching ${u.label} from the upload…`);
+  out.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const blob = await state.store.macUploadFile(u.name);
+  const file = new File([blob], u.label, { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
+  file.upload = u;
+  if (u.kind === 'master') await masterChosen(file, { value: '' });
+  else await tankerChosen(file, { value: '' }, 'tb-out-import');
 }
 
 function importRow(i) {
@@ -1597,6 +1660,7 @@ async function masterChosen(file, input) {
       go.textContent = 'Copying…';
       const res = await state.store.importMaster(file.name, payload);
       input.value = '';
+      if (file.upload) await markUploadSeen(file.upload);
       out.innerHTML = `<div class="card good-card"><b>Done.</b> ${plural(res.sales_new, 'new bill')}, ${res.sales_updated} refreshed, ${plural(res.payments, 'payment')}, ${plural(res.customers_new, 'new customer')}, ${plural(res.pos_new, 'new PO')}${res.pos_updated ? `, ${res.pos_updated} PO${res.pos_updated === 1 ? '' : 's'} changed` : ''}${res.pos_removed ? `, ${plural(res.pos_removed, 'PO')} removed` : ''}, ${plural(res.opening, 'opening balance')}, ${plural(res.groups, 'bulk ledger')}.
         ${res.app_payments_in_excel || res.app_payments_open ? `<p>Payments app: ${plural(res.app_payments_in_excel || 0, 'payment')} now in Master Paid (the app's copy was dropped)${res.app_payments_open ? `, ${res.app_payments_open} still waiting for Excel` : ''}.</p>` : ''}
         <p><a href="#/">Home →</a> · <a href="#/pos">PO lists →</a></p></div>`;
@@ -4415,6 +4479,7 @@ async function tankerChosen(file, input, outId) {
       go.textContent = 'Importing…';
       const res = await quotesCall(() => state.store.tankerImport(file.name, { customers: parsed.customers, data, pi_log: parsed.pi_log, cn_log: cnLog, images }));
       input.value = '';
+      if (file.upload) await markUploadSeen(file.upload);
       state.quotes = null;
       state.docForms = null;                    // start from the workbook's new cells
       toast(`Tanker Billing imported: ${plural(res.customers, 'customer')}, ${plural(res.pi_new, 'new PI')}${res.pi_updated ? `, ${res.pi_updated} refreshed` : ''}.`);

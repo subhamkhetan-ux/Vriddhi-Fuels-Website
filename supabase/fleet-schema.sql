@@ -194,6 +194,34 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- From the Mac: the Google Drive sync script (vriddhi_gdrive.sh) also
+-- uploads the Trip Register to this private bucket when it changed, signed
+-- in as a fleet member; the app then offers it ("New Trip Register from
+-- your Mac") with the usual check-and-save preview. Members only. (Skipped
+-- where there's no Supabase Storage, e.g. a plain Postgres.)
+-- ---------------------------------------------------------------------
+do $do$
+begin
+  if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null then return; end if;
+  insert into storage.buckets (id, name, public, file_size_limit)
+  values ('fleet-uploads', 'fleet-uploads', false, 52428800)
+  on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
+  execute 'drop policy if exists fleet_uploads_read on storage.objects';
+  execute 'drop policy if exists fleet_uploads_add on storage.objects';
+  execute 'drop policy if exists fleet_uploads_change on storage.objects';
+  execute 'drop policy if exists fleet_uploads_remove on storage.objects';
+  execute $p$create policy fleet_uploads_read on storage.objects for select to authenticated
+           using (bucket_id = 'fleet-uploads' and (select public.fleet_is_member()))$p$;
+  execute $p$create policy fleet_uploads_add on storage.objects for insert to authenticated
+           with check (bucket_id = 'fleet-uploads' and (select public.fleet_is_member()))$p$;
+  execute $p$create policy fleet_uploads_change on storage.objects for update to authenticated
+           using (bucket_id = 'fleet-uploads' and (select public.fleet_is_member()))
+           with check (bucket_id = 'fleet-uploads' and (select public.fleet_is_member()))$p$;
+  execute $p$create policy fleet_uploads_remove on storage.objects for delete to authenticated
+           using (bucket_id = 'fleet-uploads' and (select public.fleet_is_member()))$p$;
+end $do$;
+
+-- ---------------------------------------------------------------------
 -- Who may call what: the app's functions for logins (they check the
 -- members list themselves); adding / removing members from the SQL Editor only
 -- ---------------------------------------------------------------------

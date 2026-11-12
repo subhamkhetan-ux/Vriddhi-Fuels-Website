@@ -899,3 +899,21 @@ def test_credit_notes_and_their_log(pg):
     assert [r["cn_no"] for r in pg.owner(call("ledger_cn_list"))] == ["BNK/001"]
     assert "No credit note" in pg.fails(call("ledger_cn_delete", 2), **as_owner)
     assert "permission denied" in pg.fails(call("ledger_cn_list"), anon=True)
+
+
+def test_mac_uploads_bucket(pg):
+    """The bucket the Mac's sync script uploads to: private, members only (on a stand-in for Supabase Storage)."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "supabase", "ledger-schema.sql"), encoding="utf-8").read()
+    start = src.index("do $do$")
+    block = src[start:src.index("end $do$;", start) + len("end $do$;")]
+    pg.ok("""
+        create schema if not exists storage;
+        create table if not exists storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint);
+        create table if not exists storage.objects (bucket_id text, name text);
+        alter table storage.objects enable row level security;
+    """)
+    pg.ok(block)
+    pg.ok(block)                                                    # safe to run again
+    assert pg.ok("select public::text || ' ' || file_size_limit from storage.buckets where id = 'ledger-uploads';").strip().splitlines()[-1].strip() == "false 52428800"
+    pols = pg.ok("select string_agg(policyname || ':' || cmd, ',' order by policyname) from pg_policies where tablename = 'objects';")
+    assert "ledger_uploads_add:INSERT" in pols and "ledger_uploads_read:SELECT" in pols and "ledger_uploads_change:UPDATE" in pols and "ledger_uploads_remove:DELETE" in pols

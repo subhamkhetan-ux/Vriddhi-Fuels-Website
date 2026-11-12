@@ -96,10 +96,19 @@ public).
    `TANKER_DRIVE_FILE_ID` as above.
 
 That's it. The **Sync tanker billing data** workflow
-(`.github/workflows/tanker-sync.yml`) then runs **hourly** and on demand
-(**Actions → Sync tanker billing data → Run workflow**), refreshing the JSON
-whenever the workbook changed (it only commits on an actual change). Adjust the
-`cron` in that file to change the cadence.
+(`.github/workflows/tanker-sync.yml`) has **no schedule**: the Mac's Google
+Drive sync (`vriddhi_gdrive.sh`, run by *Vriddhi 3 — Google Drive.command*)
+starts it whenever `Tanker Billing.xlsm` has changed, passing the file's MD5;
+the run waits (up to 20 minutes) until Google Drive has that copy, then
+refreshes the JSON (it only commits on an actual change). It can also be run
+by hand (**Actions → Sync tanker billing data → Run workflow**).
+
+For the Mac to start it, it needs a GitHub token, kept in the Keychain:
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** →
+   Generate: repository access *Only select repositories* → this repository;
+   permissions → **Actions: Read and write**. Copy the token.
+2. On the Mac, in Terminal (it asks for the token):
+   `security add-generic-password -s vriddhi-github -a github -w`
 
 ## Running it by hand
 

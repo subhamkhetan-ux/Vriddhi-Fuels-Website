@@ -55,6 +55,18 @@ export function supabaseStore(client) {
     piList: () => rpc('ledger_pi_list'),
     piSave: (pi, replace = false) => rpc('ledger_pi_save', { p_pi: pi, p_replace: replace }),
     piDelete: (id) => rpc('ledger_pi_delete', { p_id: id }),
+    // the workbooks the Mac's sync script uploads (Storage bucket ledger-uploads)
+    macUploads: async () => {
+      const { data, error } = await client.storage.from('ledger-uploads').list('', { limit: 50, sortBy: { column: 'updated_at', order: 'desc' } });
+      if (error) throw new Error(error.message || String(error));
+      return (data || []).filter((o) => o.name && !o.name.startsWith('.') && o.id)
+        .map((o) => ({ name: o.name, updated_at: o.updated_at || o.created_at, size: o.metadata ? o.metadata.size : null }));
+    },
+    macUploadFile: async (name) => {
+      const { data, error } = await client.storage.from('ledger-uploads').download(name);
+      if (error) throw new Error(error.message || String(error));
+      return data;
+    },
     cnList: () => rpc('ledger_cn_list'),
     cnSave: (cn) => rpc('ledger_cn_save', { p_cn: cn }),
     cnReprinted: (id) => rpc('ledger_cn_reprinted', { p_id: id }),
@@ -547,7 +559,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp', 'mac_uploads'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 
@@ -855,6 +867,17 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       };
       db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
       return { status: old ? 'replaced' : 'logged', row: clone(row) };
+    },
+
+    // the Mac's uploads: none in the demo (seed.macUploads for tests: [{name, updated_at, size, bytes}])
+    async macUploads() {
+      return (seed.macUploads || []).map(({ name, updated_at, size }) => ({ name, updated_at, size }));
+    },
+    async macUploadFile(name) {
+      const u = (seed.macUploads || []).find((x) => x.name === name);
+      if (!u) fail(`No upload ${name}.`);
+      if (u.url) return (await fetch(u.url)).blob();
+      return new Blob([u.bytes || '']);
     },
 
     // Credit notes — same rules as ledger_cn_list / _save / _reprinted / _delete in SQL

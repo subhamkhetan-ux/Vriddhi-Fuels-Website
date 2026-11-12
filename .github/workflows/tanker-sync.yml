@@ -1,21 +1,28 @@
 name: Sync tanker billing data
 
 # Keeps state/tanker_billing.json current with the master "Tanker Billing"
-# workbook that lives on iCloud and is synced daily to Google Drive. A service
-# account reads the Drive copy (read-only), this parses the Customers / RateCard
-# / ProductRates tables, and commits the JSON the tanker-bill app reads.
+# workbook that lives on iCloud and is copied to Google Drive by the Mac's
+# sync (vriddhi_gdrive.sh, "Vriddhi 3 — Google Drive.command"). It reads the
+# Drive copy (read-only), parses the Customers / RateCard / ProductRates
+# tables, and commits the JSON the tanker-bill app reads.
 #
-# One-time setup (service account + secrets) is documented in tanker/README.md.
+# No schedule: the Mac's sync starts this run when Tanker Billing.xlsm has
+# changed, passing the file's MD5 — the run waits until Google Drive has that
+# copy (Drive for Desktop uploads in the background). It can still be run by
+# hand: Actions → Sync tanker billing data → Run workflow.
+#
+# One-time setup (Drive token + secrets, and the Mac's GitHub token) is in
+# tanker/README.md.
 
 on:
-  schedule:
-    # Hourly, on the hour. Only commits when the workbook actually changed, so
-    # frequent runs are cheap. (GitHub may delay scheduled runs under load.)
-    - cron: "0 * * * *"
-  workflow_dispatch:      # allow a manual "Run workflow" from the Actions tab
+  workflow_dispatch:      # started by the Mac's sync, or "Run workflow" from the Actions tab
     inputs:
       file_id:
         description: "Drive file id (overrides the TANKER_DRIVE_FILE_ID variable for this run)"
+        required: false
+        default: ""
+      md5:
+        description: "MD5 of the Mac's copy — wait until Google Drive has it (set by the Mac's sync)"
         required: false
         default: ""
 
@@ -48,6 +55,7 @@ jobs:
           # A file id typed into "Run workflow" wins; otherwise the repo variable.
           DRIVE_FILE_ID: ${{ inputs.file_id || vars.TANKER_DRIVE_FILE_ID }}
           TANKER_FILE_NAME: ${{ vars.TANKER_FILE_NAME }}
+          EXPECT_MD5: ${{ inputs.md5 }}
         run: python3 tanker/sync_tanker_billing.py --from-drive
 
       - name: Commit if changed
