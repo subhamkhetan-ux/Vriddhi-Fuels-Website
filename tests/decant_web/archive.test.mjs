@@ -135,7 +135,7 @@ test('a month\'s log file: every record, and the app\'s results', () => {
   assert.equal(done['Decanted (L)'], 22000);
   assert.equal(done['Tanks'], 'T2 + T3');
   assert.match(done['Audit'], /Tank 3 stock before typed in litres/);
-  assert.match(done['Density check'], /^HSD \d+(\.\d)? \([+-]?\d/);
+  assert.match(done['Density check'], /^HSD \d+(\.\d)? kg\/m³ \([+-]?\d/);
   assert.equal(cancelled['Cancelled because'], 'Cancelled before decanting.');
   assert.equal(sheet('Chambers').length, 5);
   assert.equal(sheet('Chambers')[3]['Into tank'], 'T3');

@@ -418,7 +418,7 @@ function invoiceCard(inv, st, ctx = null) {
     </div>
     <div class="inv-prods">${prods}</div>
     ${truckStrip(layout.chambers, { done: used })}
-    <div class="hint" style="margin-top:6px">${dens ? `Density@15: ${esc(dens)}` : ''}</div>
+    <div class="hint" style="margin-top:6px">${dens ? `Density@15 (kg/m³): ${esc(dens)}` : ''}</div>
     ${[...layout.problems, ...noTank.map((l) => `No tank here holds ${l.key} — it can't be decanted.`)].map((p) => `<div class="banner" style="margin:8px 0 0">${esc(p)}</div>`).join('')}
     ${ctx && st !== 'active' ? roomCheck(inv, layout, used, ctx) : ''}
     <div class="inv-actions">

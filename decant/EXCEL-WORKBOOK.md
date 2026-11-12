@@ -91,7 +91,7 @@ basis of the Log and the Reports.
 | Tanks | e.g. `T2 + T3` |
 | Decanted (L), Net variation (L), Variation (%), Value (₹) | |
 | Audit | the proof line |
-| Density check | e.g. `HSD 831.2 (+0.2 vs invoice 831)` |
+| Density check | e.g. `HSD 831.2 kg/m³ (+0.2 vs invoice 831)` |
 | Notes, Cancelled because | |
 
 **Chambers**: one row per chamber of a decantation.
@@ -109,8 +109,8 @@ basis of the Log and the Reports.
 |---|---|
 | Decantation ID, Invoice, Truck, Product | |
 | Reading (kg/m³), Temperature (°C) | |
-| Density at 15 °C | the app's result (recompute: §9) |
-| Invoice density at 15 °C, Difference, OK | |
+| Density at 15 °C (kg/m³) | the app's result (recompute: §9) |
+| Invoice density at 15 °C (kg/m³), Difference (kg/m³), OK | |
 
 **Invoices**: one row per invoice product line.
 
@@ -119,7 +119,7 @@ basis of the Log and the Reports.
 | Invoice, Invoice date, Invoice time, Truck | |
 | Line | 1, 2 … |
 | Product, Product as invoiced | |
-| Quantity (L), Compartments, Density at 15 °C, Terminal tank | |
+| Quantity (L), Compartments, Density at 15 °C (kg/m³), Terminal tank | |
 | Line value (₹), Invoice amount (₹) | |
 | Origin, Seals, Source | |
 | Hidden, Hidden because | `decanted outside the app` / `not ours` / `deleted` |
@@ -382,28 +382,30 @@ Pick a Decantation ID from a drop-down, newest first.
   | Sold while decanting (only when not 0) | L | |
   | Variation | ±L | ₹ value |
 
-**Footer:** "By NAME · HSD density 831.2 (+0.2 vs invoice)", then the Notes.
+**Footer:** "By NAME · HSD density 831.2 kg/m³ (+0.2 kg/m³ vs invoice)", then the Notes.
 For a cancelled decantation, show "Cancelled" and the reason.
 
-## 9. Density at 15 °C (ASTM D1250 Table 53B)
+## 9. Density at 15 °C (Table 53B, generalised products)
 
-This turns a hydrometer reading R (kg/m³) at T °C into the density at 15 °C.
-It applies only when 500 < R < 1200.
+This turns an observed density R (kg/m³) at T °C into the density at 15 °C,
+also in kg/m³. It applies only when 500 < R < 1200. It matches every cell of
+the Table 53B sheet (0.690–1.009 g/mL, 0–40 °C; multiply the sheet's g/mL by
+1000 for kg/m³). The reading is used as it is: no hydrometer-glass correction.
 
 1. dt = T − 15.
-2. rhoT = R × (1 − 0.000023 × dt − 0.00000002 × dt²).
-3. Start with rho = rhoT.
-4. Repeat up to 50 times:
+2. Start with rho = R.
+3. Repeat up to 100 times:
    - alpha:
-     - rho < 770.5: 346.4228/rho² + 0.4388/rho;
+     - rho < 770.5: (346.4228 + 0.4388 × rho)/rho²;
      - rho < 787.5: −0.00336312 + 2680.3206/rho²;
-     - rho < 839: 594.5418/rho²;
-     - otherwise: 186.9696/rho² + 0.4862/rho.
-   - vcf = EXP(−alpha × dt × (1 + 0.8 × alpha × dt)).
-   - next = rhoT / vcf.
-   - Stop when |next − rho| < 1e−7. Then rho = next.
-5. d15 = JSRound(rho, 1).
-6. diff = JSRound(d15 − invoice density, 1). OK if |diff| ≤ the Settings limit.
+     - rho < 838.5: 594.5418/rho²;
+     - otherwise: (186.9696 + 0.48618 × rho)/rho².
+   - ctl = EXP(−alpha × dt × (1 + 0.8 × alpha × dt)).
+   - next = R / ctl.
+   - Stop when |next − rho| < 1e−9. Then rho = next.
+4. d15 = JSRound(rho, 1) (kg/m³).
+5. diff = JSRound(d15 − invoice density, 1) (kg/m³). OK if |diff| ≤ the
+   Settings limit.
 
 ## 10. How numbers are written
 
