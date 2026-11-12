@@ -47,8 +47,8 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind } from './register.js';
-import { dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
+import { latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind, testingAdjust } from './register.js';
+import { adjustHtml, dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
@@ -389,6 +389,23 @@ async function registerAll(force = false) {
   return state.reg.all;
 }
 
+// what's typed on the Register (dips, the testing adjustment): read the
+// latest, change it, keep it
+async function saveRegisterEntry(k, mutate) {
+  const all = await registerAll(true);
+  const data = JSON.parse(JSON.stringify((all[k] && all[k].data) || {}));
+  mutate(data);
+  await registerCall(() => state.store.registerSave(k, data));
+  state.reg = null;
+}
+const typedNumber = (v, { min = 0, max = 1e7 } = {}) => {
+  const t = String(v ?? '').trim();
+  if (t === '') return null;
+  const n = Number(t.replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < min || n > max) throw new Error(`“${t}” isn't a number between ${min} and ${max}.`);
+  return Math.round(n * 100) / 100;
+};
+
 // one of the three workbooks, read here and kept -> what it brought in, in words
 async function importRegisterFile(file) {
   const XLSX = await loadSheetJS();
@@ -445,10 +462,16 @@ async function viewRegister(tab, month) {
     month: mk, key, by, chart,
     dsr: (all[`dsr:${mk}`] && all[`dsr:${mk}`].data.products[key]) || null,
     stock: (all[`stock:${mk}`] && all[`stock:${mk}`].data.products[key]) || null,
+    typed: (all[`dips:${mk}`] && all[`dips:${mk}`].data[key]) || null,
   });
-  const reg = state.regView || (state.regView = { product: 'HSD' });
+  const reg = state.regView || (state.regView = { product: 'HSD', editDips: false });
   const key = REG_PRODUCTS.some((p) => p.key === reg.product) ? reg.product : 'HSD';
   const pm = pmOf(m, key);
+  const { latest: latestDay, prev: prevDay } = latestDays(pm);
+  const adj = all[`dsr:${m}`] ? testingAdjust(all, key).get(m) : null;
+  const asc = [...months].reverse();
+  const monthBefore = asc[asc.indexOf(m) - 1] || null;
+  const monthAfter = asc[asc.indexOf(m) + 1] || null;
   const latest = latestMorning(by, chart, today);
   const shortages = {};
   if (months[0]) {
@@ -467,7 +490,6 @@ async function viewRegister(tab, month) {
       <div class="kpi hero"><span class="lbl">Shortage${pm.shortageDay ? ` to ${pm.shortageDay} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(pm.shortageNow)}<small>&nbsp;L</small></span><span class="sub">book stock − tank stock</span></div>
       <div class="kpi"><span class="lbl">Opening shortage</span><span class="val">${regLitres(pm.openShortage)}</span><span class="sub">as typed in the Stock Register</span></div>
       <div class="kpi"><span class="lbl">Variation this month</span><span class="val ${t.variation > 0 ? 'bad-text' : t.variation < 0 ? 'good-text' : ''}">${t.variation > 0 ? '+' : ''}${regLitres(t.variation)}</span><span class="sub">${t.sale ? `${((t.variation / t.sale) * 100).toFixed(2)}% of the sale` : ''}</span></div>
-      ${pm.testAdjust ? `<div class="kpi"><span class="lbl">Testing adjustment</span><span class="val">${regLitres(pm.testAdjust)}</span><span class="sub">as typed in the Stock Register</span></div>` : ''}
     </div>` : `<div class="kpis">
       <div class="kpi hero"><span class="lbl">Sale${sold.length ? ` to ${sold[sold.length - 1].day} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(t.sale)}<small>&nbsp;L</small></span><span class="sub">${plural(sold.length, 'day')}${sold.length ? ` · ${regLitres(Math.round((t.sale / sold.length) * 100) / 100)} L a day` : ''}</span></div>
       <div class="kpi"><span class="lbl">Receipts</span><span class="val">${regLitres(t.receipt)}</span><span class="sub">${plural(pm.rows.filter((r) => r.receipt).length, 'load')}</span></div>
@@ -482,24 +504,68 @@ async function viewRegister(tab, month) {
     <section class="card reg-paper-card">
       <div class="row-between"><div class="chips" role="group" aria-label="Product">${REG_PRODUCTS.map((p) => `<button class="chip${p.key === key ? ' on' : ''}" data-reg-product="${p.key}">${esc(p.short)}</button>`).join('')}</div>
         <span class="row-gap">${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}
+          ${tab === 'stock' ? '' : `<button class="btn ${reg.editDips ? '' : 'ghost '}small" id="reg-edit-dips" type="button">${reg.editDips ? 'Done' : 'Edit dips'}</button>`}
           <button class="btn ghost small" id="reg-print" type="button">Print</button></span></div>
       ${missing}
-      ${tab === 'stock' ? stockTableHtml(pm, { today }) : dsrTableHtml(pm, { today })}
+      ${reg.editDips && tab !== 'stock' ? '<p class="small warn-text">Type a dip where it was misread (or missing) — it\'s kept and written over the DIP Chart\'s; clear it to go back. <b>Done</b> when finished.</p>' : ''}
+      ${tab === 'stock' ? stockTableHtml(pm, { latest: latestDay, adj }) : dsrTableHtml(pm, { latest: latestDay, prev: prevDay, edit: reg.editDips })}
       ${flagged.length ? `<p class="small"><i class="reg-flag">!</i> ${tab === 'stock'
         ? `The Stock Register's tank stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')} — hover or tap the mark to see both.`
         : `The Stock Register's stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')}; the DIP Chart's is written here.`}</p>` : ''}
-      ${unknownDips ? '<p class="small muted"><b>?</b> HSD tank dips: the DIP Chart keeps each tank\'s stock only for the day it\'s brought in, so earlier days have just the total.</p>' : ''}
+      ${unknownDips ? '<p class="small muted"><b>?</b> HSD tank dips: the DIP Chart keeps each tank\'s stock only for the day it\'s brought in, so earlier days have just the total — <b>Edit dips</b> to write them from the book.</p>' : ''}
+      ${pm.rows.some((r) => r.dipOff != null) ? '<p class="small"><i class="reg-flag">!</i> Typed dips that don\'t come to the morning\'s stock on the DIP Chart — check them.</p>' : ''}
       <p class="muted small">${tab === 'stock'
         ? 'As the Stock Register works it out: book stock from the E-DSR (opening + receipts − sale); actual tank stock = the next morning\'s dip stock; shortage = book stock left − actual tank stock; variation = the change in the shortage from the day before (the first day: from the opening shortage).'
         : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s) and the dips are that stock read on the DIP Chart; meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing. Written as by hand: whole litres and meter readings, sales to the paisa.'}</p>
       ${kpis}
     </section>
+    ${tab === 'stock' && adj ? `<section class="card" id="reg-adjust">${adjustHtml(adj, pm, { prevMonth: monthBefore, nextMonth: monthAfter })}</section>` : ''}
     <section class="card">
       <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
       ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
       <p class="muted small">${fileLine}</p>
     </section>`);
   document.getElementById('reg-print')?.addEventListener('click', () => window.print());
+  const again = () => guard(() => viewRegister(tab, month));
+  document.getElementById('reg-edit-dips')?.addEventListener('click', () => { reg.editDips = !reg.editDips; again(); });
+  // a typed dip: kept straight away; the page is drawn again on Done
+  main().querySelectorAll('.dip-in').forEach((inp) => inp.addEventListener('change', () => guard(async () => {
+    const v = typedNumber(inp.value, { min: 0, max: 400 });
+    const day = inp.dataset.dipDay;
+    const tank = Number(inp.dataset.dipTank);
+    await saveRegisterEntry(`dips:${m}`, (data) => {
+      const per = data[key] || (data[key] = {});
+      const arr = Array.from({ length: pm.product.tanks }, (_, i) => (per[day] && per[day][i] != null ? per[day][i] : null));
+      arr[tank] = v;
+      if (arr.every((x) => x == null)) delete per[day]; else per[day] = arr;
+    });
+    inp.classList.add('saved');
+  })));
+  // the testing adjustment: the opening, a day's actual testing
+  const focusNext = (sel) => { state.regFocus = sel; };
+  document.getElementById('adj-open')?.addEventListener('change', (e) => guard(async () => {
+    const v = typedNumber(e.target.value, { min: -1e6, max: 1e6 });
+    await saveRegisterEntry(`adjust:${m}`, (data) => { const o = data.open || (data.open = {}); if (v == null) delete o[key]; else o[key] = v; });
+    focusNext('.adj-in');
+    await viewRegister(tab, month);
+  }));
+  main().querySelectorAll('.adj-in').forEach((inp) => inp.addEventListener('change', () => guard(async () => {
+    const v = typedNumber(inp.value, { min: 0, max: 5000 });
+    const day = inp.dataset.adjDay;
+    await saveRegisterEntry(`adjust:${m}`, (data) => {
+      const a = data.actual || (data.actual = {});
+      const per = a[key] || (a[key] = {});
+      if (v == null) delete per[day]; else per[day] = v;
+    });
+    const next = inp.closest('tr').nextElementSibling;
+    focusNext(next ? `.adj-in[data-adj-day="${next.querySelector('.adj-in').dataset.adjDay}"]` : null);
+    await viewRegister(tab, month);
+  })));
+  if (state.regFocus) {
+    const f = main().querySelector(state.regFocus);
+    state.regFocus = null;
+    if (f) { f.focus({ preventScroll: false }); f.scrollIntoView({ block: 'center' }); }
+  }
   bindImport();
   document.getElementById('reg-month')?.addEventListener('change', (e) => { location.hash = `#/register${tab ? `/${tab}` : ''}?m=${e.target.value}`; });
   main().querySelectorAll('[data-reg-product]').forEach((b) => b.addEventListener('click', () => { reg.product = b.dataset.regProduct; guard(() => viewRegister(tab, month)); }));

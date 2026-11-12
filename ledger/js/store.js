@@ -74,6 +74,7 @@ export function supabaseStore(client) {
     // the Register (E-DSR / Stock Register / DIP Chart)
     register: () => rpc('ledger_register_get'),
     registerImport: (kind, fileName, doc, log = {}) => rpc('ledger_register_import', { p_kind: kind, p_file_name: fileName, p_doc: doc, p_log: log }),
+    registerSave: (key, data) => rpc('ledger_register_save', { p_key: key, p_data: data }),
   };
 }
 
@@ -935,6 +936,13 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       db.register[key] = { data: clone(doc), ...meta };
       if (log && Object.keys(log).length) db.register.tanklog = { data: { ...((db.register.tanklog || {}).data || {}), ...clone(log) }, ...meta };
       return { key, month: doc.month || null, mornings: Object.keys(log || {}).length };
+    },
+
+    async registerSave(key, data) {
+      if (!/^(dips|adjust):\d{4}-(0[1-9]|1[0-2])$/.test(String(key || ''))) fail(`Unknown register entry ${key}.`);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) fail('Nothing to save.');
+      db.register[key] = { data: clone(data), file_name: '', updated_at: now(), updated_by: email };
+      return { key };
     },
 
     async imports(limit = 20) {

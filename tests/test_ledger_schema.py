@@ -886,7 +886,17 @@ def test_register_workbooks_and_tank_log(pg):
     assert "month" in pg.fails(call("ledger_register_import", "stock", "x.xlsm", {"month": "2026-13"}, {}), **as_owner)
     assert "Unknown register workbook" in pg.fails(call("ledger_register_import", "tanker", "x.xlsm", {}, {}), **as_owner)
     assert "Bad tank log entry" in pg.fails(call("ledger_register_import", "dipchart", "x.xlsm", {"chart": []}, {"2026-11-02|other": {}}), **as_owner)
+    # what's typed on the Register: dips and the testing adjustment, per month
+    assert pg.owner(call("ledger_register_save", "dips:2026-11", {"HSD": {"1": [181.2, 147.3]}})) == {"key": "dips:2026-11"}
+    pg.owner(call("ledger_register_save", "adjust:2026-11", {"open": {"HSD": 490}, "actual": {"HSD": {"4": 40}}}))
+    pg.owner(call("ledger_register_save", "adjust:2026-11", {"open": {"HSD": 500}}))
+    allr = pg.owner(call("ledger_register_get"))
+    assert allr["dips:2026-11"]["data"] == {"HSD": {"1": [181.2, 147.3]}} and allr["adjust:2026-11"]["data"] == {"open": {"HSD": 500}}
+    assert "Unknown register entry" in pg.fails(call("ledger_register_save", "dsr:2026-11", {}), **as_owner)
+    assert "Unknown register entry" in pg.fails(call("ledger_register_save", "dips:2026-13", {}), **as_owner)
+    assert "Nothing to save" in pg.fails(call("ledger_register_save", "dips:2026-11", []), **as_owner)
     # members only
+    assert "member" in pg.fails(call("ledger_register_save", "dips:2026-11", {}), user=STRANGER, email="stranger@example.com").lower()
     assert "permission denied" in pg.fails(call("ledger_register_get"), anon=True)
     assert "member" in pg.fails(call("ledger_register_get"), user=STRANGER, email="stranger@example.com").lower()
     assert pg.ok("select count(*) from public.ledger_register;", user=STRANGER, email="stranger@example.com").strip().splitlines()[-1].strip() == "0"

@@ -548,6 +548,15 @@ table.paper-t tr.tot th, table.paper-t tr.tot td { border-top: 2px solid #111; }
 table.paper-t tbody tr:hover td { background: transparent; }
 table.paper-t tr.today td, table.paper-t tr.today th { background: rgba(255,230,60,.42); }
 table.paper-t tr.today td.gap { background: transparent; }
+table.paper-t td.hl { background: rgba(255,230,60,.42); }
+table.paper-t td.ink.typed { text-decoration: underline dotted #1c2fa0; text-underline-offset: 3px; }
+table.paper-t td.edit { padding: 1px 2px; background: #fffbe0; }
+table.paper-t .dip-in { width: 54px; padding: 2px 4px; border: 1px solid #9aa3c7; border-radius: 3px; background: #fff; color: #1c2fa0; font: 500 14px/1.1 "Segoe UI", Roboto, Arial, sans-serif; box-shadow: none; }
+table.paper-t .dip-in:focus { border-color: #1c2fa0; box-shadow: 0 0 0 2px rgba(28,47,160,.2); }
+table.paper-t .dip-in.saved { border-color: #2fa36b; }
+.kpi .adj-open { width: 100%; max-width: 170px; font: 800 22px/1.1 var(--display); padding: 2px 8px; }
+table.adj .adj-in { width: 84px; padding: 4px 8px; text-align: right; display: inline-block; }
+table.adj small { margin-left: 6px; }
 .paper .reg-flag { background: #ffd666; color: #7a4a00; }
 .paper-row { display: flex; gap: 22px; align-items: flex-start; }
 table.paper-t.side th { text-align: left; font: 700 12px/1.1 Arial, sans-serif; white-space: nowrap; color: #000; text-transform: none; letter-spacing: 0; }
@@ -563,7 +572,7 @@ table.paper-t.side td.ink { min-width: 110px; text-align: right; }
   .reg-paper-card { width: auto !important; margin: 0 !important; transform: none !important; }
   .reg-flag { display: none !important; }
   table.paper-t th, table.paper-t td { height: 20px; padding-top: 2px; padding-bottom: 2px; }
-  table.paper-t tr.today td, table.paper-t tr.today th { background: transparent; }
+  table.paper-t tr.today td, table.paper-t tr.today th, table.paper-t td.hl { background: transparent; }
   @page { size: A4 landscape; margin: 8mm; }
 }
 .reg-flag { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%; background: var(--warn-bg); color: var(--warn); font: 700 10px/1 var(--display); font-style: normal; vertical-align: 1px; cursor: help; }

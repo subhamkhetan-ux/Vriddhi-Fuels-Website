@@ -291,6 +291,26 @@ workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
 Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
 the page (A4 landscape). On a wide screen the page takes the window's width.
 
+This morning's line is highlighted, and on the line before it the receipt,
+testing, sale and cumulative sale those readings complete. **Edit dips**
+turns the dips into boxes: a dip typed there (one misread, or HSD's per-tank
+dips the DIP Chart didn't keep) is kept (`dips:YYYY-MM`) and written over
+the DIP Chart's, dotted-underlined; a **!** says when typed dips don't come
+to the morning's stock on the chart. Clear a box to go back.
+
+**Testing adjustment** (Stock Register tab, under the page): the DSR's
+testing is written higher than what's really tested, which keeps the book
+stock — and the shortage on the books — higher. Each day the difference
+(DSR testing − actual testing) is added to the testing adjustment. A day's
+actual testing is typed there, else the day before's (to start: HSD 30, MS
+20, XtraGreen 10 L; none on a day the DSR has 0). The month's **opening** is
+typed, else **last month's closing** (so a new month's Stock Register starts
+from it by itself), else the Stock Register's *Testing Adjustment* cell;
+shown: opening, added this month (DSR vs actual testing totals), closing,
+the shortage on the books and without the adjustment, and day by day the
+adjustment and its running total. The page's box shows the opening, this
+month and the closing (`adjust:YYYY-MM`).
+
 *Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
 morning's dip stock), receipt, total stock, the opening **meter reading** of
 every nozzle by machine, testing, **sale** and **cumulative sale**, a total
@@ -310,7 +330,7 @@ the first day from the opening shortage), as the workbook works them out.
 The workbooks are reused month after month, so each month is **kept in the
 app** once brought in (`ledger_register`: `dsr:YYYY-MM`, `stock:YYYY-MM`,
 `dipchart`, and `tanklog` — every morning's stock, added to by each import,
-never replaced); pick a month at the top of the table. The Mac's sync sends
+never replaced — plus what's typed: `dips:YYYY-MM`, `adjust:YYYY-MM`); pick a month at the top of the table. The Mac's sync sends
 the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
 (several at once; which is which is worked out from their sheets). Needs
 `supabase/ledger-schema.sql` re-run once. The demo has a made-up month.

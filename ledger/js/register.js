@@ -318,7 +318,9 @@ export function morningOf(by, date) {
 // ---- one product's month: the DSR book and the Stock Register ---------------
 // dsr: readDsr()'s product, stock: readStock()'s product (or null),
 // by: mornings(), chart: the DIP chart (or null)
-export function productMonth({ month, key, dsr, stock, by, chart }) {
+// typed: the dips typed in the app for this product and month ({day: [tank 1, tank 2…]}),
+// written over the DIP Chart's
+export function productMonth({ month, key, dsr, stock, by, chart, typed = null }) {
   const n = daysIn(month);
   const prod = PRODUCTS.find((p) => p.key === key);
   const rows = [];
@@ -346,6 +348,17 @@ export function productMonth({ month, key, dsr, stock, by, chart }) {
       if (prod.tanks === 2) dips = m.HSD1 != null ? [dipOf(chart, m.HSD1), dipOf(chart, m.HSD2)] : [null, null];
       else dips = [dipOf(chart, stockAm)];
     }
+    // dips typed in the app (one misread, or the paper's when the DIP Chart kept only a total)
+    const typedDips = typed && Array.isArray(typed[d]) && typed[d].some((v) => v != null) ? typed[d] : null;
+    let dipOff = null;
+    if (typedDips) {
+      dips = Array.from({ length: prod.tanks }, (_, i) => (typedDips[i] != null ? Number(typedDips[i]) : dips[i] ?? null));
+      // the typed dips on the chart against the morning's stock
+      if (chart && stockAm != null && dips.every((v) => v != null)) {
+        const v = dips.reduce((a, x) => a + (litresOf(chart, x) || 0), 0);
+        if (Math.abs(v - stockAm) >= 1) dipOff = round2(v - stockAm);
+      }
+    }
     // book stock (E-DSR / Stock Register columns B, D, E)
     const bookOpen = book;
     const bookTotal = bookOpen != null ? round2(bookOpen + (receipt || 0)) : null;
@@ -369,7 +382,7 @@ export function productMonth({ month, key, dsr, stock, by, chart }) {
       day: d, date, receipt, test, meters, sale, cum: sale != null ? cum : null,
       stock: stockAm, stockSrc: m ? m.src[key] || null : null, differs: m ? m.differs[key] ?? null : null,
       total: stockAm != null ? round2(stockAm + (receipt || 0)) : null,
-      tanks: m && prod.tanks === 2 && m.HSD1 != null ? [m.HSD1, m.HSD2] : null, dips,
+      tanks: m && prod.tanks === 2 && m.HSD1 != null ? [m.HSD1, m.HSD2] : null, dips, dipTyped: !!typedDips, dipOff,
       bookOpen, bookTotal, bookClose, actual, actualSrc, actualAlt, shortage, variation,
     });
   }
@@ -418,6 +431,68 @@ export function pumpSales(all, keys = ['MS', 'XG']) {
         if (r.sale != null) out[`${r.date}|${key}`] = r.sale;
       }
     }
+  }
+  return out;
+}
+
+// The latest day with readings (this morning's), and the one before it
+// (whose testing, sale and receipt those readings complete): {latest, prev} day numbers
+export function latestDays(pm) {
+  const r = [...pm.rows].reverse().find((x) => x.meters || x.stock != null);
+  return r ? { latest: r.day, prev: r.day > 1 ? r.day - 1 : null } : { latest: null, prev: null };
+}
+
+// ---- the testing adjustment ------------------------------------------------
+// The DSR's testing is written higher than what's really tested (on purpose:
+// the book stock stays higher, so the shortage on the books is bigger). The
+// difference is kept as the "testing adjustment":
+//   actual testing of a day: typed in the app, else the day before's (the
+//     first ever: HSD 30, MS 20, XtraGreen 10 L); none on a day the DSR has 0
+//   adjustment of a day = DSR testing − actual testing
+//   a month: opening (typed, else last month's closing, else the Stock
+//     Register's "Testing Adjustment"), + its days, = closing
+export const ACTUAL_TEST = { HSD: 30, MS: 20, XG: 10 };
+// all: store.register(); -> Map month -> {open, openSrc, days: [{day, date, dsr, actual, actualSrc, adj, running}],
+//   added, closing, dsrTotal, actualTotal, testDays}
+export function testingAdjust(all, key) {
+  const months = Object.keys(all || {}).filter((k) => k.startsWith('dsr:')).map((k) => k.slice(4)).sort();
+  const out = new Map();
+  let learned = ACTUAL_TEST[key] ?? 0;
+  let everTyped = false;                                    // until a day is typed, the standard figure
+  let carried = null;
+  for (const month of months) {
+    const dsr = all[`dsr:${month}`].data.products[key];
+    const adj = (all[`adjust:${month}`] && all[`adjust:${month}`].data) || {};
+    const typed = (adj.actual && adj.actual[key]) || {};
+    const sheet = all[`stock:${month}`] && all[`stock:${month}`].data.products[key];
+    let open = null;
+    let openSrc = 'none';
+    if (adj.open && adj.open[key] != null && adj.open[key] !== '') { open = Number(adj.open[key]); openSrc = 'typed'; }
+    else if (carried != null) { open = carried; openSrc = 'carried'; }
+    else if (sheet && sheet.testAdjust != null) { open = sheet.testAdjust; openSrc = 'sheet'; }
+    const days = [];
+    let running = open || 0;
+    let added = 0;
+    let dsrTotal = 0;
+    let actualTotal = 0;
+    const n = daysIn(month);
+    for (let d = 1; d <= n; d++) {
+      const test = dsr && dsr.days[d - 1] ? dsr.days[d - 1].test : null;
+      const t = typed[d] ?? typed[String(d)];
+      let actual = null;
+      let src = 'none';
+      if (t != null && t !== '') { actual = Number(t); src = 'typed'; learned = actual; everTyped = true; }
+      else if (test != null) {
+        if (test === 0) { actual = 0; src = 'none'; }                     // no testing that day
+        else { actual = learned; src = everTyped ? 'carried' : 'default'; }
+      }
+      const a = test != null && actual != null ? round2(test - actual) : null;
+      if (a != null) { running = round2(running + a); added = round2(added + a); dsrTotal += test; actualTotal += actual; }
+      days.push({ day: d, date: dateOf(month, d), dsr: test, actual, actualSrc: src, adj: a, running: a != null ? running : null });
+    }
+    const closing = round2((open || 0) + added);
+    out.set(month, { month, open, openSrc, days, added, closing, dsrTotal: round2(dsrTotal), actualTotal: round2(actualTotal), testDays: days.filter((x) => x.adj != null).length });
+    carried = closing;
   }
   return out;
 }

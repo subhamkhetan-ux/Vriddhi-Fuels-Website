@@ -33,8 +33,10 @@ function paperHead(pm, title) {
     <span class="month">MONTH <u>${esc(paperMonth(pm.month))}</u></span></div>`;
 }
 
-// The Daily Stock Register page of one product and month
-export function dsrTableHtml(pm, { today } = {}) {
+// The Daily Stock Register page of one product and month. latest: this
+// morning's day (its line is highlighted) and, on the day before, the receipt,
+// testing, sale and cumulative those readings complete; edit: dips as inputs.
+export function dsrTableHtml(pm, { latest = null, prev = null, edit = false } = {}) {
   const pp = PAPER[pm.key];
   const pumps = Math.max(pp.pumps, pm.nozzles.length);
   const tanks = Math.max(pp.tanks, pm.product.tanks);
@@ -53,22 +55,31 @@ export function dsrTableHtml(pm, { today } = {}) {
   for (let d = 1; d <= 31; d++) {
     const r = d <= n ? pm.rows[d - 1] : null;
     const cells = [];
+    const canEdit = edit && r && (r.stock != null || r.meters || (latest && d <= latest));
     for (let t = 0; t < tanks; t++) {
       const v = r && t < pm.product.tanks ? r.dips[t] : null;
       const unknown = r && r.stock != null && t < pm.product.tanks && v == null;
-      cells.push(unknown ? '<td class="ink q" title="This tank\'s dip isn\'t known for this day: the DIP Chart only kept the total.">?</td>' : ink(v == null ? '' : dip(v)));
+      if (canEdit && t < pm.product.tanks) {
+        cells.push(`<td class="ink edit"><input class="dip-in" inputmode="decimal" data-dip-day="${d}" data-dip-tank="${t}" value="${v == null ? '' : dip(v)}" aria-label="Tank ${t + 1} dip, ${d}"></td>`);
+      } else if (unknown) {
+        cells.push('<td class="ink q" title="This tank\'s dip isn\'t known for this day: the DIP Chart only kept the total. Edit dips to write it.">?</td>');
+      } else {
+        const off = r && r.dipOff != null && t === 0 ? flag(`These dips on the DIP Chart come to ${whole(r.stock + r.dipOff)} L, not the ${whole(r.stock)} L of this morning's stock.`) : '';
+        cells.push(ink(v == null ? '' : `${dip(v)}${off}`, r && r.dipTyped && v != null ? 'typed' : ''));
+      }
       cells.push('<td></td>');
     }
     const flagged = r && r.differs != null ? flag(`The Stock Register has ${whole(r.differs)} for this morning; this is ${srcName(r.stockSrc)}'s.`) : '';
+    const hl = d === prev ? 'hl' : '';                     // the day before: what this morning's readings complete
     cells.push(ink(r ? `${whole(r.stock)}${flagged}` : ''));
-    cells.push(ink(r && r.receipt ? whole(r.receipt) : r && r.stock != null ? '<span class="nil">×</span>' : ''));
+    cells.push(ink(r && r.receipt ? whole(r.receipt) : r && r.stock != null ? '<span class="nil">×</span>' : '', hl));
     cells.push(ink(r ? whole(r.total) : ''));
     for (let i = 0; i < pumps; i++) cells.push(ink(r && r.meters && i < r.meters.length ? whole(r.meters[i]) : '', 'm'));
-    cells.push(ink(r ? testing(r.test) : ''));
-    cells.push(ink(r ? paisa(r.sale) : ''));
-    cells.push(ink(r ? paisa(r.cum) : ''));
+    cells.push(ink(r ? testing(r.test) : '', hl));
+    cells.push(ink(r ? paisa(r.sale) : '', hl));
+    cells.push(ink(r ? paisa(r.cum) : '', hl));
     if (pp.remarks) cells.push('<td class="gap"></td><td class="remarks"></td>');
-    rows.push(`<tr class="${r && r.date === today ? 'today' : ''}"><th class="date">${d}</th>${cells.join('')}</tr>`);
+    rows.push(`<tr class="${d === latest ? 'today' : ''}"><th class="date">${d}</th>${cells.join('')}</tr>`);
   }
   const t = pm.totals;
   const lead = tanks * 2;
@@ -83,7 +94,8 @@ export function dsrTableHtml(pm, { today } = {}) {
 // The Stock Register page, as the workbook's sheet: S.No, Opening Stock,
 // Receipts, Total, Sale, Actual Tank Stock, Shortage, Variation of Shortage
 // and, beside it, the opening / current shortage and today's tank stock
-export function stockTableHtml(pm, { today } = {}) {
+// adj: testingAdjust()'s month for this product (or null)
+export function stockTableHtml(pm, { latest = null, adj = null } = {}) {
   const pp = PAPER[pm.key];
   const n = pm.rows.length;
   const rows = [];
@@ -91,7 +103,7 @@ export function stockTableHtml(pm, { today } = {}) {
     const r = d <= n ? pm.rows[d - 1] : null;
     const alt = r && r.actualAlt != null ? flag(`The DIP Chart has ${paisa(r.actualAlt)} for the next morning.`) : '';
     const via = r && r.actual != null && r.actualSrc !== 'stock' ? '<sup title="Not in the Stock Register yet: from the DIP Chart">*</sup>' : '';
-    rows.push(`<tr class="${r && r.date === today ? 'today' : ''}"><th class="date">${d}</th>
+    rows.push(`<tr class="${latest && d === latest - 1 ? 'today' : ''}"><th class="date">${d}</th>
       ${ink(r ? paisa(r.bookOpen) : '')}${ink(r && r.receipt ? paisa(r.receipt) : r && r.bookOpen != null ? '0.00' : '')}${ink(r ? paisa(r.bookTotal) : '')}
       ${ink(r ? paisa(r.sale) : '')}${ink(r && r.actual != null ? `${paisa(r.actual)}${via}${alt}` : '')}${ink(r ? paisa(r.shortage) : '')}${ink(r ? paisa(r.variation) : '')}</tr>`);
   }
@@ -102,7 +114,9 @@ export function stockTableHtml(pm, { today } = {}) {
     <tr><th>Opening Shortage</th>${ink(paisa(pm.openShortage))}</tr>
     <tr><th>Todays Tank Stock</th>${ink(last ? paisa(last.actual) : '')}</tr>
     <tr><th>Current Shortage</th>${ink(paisa(pm.shortageNow))}</tr>
-    ${pm.testAdjust != null ? `<tr><th>Testing Adjustment</th>${ink(paisa(pm.testAdjust))}</tr>` : ''}</tbody></table>`;
+    ${adj ? `<tr><th>Testing Adj. (opening)</th>${ink(adj.open == null ? '' : paisa(adj.open))}</tr>
+    <tr><th>Testing Adj. (this month)</th>${ink(paisa(adj.added))}</tr>
+    <tr><th>Testing Adjustment</th>${ink(paisa(adj.closing))}</tr>` : pm.testAdjust != null ? `<tr><th>Testing Adjustment</th>${ink(paisa(pm.testAdjust))}</tr>` : ''}</tbody></table>`;
   return `<div class="paper-scroll"><div class="paper stock">
     <div class="paper-head"><span class="hindi">${esc(pp.hindi)}</span><h2>${esc(`${pp.sheet} MONTH OF ${paperMonth(pm.month).replace('-', ' ')}`)}</h2><span class="month">STOCK REGISTER</span></div>
     <div class="paper-row"><table class="paper-t"><thead><tr><th class="date">S.No</th><th class="w">Opening Stock</th><th class="w">Receipts</th><th class="w">Total</th><th class="w">Sale</th>
@@ -125,3 +139,35 @@ export function morningHtml(latest, shortages = {}) {
   }).join('')}</div>`;
 }
 
+// The testing adjustment of one product and month (app style: it's worked
+// here, not copied): opening, each day's DSR testing against the actual,
+// closing; the shortage on the books and without the adjustment.
+const OPEN_SRC = { typed: 'typed here', carried: 'last month\'s closing', sheet: 'the Stock Register\'s "Testing Adjustment"', none: 'not set — type it' };
+export function adjustHtml(adj, pm, { prevMonth = null, nextMonth = null } = {}) {
+  const p = pm.product;
+  const net = pm.shortageNow != null ? Math.round((pm.shortageNow - adj.closing) * 100) / 100 : null;
+  const rows = adj.days.filter((x) => x.dsr != null);
+  const two = (n) => (n == null ? '' : L2.format(n));
+  return `<div class="row-between"><h2>Testing adjustment <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2></div>
+    <p class="muted small">The DSR's testing against what's really tested — a day's actual testing is as typed, else the day before's (to start: HSD 30, MS 20, XtraGreen 10 L). The difference stays in the tank on the books, adding to the shortage; it's carried from month to month.</p>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Opening</span>
+        <span class="val"><input class="adj-open" id="adj-open" inputmode="decimal" value="${adj.openSrc === 'typed' ? esc(String(adj.open)) : ''}" placeholder="${adj.open == null ? '0.00' : esc(adj.open.toFixed(2))}" aria-label="Opening testing adjustment"></span>
+        <span class="sub">${esc(OPEN_SRC[adj.openSrc])}${adj.openSrc === 'carried' && prevMonth ? ` (${esc(monthLabel(prevMonth))})` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Added this month</span><span class="val">${adj.added >= 0 ? '+' : ''}${two(adj.added)}</span>
+        <span class="sub">DSR ${two(adj.dsrTotal)} − actual ${two(adj.actualTotal)} · ${adj.testDays} day${adj.testDays === 1 ? '' : 's'}</span></div>
+      <div class="kpi hero"><span class="lbl">Closing</span><span class="val">${two(adj.closing)}<small>&nbsp;L</small></span>
+        <span class="sub">${nextMonth ? `${esc(monthLabel(nextMonth))}'s opening` : 'goes to next month\'s opening'}</span></div>
+      <div class="kpi"><span class="lbl">Shortage on the books</span><span class="val">${two(pm.shortageNow)}</span>
+        <span class="sub">without the adjustment: <b>${two(net)}</b> L</span></div>
+    </div>
+    <div class="table-wrap"><table class="compact adj">
+      <thead><tr><th>Date</th><th class="r">DSR testing</th><th class="r">Actual testing</th><th class="r">Adjustment</th><th class="r">Running</th></tr></thead>
+      <tbody>${rows.map((x) => `<tr><td class="nowrap">${x.day} ${esc(monthLabel(pm.month).slice(0, 3))}</td><td class="r">${two(x.dsr)}</td>
+        <td class="r"><input class="adj-in" inputmode="decimal" data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}">
+          ${x.actualSrc === 'carried' ? '<small class="faint">as before</small>' : x.actualSrc === 'default' ? '<small class="faint">standard</small>' : ''}</td>
+        <td class="r">${x.adj >= 0 ? '+' : ''}${two(x.adj)}</td><td class="r"><b>${two(x.running)}</b></td></tr>`).join('')}</tbody>
+      <tfoot><tr><th>Total</th><td class="r">${two(adj.dsrTotal)}</td><td class="r">${two(adj.actualTotal)}</td><td class="r">${adj.added >= 0 ? '+' : ''}${two(adj.added)}</td><td class="r"><b>${two(adj.closing)}</b></td></tr></tfoot>
+    </table></div>
+    <p class="muted small">Type a day's actual testing when it changes — the next days follow it. A day the DSR has no testing has none. Leave the opening blank to carry last month's closing.</p>`;
+}

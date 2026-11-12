@@ -259,13 +259,20 @@ create table if not exists public.ledger_credit_notes (
 --                  (source: mac = the Stock Register's Macro Log, log = the
 --                  DIP Chart's Log sheet, chart = a DIP Chart reading) —
 --                  added to by each import, never replaced
+-- and what's typed in the app (ledger_register_save):
+--   dips:YYYY-MM   dips typed over the DIP Chart's ({HSD: {"1": [181.2, 147.3]}})
+--   adjust:YYYY-MM the testing adjustment: the month's opening and each
+--                  day's actual testing ({open: {HSD: 490}, actual: {HSD: {"1": 30}}})
 create table if not exists public.ledger_register (
-  key        text primary key check (key ~ '^((dsr|stock):[0-9]{4}-[0-9]{2}|dipchart|tanklog)$'),
+  key        text primary key,
   data       jsonb not null,
   file_name  text not null default '',
   updated_at timestamptz not null default now(),
   updated_by text not null default ''
 );
+alter table public.ledger_register drop constraint if exists ledger_register_key_check;
+alter table public.ledger_register add constraint ledger_register_key_check
+  check (key ~ '^((dsr|stock|dips|adjust):[0-9]{4}-[0-9]{2}|dipchart|tanklog)$');
 
 -- Loans & EMI: the vehicles' loans (our own tanker trucks, cars in the
 -- firm's name), from the banks' repayment schedules. One row per loan, by
@@ -1803,6 +1810,23 @@ begin
   end if;
   return jsonb_build_object('key', v_key, 'month', v_month,
                             'mornings', (select count(*) from jsonb_object_keys(p_log)));
+end $$;
+
+-- What's typed on the Register: p_key 'dips:YYYY-MM' or 'adjust:YYYY-MM',
+-- p_data the whole of it (replaced)
+create or replace function public.ledger_register_save(p_key text, p_data jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if coalesce(p_key, '') !~ '^(dips|adjust):[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'Unknown register entry %.', p_key;
+  end if;
+  if jsonb_typeof(p_data) is distinct from 'object' then raise exception 'Nothing to save.'; end if;
+  if length(p_data::text) > 100000 then raise exception 'That is too big to keep.'; end if;
+  insert into ledger_register (key, data, file_name, updated_at, updated_by)
+  values (p_key, p_data, '', now(), coalesce(auth.jwt() ->> 'email', ''))
+  on conflict (key) do update set data = excluded.data, updated_at = now(), updated_by = excluded.updated_by;
+  return jsonb_build_object('key', p_key);
 end $$;
 
 create or replace function public.ledger_pi_delete(p_id int)

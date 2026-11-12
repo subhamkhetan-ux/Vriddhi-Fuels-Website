@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  dipOf, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
+  dipOf, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
+  testingAdjust,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
-import { dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
+import { adjustHtml, dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
 import { memoryStore } from '../../ledger/js/store.js';
 import { isoToSerial } from '../../ledger/js/util.js';
 
@@ -182,9 +183,14 @@ test('register: the demo month adds up and draws', async () => {
     assert.ok(pm.rows[11].stock > 0 && pm.rows[11].dips.every((d) => d > 0), key);
     assert.ok(pm.shortageNow > 0 && pm.shortageNow < 3000, `${key} ${pm.shortageNow}`);
     // the paper pages: every date line of the book (31), as printed, today's marked
-    const dsr = dsrTableHtml(pm, { today: '2026-11-12' });
-    const stock = stockTableHtml(pm, { today: '2026-11-12' });
+    const marks = latestDays(pm);
+    assert.deepEqual(marks, { latest: 12, prev: 11 });
+    const dsr = dsrTableHtml(pm, marks);
+    const stock = stockTableHtml(pm, { latest: 12, adj: testingAdjust(all, key).get('2026-11') });
     assert.match(dsr, /<tr class="today"><th class="date">12<\/th>/);
+    // the day before: receipt, testing, sale and cumulative marked (4 cells)
+    assert.equal((dsr.split('<th class="date">11</th>')[1].split('</tr>')[0].match(/ink hl/g) || []).length, 4);
+    assert.match(stock, /Testing Adjustment/);
     assert.equal((dsr.match(/<th class="date/g) || []).length, 31 + 2);        // 1–31, TOTAL, LAST YEAR SALES
     assert.equal((stock.match(/<th class="date/g) || []).length, 1 + 31 + 1);  // S.No, 1–31, G.TOTAL
     assert.match(dsr, /MONTH <u>NOVEMBER-2026<\/u>/);
@@ -199,4 +205,57 @@ test('register: the pumps\' day sales of petrol and XtraGreen, from every month 
   assert.equal(keys.length, 22);                           // 11 days × MS, XG (HSD left out)
   assert.ok(keys.every((k) => /^2026-11-(0[1-9]|1[01])\|(MS|XG)$/.test(k)));
   assert.deepEqual(pumpSales({}), {});
+});
+
+test('register: dips typed in the app are written over the DIP Chart\'s, and checked on the chart', () => {
+  const chart = [[77.7, 7000], [82.7, 8185.89], [147.3, 16208.62], [181.2, 19843.93]];
+  const by = mornings({ '2026-11-02|mac': { HSD: 15185.89 }, '2026-11-01|mac': { HSD: 36052.55 } }, []);
+  const pm = productMonth({ month: '2026-11', key: 'HSD', dsr: null, stock: null, by, chart, typed: { 1: [181.2, 147.3], 2: [77.7, 147.3] } });
+  assert.deepEqual([pm.rows[0].dips, pm.rows[0].dipTyped, pm.rows[0].dipOff], [[181.2, 147.3], true, null]);   // 19843.93 + 16208.62 = 36052.55
+  assert.equal(pm.rows[1].dipTyped, true);
+  assert.equal(pm.rows[1].dipOff, 8022.73);                                // 7000 + 16208.62, not the morning's 15185.89
+  assert.deepEqual([pm.rows[2].dips, pm.rows[2].dipTyped], [[], false]);
+  const html = dsrTableHtml(pm, { latest: 2, prev: 1, edit: true });
+  assert.equal((html.match(/class="dip-in"/g) || []).length, 4);           // 2 days × 2 tanks
+});
+
+test('register: the testing adjustment — actual testing carried day to day, months carried on', () => {
+  const dsrMonth = (month, tests) => ({ data: { month, products: { HSD: { days: tests.map((t) => ({ test: t, meters: null, receipt: null })) } } } });
+  const nov = Array(31).fill(null); nov.splice(0, 4, 70, 200, 0, 200);
+  const dec = Array(32).fill(null); dec.splice(0, 2, 100, 100);
+  const all = {
+    'dsr:2026-11': dsrMonth('2026-11', nov),
+    'stock:2026-11': { data: { month: '2026-11', products: { HSD: { testAdjust: 490 } } } },
+    'adjust:2026-11': { data: { actual: { HSD: { 4: 40 } } } },
+    'dsr:2026-12': dsrMonth('2026-12', dec),
+  };
+  const adj = testingAdjust(all, 'HSD');
+  const n = adj.get('2026-11');
+  // opening from the Stock Register's "Testing Adjustment"; 30 L a day; none on a day the DSR has 0; 40 typed on the 4th
+  assert.deepEqual([n.open, n.openSrc], [490, 'sheet']);
+  assert.deepEqual(n.days.slice(0, 4).map((x) => [x.dsr, x.actual, x.actualSrc, x.adj, x.running]),
+    [[70, 30, 'default', 40, 530], [200, 30, 'default', 170, 700], [0, 0, 'none', 0, 700], [200, 40, 'typed', 160, 860]]);
+  assert.deepEqual([n.added, n.closing, n.dsrTotal, n.actualTotal, n.testDays], [370, 860, 470, 100, 4]);
+  // December opens with November's closing, and keeps the 40 typed last
+  const d = adj.get('2026-12');
+  assert.deepEqual([d.open, d.openSrc, d.days[0].actual, d.days[0].actualSrc, d.closing], [860, 'carried', 40, 'carried', 980]);
+  // an opening typed for December wins
+  all['adjust:2026-12'] = { data: { open: { HSD: 1000 } } };
+  assert.deepEqual([testingAdjust(all, 'HSD').get('2026-12').open, testingAdjust(all, 'HSD').get('2026-12').closing], [1000, 1120]);
+  const pm = { product: { short: 'HSD' }, month: '2026-11', shortageNow: 2457.42 };
+  const html = adjustHtml(n, pm, { nextMonth: '2026-12' });
+  assert.match(html, /without the adjustment: <b>1,597.42<\/b>/);
+  assert.match(html, /December 2026's opening/);
+});
+
+test('register: typed dips and the testing adjustment are kept per month', async () => {
+  const s = memoryStore();
+  await assert.rejects(s.registerSave('dsr:2026-11', {}), /Unknown register entry/);
+  await assert.rejects(s.registerSave('dips:2026-13', {}), /Unknown register entry/);
+  await assert.rejects(s.registerSave('adjust:2026-11', []), /Nothing to save/);
+  await s.registerSave('dips:2026-11', { HSD: { 1: [181.2, 147.3] } });
+  await s.registerSave('adjust:2026-11', { open: { HSD: 490 } });
+  const all = await s.register();
+  assert.deepEqual(all['dips:2026-11'].data, { HSD: { 1: [181.2, 147.3] } });
+  assert.deepEqual(all['adjust:2026-11'].data.open, { HSD: 490 });
 });
