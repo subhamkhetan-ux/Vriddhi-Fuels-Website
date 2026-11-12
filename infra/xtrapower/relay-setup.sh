@@ -24,9 +24,10 @@ SVC_USER=xtrapower
 DIR="$HOME_DIR/relay"
 ENV_FILE="$HOME_DIR/relay.env"       # read by run.sh: present = the monitor uses the relay
 PORT=1080                            # as in xtrapower-relay.service
-# XtraPower's site. Keep in step with relay-server.sh, which lets the key reach
-# only these.
-HOSTS="${XTRAPOWER_RELAY_HOSTS:-beta.iocxtrapower.com}"
+# XtraPower's portal (beta), its login and data API (betaapi: the login itself
+# goes there) and Google's reCAPTCHA, which the login runs invisibly. Keep in
+# step with relay-server.sh, which lets the key reach only these.
+HOSTS="${XTRAPOWER_RELAY_HOSTS:-beta.iocxtrapower.com betaapi.iocxtrapower.com www.google.com www.gstatic.com www.recaptcha.net}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # (to stderr: --key prints only the key, to copy)
