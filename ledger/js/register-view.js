@@ -30,6 +30,8 @@ const whole = (n) => (n == null ? '' : String(Math.trunc(Number(n) + 1e-9)));   
 const paisa = (n) => (n == null ? '' : Number(n).toFixed(2));
 const testing = (n) => (n == null ? '' : (Number.isInteger(n) ? String(n) : Number(n).toFixed(2)));
 const paperMonth = (m) => `${MON[+m.slice(5, 7) - 1].toUpperCase()}-${m.slice(0, 4)}`;
+// the Stock Register page keeps the workbook's signs (a shortage is +), in red; a gain (−) in green
+const sg = (n) => (n == null ? '' : n > 0.005 ? 'short' : n < -0.005 ? 'gain' : '');
 const ink = (v, cls = '') => `<td class="ink${cls ? ` ${cls}` : ''}">${v}</td>`;
 
 function paperHead(pm, title) {
@@ -112,15 +114,15 @@ export function stockTableHtml(pm, { latest = null, adj = null } = {}) {
     const via = r && r.actual != null && r.actualSrc !== 'stock' ? '<sup title="Not in the Stock Register yet: from the DIP Chart">*</sup>' : '';
     rows.push(`<tr class="${latest && d === latest - 1 ? 'today' : ''}"><th class="date">${d}</th>
       ${ink(r ? paisa(r.bookOpen) : '')}${ink(r && r.receipt ? paisa(r.receipt) : r && r.bookOpen != null ? '0.00' : '')}${ink(r ? paisa(r.bookTotal) : '')}
-      ${ink(r ? paisa(r.sale) : '')}${ink(r && r.actual != null ? `${paisa(r.actual)}${via}${alt}` : '')}${ink(r ? paisa(r.shortage) : '')}${ink(r ? paisa(r.variation) : '')}</tr>`);
+      ${ink(r ? paisa(r.sale) : '')}${ink(r && r.actual != null ? `${paisa(r.actual)}${via}${alt}` : '')}${ink(r ? paisa(r.shortage) : '', r ? sg(r.shortage) : '')}${ink(r ? paisa(r.variation) : '', r ? sg(r.variation) : '')}</tr>`);
   }
   const t = pm.totals;
-  rows.push(`<tr class="tot"><th class="date">G.TOTAL</th><td></td>${ink(paisa(t.receipt))}<td></td>${ink(paisa(t.sale))}<td></td><td></td>${ink(paisa(t.variation))}</tr>`);
+  rows.push(`<tr class="tot"><th class="date">G.TOTAL</th><td></td>${ink(paisa(t.receipt))}<td></td>${ink(paisa(t.sale))}<td></td><td></td>${ink(paisa(t.variation), sg(t.variation))}</tr>`);
   const last = [...pm.rows].reverse().find((r) => r.actual != null);
   const side = `<table class="paper-t side"><tbody>
-    <tr><th>Opening Shortage</th>${ink(paisa(pm.openShortage))}</tr>
+    <tr><th>Opening Shortage</th>${ink(paisa(pm.openShortage), sg(pm.openShortage))}</tr>
     <tr><th>Todays Tank Stock</th>${ink(last ? paisa(last.actual) : '')}</tr>
-    <tr><th>Current Shortage</th>${ink(paisa(pm.shortageNow))}</tr>
+    <tr><th>Current Shortage</th>${ink(paisa(pm.shortageNow), sg(pm.shortageNow))}</tr>
     ${adj ? `<tr><th>Testing Adj. (opening)</th>${ink(adj.open == null ? '' : paisa(adj.open))}</tr>
     <tr><th>Testing Adj. (this month)</th>${ink(paisa(adj.added))}</tr>
     <tr><th>Testing Adjustment</th>${ink(paisa(adj.closing))}</tr>` : pm.testAdjust != null ? `<tr><th>Testing Adjustment</th>${ink(paisa(pm.testAdjust))}</tr>` : ''}</tbody></table>`;
