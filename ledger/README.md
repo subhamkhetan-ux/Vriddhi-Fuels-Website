@@ -300,18 +300,31 @@ dips the DIP Chart didn't keep) is kept (`dips:YYYY-MM`) and written over
 the DIP Chart's, dotted-underlined; a **!** says when typed dips don't come
 to the morning's stock on the chart. Clear a box to go back.
 
-**Testing adjustment** (Stock Register tab, under the page): the DSR's
-testing is written higher than what's really tested, which keeps the book
-stock — and the shortage on the books — higher. Each day the difference
-(DSR testing − actual testing) is added to the testing adjustment. A day's
-actual testing is typed there, else the day before's (to start: HSD 30, MS
-20, XtraGreen 10 L; none on a day the DSR has 0). The month's **opening** is
-typed, else **last month's closing** (so a new month's Stock Register starts
-from it by itself), else the Stock Register's *Testing Adjustment* cell;
-shown: opening, added this month (DSR vs actual testing totals), closing,
-the shortage on the books and without the adjustment, and day by day the
-adjustment and its running total. The page's box shows the opening, this
-month and the closing (`adjust:YYYY-MM`).
+**Testing adjustment & actual shortage** (Stock Register tab, under the
+page). The Stock Register's shortage is a **made-up figure** of two parts:
+the **testing adjustment** — the DSR's testing is written higher than what's
+really tested, which keeps the book stock (and so the shortage on the books)
+higher — and the stock's **actual variation** (what the shortage would be if
+the DSR's testing were the actual). The app keeps them apart:
+**actual shortage = the Stock Register's shortage − the testing adjustment**.
+
+- **Actual testing** can be typed for **every day of the month**, ahead
+  too; a day not typed takes the day before's (to start: HSD 30, MS 20,
+  XtraGreen 10 L); a day the DSR has 0 has none. Each day adds DSR testing −
+  actual testing to the adjustment.
+- The month's **opening adjustment** is typed, else **last month's
+  closing** (so a new month's Stock Register opens with it by itself), else
+  the Stock Register's *Testing Adjustment* cell.
+- Shown: the Stock Register's shortage, the testing adjustment, the
+  **actual shortage** and the actual variation this month (from the actual
+  shortage at the opening: the Stock Register's opening shortage − the
+  opening adjustment); opening / added (DSR vs actual testing) / closing
+  adjustment; and every day: DSR and actual testing, the day's adjustment
+  and its running total, the Stock Register's shortage − the testing
+  adjustment = the actual shortage, and the day's actual variation.
+  *This morning* shows both shortages per product; the paper page's box
+  keeps the Stock Register's own figures (plus the adjustment) as copied.
+  Kept as `adjust:YYYY-MM`.
 
 *Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
 morning's dip stock), receipt, total stock, the opening **meter reading** of

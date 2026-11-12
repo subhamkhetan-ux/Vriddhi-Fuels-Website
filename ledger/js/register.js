@@ -451,6 +451,9 @@ export function latestDays(pm) {
 //   adjustment of a day = DSR testing − actual testing
 //   a month: opening (typed, else last month's closing, else the Stock
 //     Register's "Testing Adjustment"), + its days, = closing
+// The Stock Register's shortage is made of two parts: this testing
+// adjustment, and the stock's actual variation (what the shortage would be
+// if the DSR's testing were the actual). actualShortage() splits them.
 export const ACTUAL_TEST = { HSD: 30, MS: 20, XG: 10 };
 // all: store.register(); -> Map month -> {open, openSrc, days: [{day, date, dsr, actual, actualSrc, adj, running}],
 //   added, closing, dsrTotal, actualTotal, testDays}
@@ -481,11 +484,10 @@ export function testingAdjust(all, key) {
       const t = typed[d] ?? typed[String(d)];
       let actual = null;
       let src = 'none';
+      // every day has an actual testing figure (typed ahead for days the DSR hasn't reached yet too)
       if (t != null && t !== '') { actual = Number(t); src = 'typed'; learned = actual; everTyped = true; }
-      else if (test != null) {
-        if (test === 0) { actual = 0; src = 'none'; }                     // no testing that day
-        else { actual = learned; src = everTyped ? 'carried' : 'default'; }
-      }
+      else if (test === 0) { actual = 0; src = 'none'; }                  // no testing that day
+      else { actual = learned; src = everTyped ? 'carried' : 'default'; }
       const a = test != null && actual != null ? round2(test - actual) : null;
       if (a != null) { running = round2(running + a); added = round2(added + a); dsrTotal += test; actualTotal += actual; }
       days.push({ day: d, date: dateOf(month, d), dsr: test, actual, actualSrc: src, adj: a, running: a != null ? running : null });
@@ -495,6 +497,31 @@ export function testingAdjust(all, key) {
     carried = closing;
   }
   return out;
+}
+
+// A product's month split into the Stock Register's (made-up) shortage, the
+// testing adjustment and the actual shortage, day by day:
+// pm: productMonth(), adj: testingAdjust()'s month ->
+//   { days: [{day, shortage, adjust, actual, variation, adjDay, actualVar}], shortage, adjust, actual,
+//     variation (the Stock Register's, this month), actualVar (this month), day }
+export function actualShortage(pm, adj) {
+  const days = pm.rows.map((r) => {
+    const a = adj ? adj.days[r.day - 1] : null;
+    const running = a && a.running != null ? a.running : null;
+    return {
+      day: r.day, shortage: r.shortage, adjust: running,
+      actual: r.shortage != null && running != null ? round2(r.shortage - running) : null,
+      variation: r.variation, adjDay: a ? a.adj : null,
+      actualVar: r.variation != null && a && a.adj != null ? round2(r.variation - a.adj) : null,
+    };
+  });
+  const last = [...days].reverse().find((x) => x.actual != null);
+  const sum = (k) => round2(days.reduce((t, x) => t + (x.actualVar != null ? x[k] : 0), 0));
+  return {
+    days, day: last ? last.day : null,
+    shortage: last ? last.shortage : pm.shortageNow, adjust: last ? last.adjust : (adj ? adj.closing : null), actual: last ? last.actual : null,
+    variation: sum('variation'), actualVar: sum('actualVar'),
+  };
 }
 
 // a register doc's day ('YYYY-MM-DD') when it last has any figure — for "updated until"

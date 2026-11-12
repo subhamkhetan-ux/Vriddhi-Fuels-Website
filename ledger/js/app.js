@@ -47,7 +47,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind, testingAdjust } from './register.js';
+import { actualShortage, latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind, testingAdjust } from './register.js';
 import { adjustHtml, dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
@@ -469,6 +469,7 @@ async function viewRegister(tab, month) {
   const pm = pmOf(m, key);
   const { latest: latestDay, prev: prevDay } = latestDays(pm);
   const adj = all[`dsr:${m}`] ? testingAdjust(all, key).get(m) : null;
+  const split = adj ? actualShortage(pm, adj) : null;
   const asc = [...months].reverse();
   const monthBefore = asc[asc.indexOf(m) - 1] || null;
   const monthAfter = asc[asc.indexOf(m) + 1] || null;
@@ -477,7 +478,9 @@ async function viewRegister(tab, month) {
   if (months[0]) {
     for (const p of REG_PRODUCTS) {
       const x = pmOf(months[0], p.key);
-      shortages[p.key] = { value: x.shortageNow, day: x.shortageDay ? fmtDate(`${months[0]}-${String(x.shortageDay).padStart(2, '0')}`).slice(0, 6) : '' };
+      const a = all[`dsr:${months[0]}`] ? testingAdjust(all, p.key).get(months[0]) : null;
+      const sp = a ? actualShortage(x, a) : null;
+      shortages[p.key] = { value: x.shortageNow, actual: sp ? sp.actual : null, day: x.shortageDay ? fmtDate(`${months[0]}-${String(x.shortageDay).padStart(2, '0')}`).slice(0, 6) : '' };
     }
   }
   const fileLine = [['dsr', `dsr:${m}`, 'E-DSR'], ['stock', `stock:${m}`, 'Stock Register'], ['dip', 'dipchart', 'DIP Chart']]
@@ -487,9 +490,10 @@ async function viewRegister(tab, month) {
   const t = pm.totals;
   const sold = pm.rows.filter((r) => r.sale != null);
   const kpis = tab === 'stock' ? `<div class="kpis">
-      <div class="kpi hero"><span class="lbl">Shortage${pm.shortageDay ? ` to ${pm.shortageDay} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(pm.shortageNow)}<small>&nbsp;L</small></span><span class="sub">book stock − tank stock</span></div>
-      <div class="kpi"><span class="lbl">Opening shortage</span><span class="val">${regLitres(pm.openShortage)}</span><span class="sub">as typed in the Stock Register</span></div>
-      <div class="kpi"><span class="lbl">Variation this month</span><span class="val ${t.variation > 0 ? 'bad-text' : t.variation < 0 ? 'good-text' : ''}">${t.variation > 0 ? '+' : ''}${regLitres(t.variation)}</span><span class="sub">${t.sale ? `${((t.variation / t.sale) * 100).toFixed(2)}% of the sale` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Stock Register shortage${pm.shortageDay ? ` to ${pm.shortageDay} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(pm.shortageNow)}<small>&nbsp;L</small></span><span class="sub">book − tank stock · made up: testing adjustment + actual</span></div>
+      ${split ? `<div class="kpi hero"><span class="lbl">Actual shortage</span><span class="val">${regLitres(split.actual)}<small>&nbsp;L</small></span><span class="sub">less the testing adjustment ${regLitres(split.adjust)}</span></div>` : ''}
+      <div class="kpi"><span class="lbl">Opening shortage</span><span class="val">${regLitres(pm.openShortage)}</span><span class="sub">Stock Register's, as typed there</span></div>
+      <div class="kpi"><span class="lbl">Stock Register variation</span><span class="val ${t.variation > 0 ? 'bad-text' : t.variation < 0 ? 'good-text' : ''}">${t.variation > 0 ? '+' : ''}${regLitres(t.variation)}</span><span class="sub">this month${split ? ` · actual ${split.actualVar > 0 ? '+' : ''}${regLitres(split.actualVar)}` : ''}</span></div>
     </div>` : `<div class="kpis">
       <div class="kpi hero"><span class="lbl">Sale${sold.length ? ` to ${sold[sold.length - 1].day} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(t.sale)}<small>&nbsp;L</small></span><span class="sub">${plural(sold.length, 'day')}${sold.length ? ` · ${regLitres(Math.round((t.sale / sold.length) * 100) / 100)} L a day` : ''}</span></div>
       <div class="kpi"><span class="lbl">Receipts</span><span class="val">${regLitres(t.receipt)}</span><span class="sub">${plural(pm.rows.filter((r) => r.receipt).length, 'load')}</span></div>
@@ -515,11 +519,11 @@ async function viewRegister(tab, month) {
       ${unknownDips ? '<p class="small muted"><b>?</b> HSD tank dips: the DIP Chart keeps each tank\'s stock only for the day it\'s brought in, so earlier days have just the total — <b>Edit dips</b> to write them from the book.</p>' : ''}
       ${pm.rows.some((r) => r.dipOff != null) ? '<p class="small"><i class="reg-flag">!</i> Typed dips that don\'t come to the morning\'s stock on the DIP Chart — check them.</p>' : ''}
       <p class="muted small">${tab === 'stock'
-        ? 'As the Stock Register works it out: book stock from the E-DSR (opening + receipts − sale); actual tank stock = the next morning\'s dip stock; shortage = book stock left − actual tank stock; variation = the change in the shortage from the day before (the first day: from the opening shortage).'
+        ? 'As the Stock Register works it out: book stock from the E-DSR (opening + receipts − sale); actual tank stock = the next morning\'s dip stock; shortage = book stock left − actual tank stock (made up: the testing adjustment + the stock\'s actual variation — see below); variation = the change in the shortage from the day before (the first day: from the opening shortage).'
         : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s) and the dips are that stock read on the DIP Chart; meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing. Written as by hand: whole litres and meter readings, sales to the paisa.'}</p>
       ${kpis}
     </section>
-    ${tab === 'stock' && adj ? `<section class="card" id="reg-adjust">${adjustHtml(adj, pm, { prevMonth: monthBefore, nextMonth: monthAfter })}</section>` : ''}
+    ${tab === 'stock' && adj ? `<section class="card" id="reg-adjust">${adjustHtml(adj, pm, split, { prevMonth: monthBefore, nextMonth: monthAfter })}</section>` : ''}
     <section class="card">
       <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
       ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}

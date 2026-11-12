@@ -137,39 +137,57 @@ export function morningHtml(latest, shortages = {}) {
     return `<div class="kpi reg-kpi k-${p.key.toLowerCase()}"><span class="lbl">${esc(p.short)}</span>
       <span class="val">${x.stock == null ? '—' : `${litres(x.stock)}<small>&nbsp;L</small>`}</span>
       <span class="sub">${dips}</span>
-      ${sh && sh.value != null ? `<span class="sub">Shortage <b>${litres(sh.value)}</b> L${sh.day ? ` <span class="faint">(to ${sh.day})</span>` : ''}</span>` : ''}</div>`;
+      ${sh && sh.value != null ? `<span class="sub">Stock Register shortage <b>${litres(sh.value)}</b> L${sh.day ? ` <span class="faint">(to ${sh.day})</span>` : ''}</span>` : ''}
+      ${sh && sh.actual != null ? `<span class="sub">Actual shortage <b>${litres(sh.actual)}</b> L <span class="faint">(less the testing adjustment)</span></span>` : ''}</div>`;
   }).join('')}</div>`;
 }
 
 // The testing adjustment of one product and month (app style: it's worked
-// here, not copied): opening, each day's DSR testing against the actual,
-// closing; the shortage on the books and without the adjustment.
-const OPEN_SRC = { typed: 'typed here', carried: 'last month\'s closing', sheet: 'the Stock Register\'s "Testing Adjustment"', none: 'not set — type it' };
-export function adjustHtml(adj, pm, { prevMonth = null, nextMonth = null } = {}) {
+// here, not copied). The Stock Register's shortage is made up of the testing
+// adjustment and the stock's actual variation; both are kept apart here.
+// adj: testingAdjust()'s month, split: actualShortage()
+const OPEN_SRC = { typed: 'typed here', carried: 'last month\'s closing', sheet: 'the Stock Register\'s "Testing Adjustment" cell', none: 'not set — type it' };
+export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null } = {}) {
   const p = pm.product;
-  const net = pm.shortageNow != null ? Math.round((pm.shortageNow - adj.closing) * 100) / 100 : null;
-  const rows = adj.days.filter((x) => x.dsr != null);
+  const mon = monthLabel(pm.month).slice(0, 3);
   const two = (n) => (n == null ? '' : L2.format(n));
-  return `<div class="row-between"><h2>Testing adjustment <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2></div>
-    <p class="muted small">The DSR's testing against what's really tested — a day's actual testing is as typed, else the day before's (to start: HSD 30, MS 20, XtraGreen 10 L). The difference stays in the tank on the books, adding to the shortage; it's carried from month to month.</p>
+  const sgn = (n) => (n == null ? '' : `${n > 0 ? '+' : n < 0 ? '−' : ''}${L2.format(Math.abs(n))}`);
+  const to = split.day ? ` <span class="faint">to ${split.day} ${esc(mon)}</span>` : '';
+  const rows = adj.days.map((x) => {
+    const sp = split.days[x.day - 1];
+    const future = x.dsr == null;
+    return `<tr class="${future ? 'future' : ''}"><td class="nowrap">${x.day} ${esc(mon)}</td>
+      <td class="r">${future ? '<span class="faint">—</span>' : two(x.dsr)}</td>
+      <td class="r"><input class="adj-in" inputmode="decimal" data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}"></td>
+      <td class="r">${sgn(x.adj)}</td><td class="r">${two(x.running)}</td>
+      <td class="r sep">${two(sp.shortage)}</td><td class="r">${two(sp.adjust)}</td><td class="r"><b>${two(sp.actual)}</b></td>
+      <td class="r ${sp.actualVar > 0 ? 'bad-text' : sp.actualVar < 0 ? 'good-text' : ''}">${sgn(sp.actualVar)}</td></tr>`;
+  }).join('');
+  return `<div class="row-between"><h2>Testing adjustment &amp; actual shortage <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2></div>
+    <p class="muted small">The Stock Register's shortage is made up of two parts: the <b>testing adjustment</b> (the DSR's testing written higher than what's really tested, so the book stock stays higher) and the stock's <b>actual variation</b> — what the shortage would be if the DSR's testing were the actual. Actual shortage = the Stock Register's shortage − the testing adjustment.</p>
     <div class="kpis">
-      <div class="kpi"><span class="lbl">Opening</span>
+      <div class="kpi"><span class="lbl">Stock Register shortage${to}</span><span class="val">${two(split.shortage)}</span><span class="sub">made up — testing adjustment + actual</span></div>
+      <div class="kpi"><span class="lbl">Testing adjustment${to}</span><span class="val">${two(split.adjust)}</span><span class="sub">opening ${two(adj.open ?? 0)} ${adj.added >= 0 ? '+' : '−'} ${two(Math.abs(adj.added))} this month</span></div>
+      <div class="kpi hero"><span class="lbl">Actual shortage${to}</span><span class="val">${two(split.actual)}<small>&nbsp;L</small></span><span class="sub">the stock's real loss${split.actual < 0 ? ' (a gain)' : ''}</span></div>
+      <div class="kpi"><span class="lbl">Actual variation this month</span><span class="val ${split.actualVar > 0 ? 'bad-text' : split.actualVar < 0 ? 'good-text' : ''}">${sgn(split.actualVar)}</span><span class="sub">${pm.openShortage != null ? `from ${two(round(pm.openShortage - (adj.open ?? 0)))} at the opening (Stock Register ${two(pm.openShortage)} − adjustment ${two(adj.open ?? 0)})` : `Stock Register's ${sgn(split.variation)} − testing ${sgn(round(split.variation - split.actualVar))}`}</span></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Opening adjustment</span>
         <span class="val"><input class="adj-open" id="adj-open" inputmode="decimal" value="${adj.openSrc === 'typed' ? esc(String(adj.open)) : ''}" placeholder="${adj.open == null ? '0.00' : esc(adj.open.toFixed(2))}" aria-label="Opening testing adjustment"></span>
         <span class="sub">${esc(OPEN_SRC[adj.openSrc])}${adj.openSrc === 'carried' && prevMonth ? ` (${esc(monthLabel(prevMonth))})` : ''}</span></div>
-      <div class="kpi"><span class="lbl">Added this month</span><span class="val">${adj.added >= 0 ? '+' : ''}${two(adj.added)}</span>
-        <span class="sub">DSR ${two(adj.dsrTotal)} − actual ${two(adj.actualTotal)} · ${adj.testDays} day${adj.testDays === 1 ? '' : 's'}</span></div>
-      <div class="kpi hero"><span class="lbl">Closing</span><span class="val">${two(adj.closing)}<small>&nbsp;L</small></span>
-        <span class="sub">${nextMonth ? `${esc(monthLabel(nextMonth))}'s opening` : 'goes to next month\'s opening'}</span></div>
-      <div class="kpi"><span class="lbl">Shortage on the books</span><span class="val">${two(pm.shortageNow)}</span>
-        <span class="sub">without the adjustment: <b>${two(net)}</b> L</span></div>
+      <div class="kpi"><span class="lbl">Added this month</span><span class="val">${sgn(adj.added)}</span>
+        <span class="sub">DSR testing ${two(adj.dsrTotal)} − actual ${two(adj.actualTotal)} · ${adj.testDays} day${adj.testDays === 1 ? '' : 's'}</span></div>
+      <div class="kpi"><span class="lbl">Closing adjustment</span><span class="val">${two(adj.closing)}</span>
+        <span class="sub">${nextMonth ? `${esc(monthLabel(nextMonth))}'s opening` : 'next month\'s opening'}</span></div>
     </div>
     <div class="table-wrap"><table class="compact adj">
-      <thead><tr><th>Date</th><th class="r">DSR testing</th><th class="r">Actual testing</th><th class="r">Adjustment</th><th class="r">Running</th></tr></thead>
-      <tbody>${rows.map((x) => `<tr><td class="nowrap">${x.day} ${esc(monthLabel(pm.month).slice(0, 3))}</td><td class="r">${two(x.dsr)}</td>
-        <td class="r"><input class="adj-in" inputmode="decimal" data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}">
-          ${x.actualSrc === 'carried' ? '<small class="faint">as before</small>' : x.actualSrc === 'default' ? '<small class="faint">standard</small>' : ''}</td>
-        <td class="r">${x.adj >= 0 ? '+' : ''}${two(x.adj)}</td><td class="r"><b>${two(x.running)}</b></td></tr>`).join('')}</tbody>
-      <tfoot><tr><th>Total</th><td class="r">${two(adj.dsrTotal)}</td><td class="r">${two(adj.actualTotal)}</td><td class="r">${adj.added >= 0 ? '+' : ''}${two(adj.added)}</td><td class="r"><b>${two(adj.closing)}</b></td></tr></tfoot>
+      <thead><tr><th rowspan="2">Date</th><th colspan="4" class="grp">Testing</th><th colspan="4" class="grp sep">Shortage</th></tr>
+        <tr><th class="r">DSR</th><th class="r">Actual</th><th class="r">Adjustment</th><th class="r">Running</th>
+        <th class="r sep">Stock Register</th><th class="r">− Testing adj.</th><th class="r">= Actual</th><th class="r">Actual variation</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><th>Total</th><td class="r">${two(adj.dsrTotal)}</td><td class="r">${two(adj.actualTotal)}</td><td class="r">${sgn(adj.added)}</td><td class="r">${two(adj.closing)}</td>
+        <td class="r sep">${two(split.shortage)}</td><td class="r">${two(split.adjust)}</td><td class="r"><b>${two(split.actual)}</b></td><td class="r">${sgn(split.actualVar)}</td></tr></tfoot>
     </table></div>
-    <p class="muted small">Type a day's actual testing when it changes — the next days follow it. A day the DSR has no testing has none. Leave the opening blank to carry last month's closing.</p>`;
+    <p class="muted small">Every day's actual testing can be typed, ahead too — a day not typed takes the day before's (to start: HSD 30, MS 20, XtraGreen 10 L); a day the DSR has no testing has none. Leave the opening blank to carry last month's closing.</p>`;
 }
+const round = (n) => Math.round(n * 100) / 100;

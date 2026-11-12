@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  dipOf, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
+  actualShortage, dipOf, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
   testingAdjust,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
@@ -246,10 +246,23 @@ test('register: the testing adjustment — actual testing carried day to day, mo
   // an opening typed for December wins
   all['adjust:2026-12'] = { data: { open: { HSD: 1000 } } };
   assert.deepEqual([testingAdjust(all, 'HSD').get('2026-12').open, testingAdjust(all, 'HSD').get('2026-12').closing], [1000, 1120]);
-  const pm = { product: { short: 'HSD' }, month: '2026-11', shortageNow: 2457.42 };
-  const html = adjustHtml(n, pm, { nextMonth: '2026-12' });
-  assert.match(html, /without the adjustment: <b>1,597.42<\/b>/);
+  // a day the DSR hasn't reached yet still has its actual testing (typed ahead, or carried)
+  assert.deepEqual([n.days[9].dsr, n.days[9].actual, n.days[9].actualSrc, n.days[9].adj], [null, 40, 'carried', null]);
+  // the Stock Register's shortage = testing adjustment + actual: split day by day
+  const rows = Array.from({ length: 30 }, (_, i) => ({ day: i + 1, shortage: null, variation: null }));
+  Object.assign(rows[0], { shortage: 2600, variation: 50 });
+  Object.assign(rows[1], { shortage: 2780, variation: 180 });
+  Object.assign(rows[2], { shortage: 2775, variation: -5 });
+  Object.assign(rows[3], { shortage: 2950, variation: 175 });
+  const pm = { product: { short: 'HSD' }, month: '2026-11', shortageNow: 2950, rows };
+  const split = actualShortage(pm, n);
+  assert.deepEqual(split.days.slice(0, 4).map((x) => [x.shortage, x.adjust, x.actual, x.actualVar]),
+    [[2600, 530, 2070, 10], [2780, 700, 2080, 10], [2775, 700, 2075, -5], [2950, 860, 2090, 15]]);
+  assert.deepEqual([split.shortage, split.adjust, split.actual, split.variation, split.actualVar, split.day], [2950, 860, 2090, 400, 30, 4]);
+  const html = adjustHtml(n, pm, split, { nextMonth: '2026-12' });
+  assert.match(html, /Actual shortage <span class="faint">to 4 Nov<\/span><\/span><span class="val">2,090.00/);
   assert.match(html, /December 2026's opening/);
+  assert.equal((html.match(/class="adj-in"/g) || []).length, 30);           // every day of the month
 });
 
 test('register: typed dips and the testing adjustment are kept per month', async () => {
