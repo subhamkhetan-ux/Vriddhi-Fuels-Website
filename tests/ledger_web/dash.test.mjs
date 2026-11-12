@@ -89,3 +89,25 @@ test('quantities: exact litres, kilolitres (exact to the litre) from 10,000 L', 
   assert.deepEqual([5350, 11.74, 351, 9999.5, 54100, 192345.67, 1923460, 0].map(litres),
     ['5,350 L', '11.74 L', '351 L', '9,999.5 L', '54.100 KL', '192.346 KL', '1,923.460 KL', '0 L']);
 });
+
+test('petrol & XtraGreen: the pumps\' sale (E-DSR) beyond the credit bills counts as cash & others', () => {
+  const data = {
+    customers: [['a', 'Alpha Roadlines', 'Alpha', null]], groups: [],
+    rsp: [['2026-09-01', 'MS', 100], ['2026-09-02', 'MS', 100], ['2026-09-01', 'HSD', 90]],
+    sales: [['2026-09-01', 'MS', 'a', 10, 1000, 1], ['2026-09-02', 'MS', 'a', 8, 800, 1], ['2026-09-01', 'HSD', 'a', 100, 9000, 1]],
+    payments: [['2026-09-02', 'a', 900]], outstanding: [],
+  };
+  const plain = analyse(data, { from: '2026-09-01', to: '2026-09-03' });
+  assert.equal(plain.products.MS.qty, 18);
+  assert.deepEqual(plain.pump, {});
+  // day 1: the pumps sold 25 L, 10 billed -> 15 L cash at ₹100, earning the ₹4 margin; day 2: 5 sold but 8 billed
+  const pump = { '2026-09-01|MS': 25, '2026-09-02|MS': 5, '2026-09-01|HSD': 999, '2026-08-31|MS': 50 };
+  const a = analyse(data, { from: '2026-09-01', to: '2026-09-03' }, pump);
+  assert.deepEqual([a.products.MS.qty, a.products.MS.credit, a.products.MS.amount, a.products.MS.bills], [33, 18, 3300, 2]);
+  assert.equal(Math.round(a.products.MS.earning * 100) / 100, Math.round((plain.products.MS.earning + 60) * 100) / 100);
+  assert.equal(a.products.HSD.qty, 100);                    // diesel stays as billed
+  assert.deepEqual(a.pump.MS, { days: 2, sold: 30, credit: 18, other: 15, last: '2026-09-02', short: 1 });
+  assert.deepEqual(a.segments.pump, { qty: 15, amount: 1500, earning: 60 });
+  assert.equal(a.daily[0].qty.MS, 25);
+  assert.deepEqual([a.kpi.amount, a.kpi.billed, a.kpi.qty], [12300, 10800, 133]);
+});

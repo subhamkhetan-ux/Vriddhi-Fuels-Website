@@ -279,6 +279,18 @@ paper DSR book, a table per product (HSD, MS, XtraGreen) and month — and the
 | **Stock Register.xlsm** (MS / HSD / XG, Macro Log) | Each day's **Actual Tank Stock** (the next morning's dip stock), the opening shortage and HSD's testing adjustment; every morning its macro logged (**Macro Log**, "LOGGED to F…"). |
 | **DIP Chart.xlsm** (Stock to Dip, Log) | The tank chart (dip in cm → litres, one chart for every tank), **this morning's stock of each tank** (HSD's two tanks), dated by its `=TODAY()`, and its **Log** sheet of mornings. |
 
+Both are drawn as the **paper pages** they're copied into every morning —
+white ruled paper, black print, entries in blue ink: the DSR page as the
+printed book (उत्पाद / PRODUCT title, the month in red, TANK 1–4 with DIP and
+WATER DIP, OPENING : METER READING with PUMPS 1–8 (MS: 1–6 and a REMARKS
+column, XtraGreen: 1–5), TESTING, SALES, COMMUTATIVE SALES, all 31 date
+lines, TOTAL and LAST YEAR SALES), figures written as by hand: whole litres
+and meter readings, dips to a mm, testing as typed, sales to the paisa; ×
+for no receipt; today's line highlighted. The Stock Register page is the
+workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
+Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
+the page (A4 landscape). On a wide screen the page takes the window's width.
+
 *Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
 morning's dip stock), receipt, total stock, the opening **meter reading** of
 every nozzle by machine, testing, **sale** and **cumulative sale**, a total
@@ -302,6 +314,15 @@ never replaced); pick a month at the top of the table. The Mac's sync sends
 the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
 (several at once; which is which is worked out from their sheets). Needs
 `supabase/ledger-schema.sql` re-run once. The demo has a made-up month.
+
+**Petrol and XtraGreen sales on Home** come from the pumps once the E-DSR
+is in: the app's sales are the credit bills, but the E-DSR has every day's
+sale through the pumps. For each day it has, the litres beyond that day's
+credit bills count as **cash & others**, at the day's RSP (earning the full
+margin) — in *By product* (credit · cash & others), the litres per day, the
+months and **Bulk vs Retail vs Cash**. Collections are compared with the
+credit sales. Diesel stays as billed (bulk supplies don't all go through the
+pumps).
 
 **Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
 the firm's vehicles — our own tanker trucks and cars in the firm's name — from

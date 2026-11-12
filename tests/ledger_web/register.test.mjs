@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  dipOf, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, readDipChart, readDsr, readStock, registerKind,
+  dipOf, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
 import { dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
@@ -137,6 +137,20 @@ test('register: whose morning stock wins, and a DIP Chart reading carried to the
   assert.deepEqual(latest.products.map((p) => [p.key, p.stock, p.dips]), [['HSD', 3, [1, 2]], ['MS', 700, [70]], ['XG', null, []]]);
 });
 
+test('register: the paper DSR writes figures as by hand', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ day: i + 1, date: `2026-11-${String(i + 1).padStart(2, '0')}`, dips: [], stock: null }));
+  rows[0] = { ...rows[0], stock: 36052.55, total: 36052.55, receipt: null, dips: [181.2, 147.3], meters: [1996010.83, 3242550.03], test: 70, sale: 20694.82, cum: 20694.82 };
+  rows[1] = { ...rows[1], stock: 15185.89, total: 81185.89, receipt: 66000, dips: [null, null], meters: [1996438.59, 3246114.37], test: 200, sale: 61598.96, cum: 82293.78 };
+  const pm = { key: 'HSD', month: '2026-11', product: { tanks: 2 }, nozzles: [{ label: 'A2', machine: 'Machine No. 1' }, { label: 'B2', machine: 'Machine No. 1' }],
+    rows, totals: { receipt: 66000, test: 270, sale: 82293.78, variation: 0 } };
+  const html = dsrTableHtml(pm, {});
+  const line = (d) => html.split(`<th class="date">${d}</th>`)[1].split('</tr>')[0].replace(/<[^>]+>/g, '|').split('|').map((x) => x.trim()).filter(Boolean);
+  assert.deepEqual(line(1), ['181.2', '147.3', '36052', '×', '36052', '1996010', '3242550', '70', '20694.82', '20694.82']);
+  assert.deepEqual(line(2), ['?', '?', '15185', '66000', '81185', '1996438', '3246114', '200', '61598.96', '82293.78']);
+  assert.match(html, /PRODUCT : HSD \(HIGH SPEED DIESEL\)/);
+  assert.equal((html.match(/class="pump/g) || []).length, 8);
+});
+
 test('register: kept per workbook and month; the tank log only grows', async () => {
   const s = memoryStore();
   assert.deepEqual(await s.register(), {});
@@ -167,8 +181,22 @@ test('register: the demo month adds up and draws', async () => {
     for (const r of days) assert.ok(Math.abs(r.bookOpen + (r.receipt || 0) - r.sale - r.bookClose) < 0.01);
     assert.ok(pm.rows[11].stock > 0 && pm.rows[11].dips.every((d) => d > 0), key);
     assert.ok(pm.shortageNow > 0 && pm.shortageNow < 3000, `${key} ${pm.shortageNow}`);
-    const html = dsrTableHtml(pm, { today: '2026-11-12' }) + stockTableHtml(pm, { today: '2026-11-12' });
-    assert.match(html, /class="[^"]*today/);
-    assert.equal((html.match(/<tr/g) || []).length, (2 + 30 + 1) + (1 + 30 + 1));    // headers, 30 days, totals
+    // the paper pages: every date line of the book (31), as printed, today's marked
+    const dsr = dsrTableHtml(pm, { today: '2026-11-12' });
+    const stock = stockTableHtml(pm, { today: '2026-11-12' });
+    assert.match(dsr, /<tr class="today"><th class="date">12<\/th>/);
+    assert.equal((dsr.match(/<th class="date/g) || []).length, 31 + 2);        // 1–31, TOTAL, LAST YEAR SALES
+    assert.equal((stock.match(/<th class="date/g) || []).length, 1 + 31 + 1);  // S.No, 1–31, G.TOTAL
+    assert.match(dsr, /MONTH <u>NOVEMBER-2026<\/u>/);
+    assert.match(stock, /MONTH OF NOVEMBER 2026/);
   }
+});
+
+test('register: the pumps\' day sales of petrol and XtraGreen, from every month kept', async () => {
+  const s = memoryStore({ register: demoRegister(new Date(2026, 10, 12)) });
+  const sales = pumpSales(await s.register());
+  const keys = Object.keys(sales).sort();
+  assert.equal(keys.length, 22);                           // 11 days × MS, XG (HSD left out)
+  assert.ok(keys.every((k) => /^2026-11-(0[1-9]|1[01])\|(MS|XG)$/.test(k)));
+  assert.deepEqual(pumpSales({}), {});
 });

@@ -405,6 +405,23 @@ export function latestMorning(by, chart, upTo) {
   return null;
 }
 
+// The E-DSR's day sales of the pump products, from every month kept:
+// all: store.register() -> {'YYYY-MM-DD|MS': litres}
+export function pumpSales(all, keys = ['MS', 'XG']) {
+  const out = {};
+  for (const [k, v] of Object.entries(all || {})) {
+    if (!k.startsWith('dsr:') || !v || !v.data || !v.data.month) continue;
+    for (const key of keys) {
+      const dsr = v.data.products && v.data.products[key];
+      if (!dsr) continue;
+      for (const r of productMonth({ month: v.data.month, key, dsr, stock: null, by: null, chart: null }).rows) {
+        if (r.sale != null) out[`${r.date}|${key}`] = r.sale;
+      }
+    }
+  }
+  return out;
+}
+
 // a register doc's day ('YYYY-MM-DD') when it last has any figure — for "updated until"
 export function lastDay(pm) {
   const r = [...pm.rows].reverse().find((x) => x.sale != null || x.meters);

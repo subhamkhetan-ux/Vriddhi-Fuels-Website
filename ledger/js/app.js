@@ -47,7 +47,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, readDipChart, readDsr, readStock, registerKind } from './register.js';
+import { latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind } from './register.js';
 import { dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
@@ -476,28 +476,30 @@ async function viewRegister(tab, month) {
   const missing = tab === 'stock' ? (hasStock ? '' : `<p class="warn-text small">The Stock Register for ${esc(regMonth(m))} isn't here: the actual tank stock comes from the DIP Chart's readings instead (marked *).</p>`)
     : (hasDsr ? '' : `<p class="warn-text small">The E-DSR for ${esc(regMonth(m))} isn't here, so there are no meter readings or sales.</p>`);
   const flagged = pm.rows.filter((r) => (tab === 'stock' ? r.actualAlt != null : r.differs != null));
+  const unknownDips = pm.product.tanks === 2 && pm.rows.some((r) => r.stock != null && r.dips[0] == null);
   setMain(`
     ${tabs}
-    <section class="card">
-      <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
-      ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
-      <p class="muted small">${fileLine}</p>
-    </section>
-    <section class="card">
-      <div class="row-between"><h2>${esc(pm.product.name)} <span class="muted">· ${esc(regMonth(m))}</span></h2>
-        ${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}</div>
-      <div class="chips" role="group" aria-label="Product">${REG_PRODUCTS.map((p) => `<button class="chip${p.key === key ? ' on' : ''}" data-reg-product="${p.key}">${esc(p.short)}</button>`).join('')}</div>
-      ${kpis}
+    <section class="card reg-paper-card">
+      <div class="row-between"><div class="chips" role="group" aria-label="Product">${REG_PRODUCTS.map((p) => `<button class="chip${p.key === key ? ' on' : ''}" data-reg-product="${p.key}">${esc(p.short)}</button>`).join('')}</div>
+        <span class="row-gap">${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}
+          <button class="btn ghost small" id="reg-print" type="button">Print</button></span></div>
       ${missing}
       ${tab === 'stock' ? stockTableHtml(pm, { today }) : dsrTableHtml(pm, { today })}
       ${flagged.length ? `<p class="small"><i class="reg-flag">!</i> ${tab === 'stock'
         ? `The Stock Register's tank stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')} — hover or tap the mark to see both.`
-        : `The Stock Register's stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')}; the DIP Chart's is shown.`}</p>` : ''}
+        : `The Stock Register's stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')}; the DIP Chart's is written here.`}</p>` : ''}
+      ${unknownDips ? '<p class="small muted"><b>?</b> HSD tank dips: the DIP Chart keeps each tank\'s stock only for the day it\'s brought in, so earlier days have just the total.</p>' : ''}
       <p class="muted small">${tab === 'stock'
-        ? 'As the Stock Register works it out: book stock is the E-DSR\'s (opening + receipts − sale); the actual tank stock is the next morning\'s dip stock; shortage = closing book stock − actual tank stock; variation = the change in the shortage from the day before (the first day: from the opening shortage).'
-        : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s), and the dips are that stock read on the DIP Chart. Meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing.'}
-        ${pm.product.tanks === 2 ? ' HSD\'s two tanks: each tank\'s dip is known from the DIP Chart readings the app has, from the day it\'s first brought in.' : ''}</p>
+        ? 'As the Stock Register works it out: book stock from the E-DSR (opening + receipts − sale); actual tank stock = the next morning\'s dip stock; shortage = book stock left − actual tank stock; variation = the change in the shortage from the day before (the first day: from the opening shortage).'
+        : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s) and the dips are that stock read on the DIP Chart; meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing. Written as by hand: whole litres and meter readings, sales to the paisa.'}</p>
+      ${kpis}
+    </section>
+    <section class="card">
+      <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
+      ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
+      <p class="muted small">${fileLine}</p>
     </section>`);
+  document.getElementById('reg-print')?.addEventListener('click', () => window.print());
   bindImport();
   document.getElementById('reg-month')?.addEventListener('change', (e) => { location.hash = `#/register${tab ? `/${tab}` : ''}?m=${e.target.value}`; });
   main().querySelectorAll('[data-reg-product]').forEach((b) => b.addEventListener('click', () => { reg.product = b.dataset.regProduct; guard(() => viewRegister(tab, month)); }));
@@ -574,11 +576,11 @@ function dashboardHtml(a, per, key) {
         <label>From <input type="date" name="from" value="${a.from}" max="${per.month.to}" required></label>
         <label>To <input type="date" name="to" value="${a.to}" max="${per.month.to}" required></label>
         <button class="btn small" type="submit">Show</button></form>` : ''}
-      <p class="muted small">${fmtDate(a.from)} – ${fmtDate(a.to)} · from the sales and payments in the app · earnings at ₹2.58/L diesel &amp; XtraGreen, ₹4/L petrol off the day's RSP</p>
+      <p class="muted small">${fmtDate(a.from)} – ${fmtDate(a.to)} · from the sales and payments in the app${Object.keys(a.pump).length ? ` · petrol &amp; XtraGreen as the pumps sold them (E-DSR, to ${esc(fmtDate(Object.values(a.pump).map((x) => x.last).sort().pop()))})` : ''} · earnings at ₹2.58/L diesel &amp; XtraGreen, ₹4/L petrol off the day's RSP</p>
       <div class="kpis">
         <div class="kpi hero"><span class="lbl">Earnings</span><span class="val">${money(k.earning)}</span><span class="sub">₹${k.perLitre.toFixed(2)} per litre</span></div>
         <div class="kpi"><span class="lbl">Sales</span><span class="val">${money(k.amount)}</span><span class="sub">${litres(k.qty)} · ${plural(k.customers, 'customer')}</span></div>
-        <div class="kpi"><span class="lbl">Collections</span><span class="val">${money(k.collections)}</span><span class="sub">${k.amount ? `${Math.round((k.collections / k.amount) * 100)}% of sales` : '&nbsp;'}</span></div>
+        <div class="kpi"><span class="lbl">Collections</span><span class="val">${money(k.collections)}</span><span class="sub">${k.billed ? `${Math.round((k.collections / k.billed) * 100)}% of credit sales` : '&nbsp;'}</span></div>
         <div class="kpi warn"><span class="lbl">Outstanding today</span><span class="val">${money(k.outstanding)}</span><span class="sub">${plural(a.due.length, 'customer')} owe${a.due.length === 1 ? 's' : ''}${k.advance ? ` · ${money(-k.advance)} advance` : ''}</span></div>
       </div>
       ${k.noRsp ? `<p class="warn-text small">${plural(k.noRsp, 'day-product')} had no RSP to work the margin from — left out of earnings.</p>` : ''}
@@ -590,6 +592,8 @@ function dashboardHtml(a, per, key) {
         <div class="prod">
           <div class="prod-head">${x !== 'OTHER' ? `<i style="background:${SERIES[x].color}"></i>` : ''}<b>${PRODUCT_NAME[x]}</b></div>
           ${x !== 'OTHER' ? `<span class="big">${litres(p[x].qty)}</span><span class="small muted">${money(p[x].amount)} · ${plural(p[x].bills, 'bill')}</span>
+          ${a.pump[x] ? `<span class="small">Credit <b>${litres(p[x].credit)}</b> · cash &amp; others <b>${litres(a.pump[x].other)}</b></span>
+          <span class="small faint">pump sales from the E-DSR to ${esc(fmtDate(a.pump[x].last).slice(0, 6))}${a.pump[x].short ? ` · ${plural(a.pump[x].short, 'day')} billed more than the pumps sold` : ''}</span>` : ''}
           <span class="small">Earned <b>${money(p[x].earning)}</b> · ₹${p[x].qty ? (p[x].earning / p[x].qty).toFixed(2) : '0.00'}/L</span>`
           : `<span class="big">${money(p[x].amount)}</span><span class="small muted">${plural(p[x].bills, 'bill')} · lubes &amp; others</span>`}
         </div>`).join('')}</div>
@@ -608,16 +612,16 @@ function dashboardHtml(a, per, key) {
 
 
     <section class="card">
-      <h3>Bulk vs Retail</h3>
-      <div class="seg">${['bulk', 'retail'].map((s) => {
+      <h3>Bulk vs Retail${a.segments.pump.qty ? ' vs Cash' : ''}</h3>
+      <div class="seg">${['bulk', 'retail', ...(a.segments.pump.qty ? ['pump'] : [])].map((s) => {
     const x = a.segments[s];
-    return `<div class="seg-row"><b>${s === 'bulk' ? 'Bulk' : 'Retail'}</b>
+    return `<div class="seg-row"><b>${{ bulk: 'Bulk', retail: 'Retail', pump: 'Cash &amp; others' }[s]}</b>
           <span>${litres(x.qty)}<small>${money(x.amount)}</small></span>
           <span>${money(x.earning)}<small>₹${x.qty ? (x.earning / x.qty).toFixed(2) : '0.00'}/L earned</small></span></div>`;
   }).join('')}</div>
-      <p class="small muted share-label">Share of litres — Bulk / Retail</p>
-      ${shareBar([{ name: 'Bulk', value: a.segments.bulk.qty, color: 'var(--s-sales)' }, { name: 'Retail', value: a.segments.retail.qty, color: 'var(--s-paid)' }])}
-      ${legend([{ name: 'Bulk', color: 'var(--s-sales)' }, { name: 'Retail', color: 'var(--s-paid)' }])}
+      <p class="small muted share-label">Share of litres — Bulk / Retail${a.segments.pump.qty ? ' / Cash &amp; others (petrol &amp; XtraGreen at the pumps, not billed on credit)' : ''}</p>
+      ${shareBar([{ name: 'Bulk', value: a.segments.bulk.qty, color: 'var(--s-sales)' }, { name: 'Retail', value: a.segments.retail.qty, color: 'var(--s-paid)' }, { name: 'Cash & others', value: a.segments.pump.qty, color: 'var(--good)' }])}
+      ${legend([{ name: 'Bulk', color: 'var(--s-sales)' }, { name: 'Retail', color: 'var(--s-paid)' }, ...(a.segments.pump.qty ? [{ name: 'Cash & others', color: 'var(--good)' }] : [])])}
     </section>
 
     <section class="card" id="dash-months"></section>
@@ -702,20 +706,29 @@ function monthsHtml(fy) {
       <tbody>${months.map((m) => `<tr><td>${monthName(m.month)}</td><td class="r">${litres(m.qty)}</td><td class="r">${money(m.amount)}</td><td class="r">${money(m.earning)}</td><td class="r">${money(m.paid)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
+// the E-DSR's day sales of petrol and XtraGreen (Register); null without them
+async function pumpData() {
+  try {
+    return pumpSales(await registerAll());
+  } catch {
+    return null;                                   // the Register isn't set up yet: billed litres only
+  }
+}
+
 async function renderDashboard(box) {
-  const { per, data } = await dashboardData();
+  const [{ per, data }, pump] = await Promise.all([dashboardData(), pumpData()]);
   const key = state.dashPeriod || 'month';
   let a;
   if (key === 'custom') {
     const c = state.dashCustom || { from: per.month.from, to: per.month.to };
     per.custom = { label: 'Custom', from: c.from, to: c.to };
-    a = analyse(await customData(c.from, c.to), per.custom);
+    a = analyse(await customData(c.from, c.to), per.custom, pump);
   } else {
-    a = analyse(data, per[key]);
+    a = analyse(data, per[key], pump);
   }
   setChartWidth(box.clientWidth - 38);                           // the card's inner width
   box.innerHTML = dashboardHtml(a, per, key);
-  const fy = key === 'fy' ? a : analyse(data, per.fy);
+  const fy = key === 'fy' ? a : analyse(data, per.fy, pump);
   const ui = state.dashUi || (state.dashUi = { sort: 'qty', seg: 'all', all: false, oseg: 'all', oall: false });
   const cust = box.querySelector('#dash-customers');
   const out = box.querySelector('#dash-outstanding');
