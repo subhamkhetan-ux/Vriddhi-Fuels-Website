@@ -16,6 +16,7 @@ import { cleanName, firstTwoWords, longDate, PI_COLUMNS, headerLabel } from './q
 export const DOCS = {
   quotation: { sheet: 'Quotation Maker', word: 'Quotation' },
   proforma: { sheet: 'Proforma Invoice', word: 'PI' },
+  creditnote: { sheet: 'Bank Pay CrNote', word: 'Credit Note' },
 };
 const EMU = 12700;
 const BLUE = /^#0000FF$/i;
@@ -147,6 +148,8 @@ function labelFor(model, sheet, a, inputs) {
 
 const DATE_FMT = /(^|[^"\\])[dmy]{1,4}/i;
 const isDateFormat = (z) => Boolean(z) && DATE_FMT.test(z.replace(/"[^"]*"/g, '')) && !/[#0]/.test(z.replace(/"[^"]*"/g, ''));
+// "mmmm yyyy": a month, not a day (the credit note's Payment Period)
+const isMonthFormat = (z) => isDateFormat(z) && !/d/i.test(String(z).replace(/"[^"]*"|\\./g, ''));
 
 // The cells the form asks for, in reading order (row by row)
 export function inputsOf(model, docKey, calc, macro = null) {
@@ -179,7 +182,8 @@ export function inputsOf(model, docKey, calc, macro = null) {
       const f = dv.formula.trim();
       if (/^".*"$/.test(f)) options = f.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean);
       else options = [...new Set(calc.list(calc.formula(f, sheet, a)).filter((x) => x != null && x !== '' && !isErr(x)).map(String))];
-    } else if (isDateFormat(cell.z || st.z) || (/date/i.test(label) && typeof cell.v === 'number')) kind = 'date';
+    } else if (isMonthFormat(cell.z || st.z)) kind = 'month';
+    else if (isDateFormat(cell.z || st.z) || (/date/i.test(label) && typeof cell.v === 'number')) kind = 'date';
     else if (typeof cell.v === 'number' && cell.z !== '@') kind = 'number';
     else if ((typeof cell.v === 'string' && cell.v.length > 60) || st.w) kind = 'textarea';
     out.push({ addr: a, label, kind, options, formula: Boolean(cell.f), outside: !inArea(L.area, a) });
@@ -258,8 +262,9 @@ export function docCalc(model, docKey, state = {}, { format, today, macro } = {}
 }
 // a typed value -> what goes in the cell
 export function cellInput(kind, raw) {
-  if (raw == null || raw === '') return kind === 'number' || kind === 'date' ? null : '';
+  if (raw == null || raw === '') return kind === 'number' || kind === 'date' || kind === 'month' ? null : '';
   if (kind === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? isoToSerial(raw) : raw;
+  if (kind === 'month') return /^\d{4}-\d{2}$/.test(raw) ? isoToSerial(`${raw}-01`) : raw;
   if (kind === 'number') return Number.isFinite(Number(raw)) ? Number(raw) : raw;
   return String(raw);
 }
@@ -267,6 +272,7 @@ export function cellInput(kind, raw) {
 export function formValue(kind, v) {
   if (v == null || isErr(v)) return '';
   if (kind === 'date') return typeof v === 'number' ? serialToIso(v) : '';
+  if (kind === 'month') return typeof v === 'number' ? serialToIso(v).slice(0, 7) : '';
   if (typeof v === 'number') return numText(v);
   return String(v);
 }
@@ -424,6 +430,188 @@ export function docFileName(docKey, calc, { customerAddr, dateAddr, word }) {
   const iso = typeof d === 'number' ? serialToIso(d) : new Date().toISOString().slice(0, 10);
   return `${cleanName(`${firstTwoWords(asText(cust)) || 'Customer'} ${word || DOCS[docKey].word} ${longDate(iso)}`)}.pdf`;
 }
+
+// ---- the credit note (Bank Pay CrNote) and its log -------------------------------------
+// Read from the macro that makes it (Module3: PrintAndLogXPCreditNote /
+// ReprintXPCreditNote): the sheet and log table, which cell goes in which
+// log column, the checks, what a reprint puts back (and the DUPLICATE COPY
+// label), the file name and what's cleared for the next note. The log is
+// kept by the log table's own column names.
+const CN_DEFAULT = {
+  sheet: 'Bank Pay CrNote', logTable: 'XPCrNoteLog',
+  write: [], load: [], required: [], no: 'G17', customer: 'A17', copy: { addr: 'K19', text: 'DUPLICATE COPY' },
+  file: { parts: ['G17', ' - ', 'A17'], duplicate: ' (Duplicate)' }, next: 'K18', clear: ['E24'], from: 'default',
+};
+export function cnMacro(model) {
+  const src = Object.values((model && model.vba) || {}).find((t) => /Sub\s+PrintAndLog\w*Cr(?:edit)?\w*Note\b/i.test(t));
+  const sheetName = (src && (/Const\s+CN_SHEET\s+As\s+String\s*=\s*"([^"]+)"/i.exec(src) || [])[1]) || CN_DEFAULT.sheet;
+  if (!src) return { ...CN_DEFAULT, sheet: sheetName, note: 'The workbook has no credit note macro — the app uses the cells it had (A17, G17, E24 …).' };
+  const consts = {};
+  for (const m of src.matchAll(/\b(C_\w+)\s+As\s+Long\s*=\s*(\d+)/gi)) consts[m[1].toUpperCase()] = Number(m[2]);
+  const logTable = (/Const\s+LOG_TABLE\s+As\s+String\s*=\s*"([^"]+)"/i.exec(src) || [])[1] || CN_DEFAULT.logTable;
+  const tbl = model.tables && model.tables[logTable];
+  const colOf = (c) => (tbl && consts[String(c).toUpperCase()] ? tbl.cols[consts[String(c).toUpperCase()] - 1] : null);
+  const subs = [...src.matchAll(/Sub\s+(\w+)\s*\([^)]*\)([\s\S]*?)\nEnd Sub/gi)].map((m) => ({ name: m[1], body: m[2] }));
+  const main = (subs.find((x) => /^PrintAndLog/i.test(x.name)) || { body: '' }).body;
+  const reprint = (subs.find((x) => /^Reprint/i.test(x.name)) || { body: '' }).body;
+  // cnNo = Trim$(CStr(ws.Range("G17").Value)): a variable that stands for a cell
+  const vars = {};
+  for (const m of main.matchAll(/^\s*(\w+)\s*=\s*[^\n]*?ws\.Range\("([A-Z]+\d+)"\)/gim)) vars[m[1].toLowerCase()] = m[2].toUpperCase();
+  // .Cells(1, C_NO).Value = ws.Range("G17").Value — and the ones that aren't a cell
+  const write = [];
+  for (const m of main.matchAll(/\.Cells\(1,\s*(C_\w+)\)\.Value\s*=\s*([^\n]+)/gi)) {
+    const col = colOf(m[1]);
+    if (!col) continue;
+    const rhs = m[2].trim();
+    const cell = /ws\.Range\("([A-Z]+\d+)"\)/i.exec(rhs) || (vars[rhs.toLowerCase()] && !/^outfile$/i.test(rhs) ? [null, vars[rhs.toLowerCase()]] : null);
+    const strip = (/Replace\([^,]+,\s*"([^"]*)"\s*,\s*""\s*\)/i.exec(rhs) || [])[1];
+    if (/NextLogID/i.test(rhs)) write.push({ col, special: 'id' });
+    else if (/^Now\b/i.test(rhs)) write.push({ col, special: 'printed_at' });
+    else if (/UserName/i.test(rhs)) write.push({ col, special: 'printed_by' });
+    else if (/^outFile$/i.test(rhs)) write.push({ col, special: 'file' });
+    else if (/^0$/.test(rhs)) write.push({ col, special: 'reprints' });
+    else if (cell) write.push({ col, ref: cell[1].toUpperCase(), ...(strip ? { strip } : {}) });
+  }
+  // ws.Range("A17").Value = d.Cells(1, C_CUST).Value — what a reprint puts back
+  const load = [];
+  for (const m of reprint.matchAll(/ws\.Range\("([A-Z]+\d+)"\)\.Value\s*=\s*d\.Cells\(1,\s*(C_\w+)\)/gi)) {
+    const col = colOf(m[2]);
+    if (col) load.push({ col, ref: m[1].toUpperCase() });
+  }
+  const copyM = /ws\.Range\("([A-Z]+\d+)"\)\.Value\s*=\s*"([^"]+)"/i.exec(reprint);
+  // If … ws.Range("A17") … Then msg = msg & vbCrLf & "- Select a customer (A17)"
+  const required = [];
+  for (const m of main.matchAll(/If\s+([^\n]*?)\s+Then\s+msg\s*=\s*msg\s*&[^"]*"-?\s*([^"]+)"/gi)) {
+    const cond = m[1];
+    if (/IsError/i.test(cond)) continue;
+    const cell = /ws\.Range\("([A-Z]+\d+)"\)/i.exec(cond);
+    const v = Object.keys(vars).find((k) => new RegExp(`\\b${k}\\b`, 'i').test(cond));
+    const addr = cell ? cell[1].toUpperCase() : v ? vars[v] : null;
+    if (!addr || required.some((x) => x.addr === addr)) continue;
+    required.push({ addr, msg: m[2].replace(/\s*\([A-Z]+\d+\)\s*$/, '').trim(), positive: /Val\(|<=\s*0/i.test(cond), date: /IsDate/i.test(cond) });
+  }
+  const noVar = Object.keys(vars).find((k) => /^cnno$/i.test(k)) || Object.keys(vars).find((k) => /no$/i.test(k));
+  const no = noVar ? vars[noVar] : CN_DEFAULT.no;
+  const custReq = required.find((x) => !x.positive && !x.date && x.addr !== no);
+  const fileM = /OutputNote\(ws,\s*cnNo\s*&\s*"([^"]*)"\s*&\s*CStr\(ws\.Range\("([A-Z]+\d+)"\)/i.exec(main);
+  const dupM = /OutputNote\(ws,[^\n]*"(\s*\([^"]*\))"\)/i.exec(reprint);
+  const nextM = /ws\.Range\("([A-Z]+\d+)"\)\.Value\s*=\s*ws\.Range\("([A-Z]+\d+)"\)\.Value/i.exec(main);
+  const clear = [...main.matchAll(/ws\.Range\("([A-Z]+\d+)"\)\.ClearContents/gi)].map((m) => m[1].toUpperCase()).filter((a) => !copyM || a !== copyM[1].toUpperCase());
+  const ok = tbl && write.some((w) => w.ref === no) && required.length;
+  if (!ok) return { ...CN_DEFAULT, sheet: sheetName, logTable, note: `Couldn't read where the credit note macro writes its log (${logTable}) — the app uses the cells it had.` };
+  return {
+    sheet: sheetName, logTable, cols: tbl.cols, write, load, required, no,
+    customer: custReq ? custReq.addr : CN_DEFAULT.customer,
+    copy: copyM ? { addr: copyM[1].toUpperCase(), text: copyM[2] } : CN_DEFAULT.copy,
+    file: { parts: fileM ? [no, fileM[1], fileM[2].toUpperCase()] : CN_DEFAULT.file.parts, duplicate: dupM ? dupM[1] : CN_DEFAULT.file.duplicate },
+    next: nextM && nextM[1].toUpperCase() === no ? nextM[2].toUpperCase() : null, clear, from: 'macro',
+  };
+}
+
+// the log column a write of the macro fills (by what it writes)
+export const cnColumn = (mac, what) => {
+  const w = mac.write.find((x) => (what.ref ? x.ref === what.ref : x.special === what.special));
+  return w ? w.col : null;
+};
+const isoOrText = (v, z) => (typeof v === 'number' && isDateFormat(z) ? serialToIso(v) : v);
+
+// The log row of the note on the sheet now: {column name: value} (dates as ISO)
+export function cnLogRowOf(calc, mac, model) {
+  const row = {};
+  for (const w of mac.write) {
+    if (!w.ref) continue;
+    const c = sheetOf(model, mac.sheet)?.cells[w.ref];
+    let v = calc.value(mac.sheet, w.ref);
+    if (isErr(v)) v = null;
+    if (w.strip && typeof v === 'string') v = v.replace(w.strip, '');
+    const z = (c && c.z) || (c && c.s != null && model.styles.xf[c.s] ? model.styles.xf[c.s].z : '');
+    row[w.col] = isoOrText(v, z);
+  }
+  return row;
+}
+// the macro's checks — the first that fails
+export function cnProblem(calc, mac) {
+  for (const r of mac.required) {
+    const v = calc.value(mac.sheet, r.addr);
+    if (r.positive ? !(typeof v === 'number' && v > 0) : r.date ? typeof v !== 'number' : String(v ?? '').trim() === '') return r.msg;
+  }
+  const total = mac.write.find((w) => /credit amount|total/i.test(w.col) && w.ref);
+  if (total && isErr(calc.value(mac.sheet, total.ref))) return 'Credit amount shows an error';
+  return '';
+}
+// A logged note back on the sheet (the Reprint macro): its own cells, and the
+// copy label (DUPLICATE COPY)
+export function cnStateFromLog(row, mac, model, { copy = true } = {}) {
+  const overrides = {};
+  for (const l of mac.load) {
+    let v = row[l.col];
+    const c = sheetOf(model, mac.sheet)?.cells[l.ref];
+    const z = (c && c.z) || (c && c.s != null && model.styles.xf[c.s] ? model.styles.xf[c.s].z : '');
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) && isDateFormat(z)) v = isoToSerial(v.slice(0, 10));
+    overrides[l.ref] = v == null ? '' : v;
+  }
+  if (copy && mac.copy) overrides[mac.copy.addr] = mac.copy.text;
+  return { inputs: {}, overrides };
+}
+// "BNK/001" -> "BNK/002": the next after the log's highest of the same kind
+// (the sheet's own "Next Credit Note No." counts the log's rows)
+export function nextCnNo(log, mac, model, calc) {
+  const f = mac.next ? sheetOf(model, mac.sheet)?.cells[mac.next]?.f : '';
+  const m = /"([^"]*)"\s*&\s*TEXT\([^,]+,\s*"(0+)"\)/i.exec(f || '');
+  const prefix = m ? m[1] : (String(calc && mac.next ? calc.value(mac.sheet, mac.next) : '').match(/^(.*?)\d+$/) || [null, 'CN/'])[1];
+  const width = m ? m[2].length : 3;
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(\\d+)$`, 'i');
+  const top = Math.max(0, ...log.map((r) => re.exec(String(r.cn_no || '').trim())).filter(Boolean).map((x) => Number(x[1])));
+  return `${prefix}${String(top + 1).padStart(width, '0')}`;
+}
+// "BNK/001 - Shyam Metalics and Energy Ltd.pdf" (the macro's SafeName); a reprint adds " (Duplicate)"
+export function cnFileName(calc, mac, { duplicate = false } = {}) {
+  const text = mac.file.parts.map((p) => (/^[A-Z]+\d+$/.test(p) ? asText(calc.value(mac.sheet, p)) : p)).join('');
+  return `${text.replace(/[/\\:*?"<>|]/g, '-').trim()}${duplicate ? mac.file.duplicate : ''}.pdf`;
+}
+// the workbook's own log (the XP Cr Note Log sheet's table) -> [{column: value}]
+export function cnLogFromModel(model, mac) {
+  const t = model.tables && model.tables[mac.logTable];
+  const sh = t && sheetOf(model, t.sheet);
+  if (!sh) return [];
+  const out = [];
+  for (let r = t.r0 + 1; r <= t.r1 - (t.totals ? 1 : 0); r++) {
+    const row = {};
+    t.cols.forEach((col, i) => {
+      const c = sh.cells[addrOf(r, t.c0 + i)];
+      if (!c || c.v == null || c.v === '') return;
+      const z = c.z || (c.s != null && model.styles.xf[c.s] ? model.styles.xf[c.s].z : '');
+      row[col] = typeof c.v === 'number' && isDateFormat(z) ? (/h/i.test(z) ? serialToStamp(c.v) : serialToIso(c.v)) : c.v;
+    });
+    if (Object.keys(row).length) out.push(row);
+  }
+  return out;
+}
+// which log column holds what the app lists and checks (from the macro's writes)
+export function cnFields(mac) {
+  const byRef = (ref) => (mac.write.find((w) => w.ref === ref) || {}).col || null;
+  const bySpecial = (k) => (mac.write.find((w) => w.special === k) || {}).col || null;
+  const cols = mac.cols || [];
+  const dateReq = mac.required.find((r) => r.date);
+  return {
+    id: bySpecial('id'), no: byRef(mac.no), customer: byRef(mac.customer), date: dateReq ? byRef(dateReq.addr) : null,
+    credit: cols.find((c) => /credit amount/i.test(c)) || null, printed_at: bySpecial('printed_at'), printed_by: bySpecial('printed_by'),
+    reprints: bySpecial('reprints'), last_reprint: cols.find((c) => /last reprint/i.test(c)) || null, file: bySpecial('file'),
+  };
+}
+// a log row ({column: value}) -> what the database keeps
+export function cnRecord(row, mac) {
+  const F = cnFields(mac);
+  const get = (k) => (F[k] ? row[F[k]] : null);
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  return {
+    log_id: num(get('id')), cn_no: String(get('no') ?? '').trim(), cn_date: typeof get('date') === 'string' ? get('date').slice(0, 10) : null,
+    customer: String(get('customer') ?? '').trim(), credit: num(get('credit')),
+    printed_at: get('printed_at') || null, printed_by: String(get('printed_by') ?? ''), reprints: num(get('reprints')) || 0,
+    last_reprint: get('last_reprint') || null, row,
+  };
+}
+const serialToStamp = (n) => `${serialToIso(n)}T${new Date(Math.round((n % 1) * 86400000)).toISOString().slice(11, 19)}`;
 
 // ---- the self-check ------------------------------------------------------------------
 // Every formula worked out with the workbook's own inputs, against what Excel

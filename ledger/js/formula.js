@@ -483,8 +483,19 @@ export function makeCalc(model, opts = {}) {
       case 'bin': return lift(n.op, evalNode(n.a, ctx), evalNode(n.b, ctx), ctx);
       case 'fn': {
         const f = FN[n.name];
-        if (!f) { unknown.add(`function ${n.name}`); return ERR('#NAME?'); }
-        return f(n.args, ctx);
+        if (f) return f(n.args, ctx);
+        // a LAMBDA kept in a LET name: LET(w, LAMBDA(x, …), w(5))
+        const key = n.name.replace(/^_XLPM\./, '');
+        for (let e = ctx.env; e; e = e.up) {
+          if (!e.vars.has(key)) continue;
+          const fn = e.vars.get(key);
+          if (!fn || !fn.lambda) break;
+          if (n.args.length > fn.params.length) return VALUE();
+          const vars = new Map(fn.params.map((p, i) => [p, i < n.args.length ? ev(n.args[i], ctx) : null]));
+          return ev(fn.body, { ...ctx, env: { vars, up: fn.env } });
+        }
+        unknown.add(`function ${n.name}`);
+        return ERR('#NAME?');
       }
       default: return VALUE();
     }
@@ -599,6 +610,8 @@ export function makeCalc(model, opts = {}) {
     FALSE: () => false,
     SWITCH: (a, ctx) => { const v = evOne(a[0], ctx); for (let i = 1; i + 1 < a.length; i += 2) if (cmp(evOne(a[i], ctx), v) === 0) return ev(a[i + 1], ctx); return a.length % 2 === 0 ? ev(a[a.length - 1], ctx) : NA(); },
     CHOOSE: (a, ctx) => { const i = toNum(evOne(a[0], ctx)); if (isErr(i)) return i; return a[Math.trunc(i)] ? ev(a[Math.trunc(i)], ctx) : VALUE(); },
+    // LAMBDA(x, y, body): a function value, called through a LET name
+    LAMBDA: (a, ctx) => (a.length ? { lambda: true, params: a.slice(0, -1).map((x) => String(x.v || '').toUpperCase().replace(/^_XLPM\./, '')), body: a[a.length - 1], env: ctx.env } : VALUE()),
     LET: (a, ctx) => {
       const env = { vars: new Map(), up: ctx.env };
       const inner = { ...ctx, env };
@@ -850,7 +863,12 @@ export function display(v, z, format = basicFormat) {
   if (isErr(v)) return v.code;
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   if (typeof v === 'number') {
-    try { return format(z && z !== 'General' ? z : 'General', v); } catch { return numText(v); }
+    try { return format(z && z !== 'General' ? z : 'General', v); } catch {
+      // "##,##0.00": Excel takes any comma between digit signs as the thousands separator
+      const z2 = String(z || '').replace(/#+,#+0/g, '#,##0');
+      if (z2 !== z) { try { return format(z2, v); } catch { /* fall through */ } }
+      return numText(v);
+    }
   }
   if (z === '@' || !z) return String(v);
   return String(v);
@@ -861,6 +879,14 @@ export function basicFormat(fmt, n) {
   const f = String(fmt || 'General');
   if (f === 'General') return numText(Number(n.toPrecision(10)));
   if (/^d{1,2}\/m{1,2}\/y{2,4}$/i.test(f)) { const d = serialToIso(n); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${f.endsWith('yyyy') ? d.slice(0, 4) : d.slice(2, 4)}`; }
+  if (/^0+$/.test(f)) return String(Math.round(n)).padStart(f.length, '0');                     // "000": 7 -> 007
+  // other dates: d dd mmm mmmm yy yyyy with separators ("mmmm yyyy", "dd\-mmm\-yyyy")
+  const plain = f.replace(/\\(.)/g, '$1');
+  if (/^(d{1,2}|m{1,4}|y{2}|y{4}|[\s\-/.,])+$/i.test(plain) && /[dmy]/i.test(plain)) {
+    const [y, mo, d] = serialToIso(n).split('-');
+    const MN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][Number(mo) - 1];
+    return plain.replace(/yyyy|yy|mmmm|mmm|mm|m|dd|d/gi, (t) => ({ yyyy: y, yy: y.slice(2), mmmm: MN, mmm: MN.slice(0, 3), mm: mo, m: String(Number(mo)), dd: d, d: String(Number(d)) })[t.toLowerCase()]);
+  }
   const pct = f.endsWith('%');
   const body = pct ? f.slice(0, -1) : f;
   const m = /^(#,##)?0(\.(0+))?$/.exec(body);

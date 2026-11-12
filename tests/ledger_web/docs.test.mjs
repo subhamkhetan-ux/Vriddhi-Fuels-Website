@@ -172,3 +172,49 @@ test('a cell that is empty in the workbook prints what was typed into it', () =>
   assert.equal(v.G7.text, 'PO-9');
   assert.equal(v.G8.text, '02/11/2026');                                    // the cell's own date format
 });
+
+// ---- the credit note (Bank Pay CrNote) and its macro -------------------------------------
+test('credit note: read from its Save/Print & Log and Reprint macro, worked out by the sheet', async () => {
+  const D = await import('../../ledger/js/docs.js');
+  const mac = D.cnMacro(M);
+  assert.equal(mac.from, 'macro');
+  assert.deepEqual([mac.sheet, mac.logTable, mac.no, mac.customer, mac.next], ['Bank Pay CrNote', 'XPCrNoteLog', 'G17', 'A17', 'K18']);
+  assert.deepEqual(mac.required.map((r) => [r.addr, r.positive, r.date]), [['A17', false, false], ['G17', false, false], ['G18', false, true], ['G19', false, true], ['E24', true, false]]);
+  assert.deepEqual(mac.copy, { addr: 'K19', text: 'DUPLICATE COPY' });
+  assert.deepEqual(mac.clear, ['E24']);
+  const F = D.cnFields(mac);
+  assert.deepEqual([F.id, F.no, F.date, F.customer, F.credit, F.printed_at, F.reprints, F.file], ['Log ID', 'Credit Note No.', 'CN Date', 'Customer', 'Credit Amount (₹)', 'Printed On', 'Reprints', 'Saved As']);
+  assert.equal(mac.write.find((w) => w.col === 'Amount in Words').strip, 'Amount in words: ');
+
+  const calc0 = makeCalc(M);
+  const ins = inputsOf(M, 'creditnote', calc0);
+  assert.deepEqual(ins.filter((x) => !x.outside).map((x) => x.addr), ['A17', 'G17', 'G18', 'G19', 'G20', 'E24']);
+  const kind = Object.fromEntries(ins.map((x) => [x.addr, x.kind]));
+  assert.deepEqual([kind.A17, kind.G17, kind.G18, kind.G19, kind.E24], ['select', 'text', 'date', 'month', 'number']);   // "mmmm yyyy": a month
+  const st = { inputs: { A17: 'Twin Steel Ltd, UNIT I', G17: 'BNK/004', G18: isoToSerial('2026-11-12'), G19: isoToSerial('2026-10-01'), E24: 2500000 } };
+  const calc = docCalc(M, 'creditnote', st);
+  assert.equal(calc.value('Bank Pay CrNote', 'G25'), 9000);                         // 25,00,000 × 0.36 / 100
+  assert.match(calc.value('Bank Pay CrNote', 'A26'), /Rupees Nine Thousand Only/);    // a LAMBDA in LET
+  assert.match(calc.value('Bank Pay CrNote', 'B24'), /for October 2026/);
+  const row = D.cnLogRowOf(calc, mac, M);
+  assert.deepEqual([row['Credit Note No.'], row['CN Date'], row['Payment Period'], row['Customer'], row['Credit Amount (₹)'], row['Amount in Words']],
+    ['BNK/004', '2026-11-12', '2026-10-01', 'Twin Steel Ltd, UNIT I', 9000, 'Rupees Nine Thousand Only']);
+  const rec = D.cnRecord(row, mac);
+  assert.deepEqual([rec.cn_no, rec.cn_date, rec.customer, rec.credit], ['BNK/004', '2026-11-12', 'Twin Steel Ltd, UNIT I', 9000]);
+  assert.equal(D.cnProblem(calc, mac), '');
+  assert.equal(D.cnProblem(docCalc(M, 'creditnote', { inputs: { ...st.inputs, E24: null } }), mac), 'Enter the Amount Paid');
+  assert.equal(D.cnProblem(docCalc(M, 'creditnote', { inputs: { ...st.inputs, G17: '' } }), mac), 'Enter the Credit Note No.');
+  // the next number follows the log's highest; the file name as the macro's (a "/" can't be in a file name)
+  assert.equal(D.nextCnNo([{ cn_no: 'BNK/001' }, { cn_no: 'bnk/009' }, { cn_no: 'OTHER/50' }], mac, M, calc0), 'BNK/010');
+  assert.equal(D.nextCnNo([], mac, M, calc0), 'BNK/001');
+  assert.equal(D.cnFileName(calc, mac), 'BNK-004 - Twin Steel Ltd, UNIT I.pdf');
+  assert.equal(D.cnFileName(calc, mac, { duplicate: true }), 'BNK-004 - Twin Steel Ltd, UNIT I (Duplicate).pdf');
+  // a reprint: what was logged, as a duplicate copy
+  const re = docCalc(M, 'creditnote', D.cnStateFromLog(row, mac, M));
+  assert.equal(re.value('Bank Pay CrNote', 'A13'), 'CREDIT NOTE  (DUPLICATE COPY)');
+  assert.equal(re.value('Bank Pay CrNote', 'G25'), 9000);
+  assert.equal(re.value('Bank Pay CrNote', 'A18'), row['Address 1']);
+  assert.deepEqual(D.cnLogFromModel(M, mac), []);                                   // the demo's log is empty
+  // no macro: the cells it had
+  assert.equal(D.cnMacro({ ...M, vba: {} }).from, 'default');
+});

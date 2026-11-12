@@ -862,3 +862,40 @@ def test_loans_and_emi(pg):
     assert "member" in pg.fails(call("ledger_loans_list"), user=STRANGER, email="stranger@example.com").lower()
     # the table itself: row security shows a non-member nothing
     assert pg.ok("select count(*) from public.ledger_loans;", user=STRANGER, email="stranger@example.com").strip().splitlines()[-1].strip() == "0"
+
+
+def test_credit_notes_and_their_log(pg):
+    """Bank Pay credit notes: logged once per number (as the macro), reprints counted, the workbook's log imported."""
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    row = {"Credit Note No.": "BNK/001", "Customer": "Demo Power Ltd", "Amount Paid (₹)": 5000000, "Credit Amount (₹)": 18000}
+    cn = {"cn_no": "BNK/001", "cn_date": "2026-11-12", "customer": "Demo Power Ltd", "credit": 18000, "row": row,
+          "doc": {"inputs": {"E24": 5000000}}}
+    res = pg.owner(call("ledger_cn_save", cn))
+    assert res["status"] == "logged" and res["row"]["id"] == 1 and res["row"]["row"]["Log ID"] == 1
+    assert res["row"]["source"] == "app" and res["row"]["printed_by"] == "owner@example.com"
+    again = pg.owner(call("ledger_cn_save", dict(cn, cn_no=" bnk/001 ")))           # the same number: refused, not replaced
+    assert again["status"] == "exists" and again["existing"]["credit"] == 18000
+    assert "customer" in pg.fails(call("ledger_cn_save", dict(cn, cn_no="BNK/002", customer=" ")), **as_owner)
+    assert "credit amount" in pg.fails(call("ledger_cn_save", dict(cn, cn_no="BNK/002", credit=0)), **as_owner)
+    assert "Credit Note No." in pg.fails(call("ledger_cn_save", dict(cn, cn_no="")), **as_owner)
+    assert pg.owner(call("ledger_cn_reprinted", 1))["reprints"] == 1
+    assert pg.owner(call("ledger_cn_reprinted", 1))["reprints"] == 2
+    # the workbook's log: its notes come in; the app's BNK/001 stays the app's
+    p = _tb_payload(cn_log=[
+        {"log_id": 1, "cn_no": "BNK/001", "cn_date": "2026-11-01", "customer": "Someone Else", "credit": 1, "row": {}},
+        {"log_id": 2, "cn_no": "BNK/002", "cn_date": "2026-11-05", "customer": "Crew One Logistics", "credit": 3600,
+         "printed_at": "2026-11-05T10:00:00+05:30", "printed_by": "Excel user", "reprints": 1, "row": {"Credit Note No.": "BNK/002"}},
+    ], images={"cn_stamp": "data:image/png;base64,AAAA", "cn_letterhead": "data:image/png;base64,BBBB"})
+    out = pg.owner(call("ledger_tanker_import", "Tanker Billing v9.xlsm", p))
+    assert out["cn"] == 1 and out["cn_kept"] == 1 and out["images"] == 2
+    log = {r["cn_no"]: r for r in pg.owner(call("ledger_cn_list"))}
+    assert log["BNK/001"]["customer"] == "Demo Power Ltd" and log["BNK/001"]["source"] == "app"
+    assert log["BNK/002"]["source"] == "workbook" and log["BNK/002"]["reprints"] == 1 and float(log["BNK/002"]["credit"]) == 3600
+    assert pg.owner(call("ledger_setting_get", "cn_stamp"))["data_url"].startswith("data:image/png")
+    # the stamps that can be changed in the app
+    pg.ok(call("ledger_setting_set", "letter_stamp", {"data_url": "data:image/png;base64,CCCC", "name": "s.png"}), **as_owner)
+    pg.ok(call("ledger_setting_set", "cn_stamp", {"data_url": "data:image/png;base64,DDDD", "name": "s.png"}), **as_owner)
+    pg.ok(call("ledger_cn_delete", 2), **as_owner)
+    assert [r["cn_no"] for r in pg.owner(call("ledger_cn_list"))] == ["BNK/001"]
+    assert "No credit note" in pg.fails(call("ledger_cn_delete", 2), **as_owner)
+    assert "permission denied" in pg.fails(call("ledger_cn_list"), anon=True)

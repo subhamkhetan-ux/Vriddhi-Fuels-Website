@@ -12,7 +12,7 @@
 
 import { colNum, parseRange } from './formula.js';
 
-export const DOC_SHEETS = ['Quotation Maker', 'Proforma Invoice'];
+export const DOC_SHEETS = ['Quotation Maker', 'Proforma Invoice', 'Bank Pay CrNote'];
 export const PT_PER_UNIT = 6;            // Mac Excel: a width unit of Aptos Narrow 12 is 8 px = 6 pt
 
 // ---- tiny XML helpers -------------------------------------------------------

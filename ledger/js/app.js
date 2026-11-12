@@ -9,20 +9,21 @@ import { fromQueue } from './payin.js';
 import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
-import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { poKey, poListChanges } from './po.js';
 import {
   A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
-  useNarrowFont, zipBlob,
+  statementFontCss as letterFontCss, useNarrowFont, zipBlob,
 } from './render.js';
 import {
   comparePiLog, dmyy, indian, nextPiNo, piCheckClean, piDiscount, piEffective, piFileName, piKey, piMatches, picturePaths, readTankerBilling,
   samePiNo,
 } from './quote.js';
 import {
-  cellInput, DEFAULT_PI_MACRO, docCalc, docFileName, DOCS, formValue, helperRows, inputsOf, layoutOf, pageValues, piLogRowOf, piMacro, piProblem,
-  piStateFromLog, rspCell, selfCheck,
+  cellInput, cnFields, cnFileName, cnLogFromModel, cnLogRowOf, cnMacro, cnProblem, cnRecord, cnStateFromLog, DEFAULT_PI_MACRO, docCalc, docFileName,
+  DOCS, formValue, helperRows, inputsOf, layoutOf, nextCnNo, pageValues, piLogRowOf, piMacro, piProblem, piStateFromLog, rspCell, selfCheck,
 } from './docs.js';
 import { isErr, isoToSerial, makeCalc } from './formula.js';
 import { buildModel, DOC_SHEETS, MODEL_PARTS } from './xl-model.js';
@@ -257,7 +258,7 @@ const ROUTES = [
   [/^#\/customers$/, () => viewCustomers()],
   [/^#\/sales(?:\/(\d{4}-\d{2}-\d{2}))?$/, (m) => viewSales(m[1] || null)],
   [/^#\/bills$/, () => viewBills()],
-  [/^#\/quotes(?:\/(pi|log))?$/, (m) => viewQuotes(m[1] || '')],
+  [/^#\/quotes(?:\/(pi|log|cn|cnlog|letter))?$/, (m) => viewQuotes(m[1] || '')],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
   [/^#\/payments\/modes$/, () => viewPaymentModes()],
@@ -3516,9 +3517,10 @@ async function downloadSheets(sheets, fileName) {
 // Quotes: the Tanker Billing workbook's Quotation Maker, Proforma Invoice and
 // PI Log (with its PrintAndLogPI / ReprintPIs macros)
 // ---------------------------------------------------------------------------
-const QUOTE_ASSETS = { pi: 'assets/letterhead.png', quote: 'assets/quote-letterhead.png' };
+const QUOTE_ASSETS = { pi: 'assets/letterhead.png', quote: 'assets/quote-letterhead.png', cn: 'assets/letterhead.png' };
 const QUOTES_SCHEMA = 'The database needs an update for Quotes: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).';
-const QUOTE_TABS = [['', '#/quotes', 'Quotation'], ['pi', '#/quotes/pi', 'Proforma Invoice'], ['log', '#/quotes/log', 'PI Log']];
+const QUOTE_TABS = [['', '#/quotes', 'Quotation'], ['pi', '#/quotes/pi', 'Proforma Invoice'], ['log', '#/quotes/log', 'PI Log'],
+  ['cn', '#/quotes/cn', 'Credit Note'], ['cnlog', '#/quotes/cnlog', 'CN Log'], ['letter', '#/quotes/letter', 'Price Letter']];
 const rs2 = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? '' : Number(v).toFixed(2));
 
 async function quotesCall(fn) {
@@ -3532,19 +3534,27 @@ async function quotesCall(fn) {
 
 // What the Quotes screens need, kept between screens (the pictures are big);
 // an import or a stamp change drops it.
+// the credit notes' log; null until supabase/ledger-schema.sql is re-run
+const cnLogList = () => state.store.cnList().catch((err) => {
+  if (/could not find the function|does not exist|schema cache/i.test(String((err && err.message) || err))) return null;
+  throw err;
+});
 async function quotesData(fresh = false) {
   if (!fresh && state.quotes) {
-    state.quotes.log = await quotesCall(() => state.store.piList());
+    [state.quotes.log, state.quotes.cnLog] = await Promise.all([quotesCall(() => state.store.piList()), cnLogList()]);
     return state.quotes;
   }
   const [tb, tanker, log, piStamp, quoteStamp, piLetterhead, quoteLetterhead] = await quotesCall(() => Promise.all([
     state.store.setting('tanker_billing'), state.store.tankerList(), state.store.piList(), state.store.setting('pi_stamp'),
     state.store.setting('quote_stamp'), state.store.setting('pi_letterhead'), state.store.setting('quote_letterhead')]));
+  // pictures added later: missing until the schema is re-run (a setting it doesn't know yet)
+  const extra = (k) => state.store.setting(k).catch(() => null);
+  const [cnLog, cnStamp, cnLetterhead, letterStamp] = await Promise.all([cnLogList(), extra('cn_stamp'), extra('cn_letterhead'), extra('letter_stamp')]);
   state.quotes = {
-    tb, log,
+    tb, log, cnLog,
     tanker: [...tanker].sort((a, b) => a.company.localeCompare(b.company, 'en', { sensitivity: 'base' })),
-    stamps: { pi: piStamp, quote: quoteStamp },
-    letterheads: { pi: piLetterhead, quote: quoteLetterhead },
+    stamps: { pi: piStamp, quote: quoteStamp, cn: cnStamp, letter: letterStamp },
+    letterheads: { pi: piLetterhead, quote: quoteLetterhead, cn: cnLetterhead },
   };
   return state.quotes;
 }
@@ -3578,8 +3588,11 @@ async function viewQuotes(tab) {
   d.format = (f, v) => XLSX.SSF.format(f, v);
   d.model = d.tb && d.tb.model && d.tb.model.version >= 2 ? d.tb.model : null;
   d.macro = d.model ? piMacro(d.model) : DEFAULT_PI_MACRO;
+  d.cnMac = d.model ? cnMacro(d.model) : null;
   if (tab === 'log') return viewPiLog(d);
-  return viewDoc(d, tab === 'pi' ? 'proforma' : 'quotation');
+  if (tab === 'cnlog') return viewCnLog(d);
+  if (tab === 'letter') return viewPriceLetter(d);
+  return viewDoc(d, tab === 'pi' ? 'proforma' : tab === 'cn' ? 'creditnote' : 'quotation');
 }
 
 function quotesHead(d, tab) {
@@ -3623,9 +3636,18 @@ function checkNote(d, sheet) {
 // The form asks for the sheet's input cells (blue text, drop-downs; for the
 // PI also what Print & Log PI restores on a reprint); the page and the
 // Calculated panel are the sheet's own formulas, worked out live.
+const DOC_TITLE = { quotation: 'Quotation', proforma: 'Proforma Invoice', creditnote: 'Credit Note' };
 function viewDoc(d, docKey) {
-  const tab = docKey === 'proforma' ? 'pi' : '';
-  const kind = docKey === 'proforma' ? 'pi' : 'quote';
+  const tab = { proforma: 'pi', creditnote: 'cn' }[docKey] || '';
+  const kind = { proforma: 'pi', creditnote: 'cn' }[docKey] || 'quote';
+  const isCn = docKey === 'creditnote';
+  if (isCn && d.model && (!d.model.sheets[DOCS.creditnote.sheet] || !d.model.sheets[DOCS.creditnote.sheet].layout || d.cnLog === null)) {
+    setMain(`${quotesHead(d, tab)}<section class="card"><p class="warn-text"><b>${d.cnLog === null
+      ? 'The database needs an update for credit notes: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).'
+      : `Import the latest Tanker Billing workbook — this one has no “${esc(DOCS.creditnote.sheet)}” sheet.`}</b></p></section>`);
+    bindTankerImport();
+    return;
+  }
   if (!d.model) {
     setMain(`${quotesHead(d, tab)}${d.tb ? `<section class="card"><p class="warn-text"><b>Import the Tanker Billing workbook again.</b> The app now takes the ${esc(DOCS[docKey].sheet)} sheet straight from the workbook — its layout, wording and formulas — so changes you make in Excel need no change to the app.</p></section>` : ''}`);
     bindTankerImport();
@@ -3643,6 +3665,10 @@ function viewDoc(d, docKey) {
     || inputs.find((x) => x.kind === 'select');
   const dateInput = docKey === 'proforma' ? inputs.find((x) => x.addr === (macro.pdf.date || macro.write.pi_date)) : inputs.find((x) => x.kind === 'date');
   const piNoAddr = docKey === 'proforma' ? macro.write.pi_no : null;
+  const cnMac = isCn ? d.cnMac : null;
+  const cnNoAddr = isCn ? cnMac.no : null;
+  const cnNext = () => nextCnNo(d.cnLog || [], cnMac, model, base);
+  const sameCn = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   const forms = state.docForms || (state.docForms = {});
   const today = todayIso();
   if (!forms[docKey]) {
@@ -3654,9 +3680,12 @@ function viewDoc(d, docKey) {
     }
     if (dateInput && !dateInput.formula) values[dateInput.addr] = today;
     if (piNoAddr) values[piNoAddr] = nextPiNo(d.log, today);
+    for (const x of inputs) if (x.kind === 'month' && !x.formula) values[x.addr] = today.slice(0, 7);
+    if (cnNoAddr) { values[cnNoAddr] = cnNext(); for (const a of cnMac.clear) if (inputs.some((x) => x.addr === a)) values[a] = ''; }
     forms[docKey] = { values, overrides: {}, rsp: '' };
   }
   const f = forms[docKey];
+  if (cnNoAddr && (!f.values[cnNoAddr] || (d.cnLog || []).some((r) => sameCn(r.cn_no, f.values[cnNoAddr])))) f.values[cnNoAddr] = cnNext();
   if (piNoAddr && (!f.values[piNoAddr] || d.log.some((r) => samePiNo(r.pi_no, f.values[piNoAddr])))) f.values[piNoAddr] = nextPiNo(d.log, f.values[dateInput ? dateInput.addr : ''] || today);
 
   const control = (x) => {
@@ -3669,6 +3698,7 @@ function viewDoc(d, docKey) {
     }
     if (x.kind === 'textarea') return `<textarea ${attrs} rows="3"${ph}>${esc(v)}</textarea>`;
     if (x.kind === 'date') return `<input type="date" ${attrs} value="${esc(v)}">`;
+    if (x.kind === 'month') return `<input type="month" ${attrs} value="${esc(v)}">`;
     if (x.kind === 'number') return `<input type="number" step="any" ${attrs} value="${esc(v)}"${ph}>`;
     return `<input ${attrs} value="${esc(v)}"${ph}>`;
   };
@@ -3679,7 +3709,12 @@ function viewDoc(d, docKey) {
   const pageInputs = inputs.filter((x) => !x.outside);
   const sideInputs = inputs.filter((x) => x.outside);
   const lastNo = [...d.log].sort((a, b) => b.id - a.id)[0];
-  const buttons = docKey === 'proforma'
+  const lastCn = isCn ? [...(d.cnLog || [])].sort((a, b) => b.id - a.id)[0] : null;
+  const buttons = isCn
+    ? `<p class="actions"><button class="btn" id="doc-pdf">Save PDF &amp; log</button><button class="btn ghost" id="doc-share">Share &amp; log</button><button class="btn ghost" id="doc-print">Print &amp; log</button></p>
+       <p class="muted small">Like the sheet's <b>Save/Print &amp; Log</b> button: the credit note is added to the <a href="#/quotes/cnlog">CN Log</a> as it goes out${cnMac.from === 'macro' ? ' — what it logs is read from the workbook\'s own macro' : ''}. A number already in the log isn't logged again: reprint it from the log as a duplicate copy, or change the number.${lastCn ? ` Last logged: <b>${esc(lastCn.cn_no)}</b> (${esc(lastCn.customer)}, ${fmtDate(lastCn.cn_date)}).` : ''}</p>
+       ${cnMac.note ? `<p class="warn-text small">${esc(cnMac.note)}</p>` : ''}`
+    : docKey === 'proforma'
     ? `<p class="actions"><button class="btn" id="doc-pdf">Save PDF &amp; log</button><button class="btn ghost" id="doc-share">Share &amp; log</button><button class="btn ghost" id="doc-print">Print &amp; log</button></p>
        <p class="muted small">Like the <b>Print &amp; Log PI</b> button: the PI is written to the PI Log as it goes out${macro.from === 'macro' ? ' — the cells it logs are read from the workbook\'s own macro' : ''}. A PI No. already in the log asks before replacing that entry.${lastNo ? ` Last logged: <b>${esc(lastNo.pi_no)}</b> (${esc(lastNo.customer)}, ${fmtDate(lastNo.pi_date)}).` : ''}</p>
        ${macro.note ? `<p class="warn-text small">${esc(macro.note)}</p>` : ''}`
@@ -3687,22 +3722,22 @@ function viewDoc(d, docKey) {
   setMain(`${quotesHead(d, tab)}
     <div class="doc-wrap">
       <section class="card doc-form">
-        <h3>${esc(docKey === 'proforma' ? 'Proforma Invoice' : 'Quotation')}</h3>
+        <h3>${esc(DOC_TITLE[docKey])}</h3>
         ${checkNote(d, sheet)}
         <form id="doc-form" autocomplete="off">
           <div class="two">${pageInputs.map(field).join('')}</div>
-          ${piNoAddr ? '<p class="muted small" id="doc-no-note"></p>' : ''}
+          ${piNoAddr || cnNoAddr ? '<p class="muted small" id="doc-no-note"></p>' : ''}
           ${sideInputs.length ? `<h4>Inputs beside the page</h4><div class="two">${sideInputs.map(field).join('')}</div>` : ''}
           ${rspAt ? `<div class="two"><label>IOCL RSP at our RO (₹/Ltr) <span class="muted small cell-ref">${esc(rspAt.sheet)}!${esc(rspAt.addr)}</span><input name="__rsp" type="number" step="0.01" min="0" value="${esc(f.rsp)}" placeholder="${esc(rs2(rspSaved))} (the workbook's)"></label><span></span></div>` : ''}
         </form>
         ${helpers.length ? '<h4>Calculated <span class="muted small">— tap ✎ to change one for this document</span></h4><div class="table-wrap"><table class="compact kv calc" id="doc-calc"></table></div>' : ''}
         ${buttons}
-        ${stampRow(d.stamps[kind], 'doc-stamp', 'doc-stamp-remove', docKey === 'proforma' ? 'proforma invoices' : 'quotations')}
+        ${stampRow(d.stamps[kind], 'doc-stamp', 'doc-stamp-remove', { proforma: 'proforma invoices', creditnote: 'credit notes' }[docKey] || 'quotations')}
       </section>
       <section class="doc-preview"><div class="doc-page" id="doc-page"></div></section>
     </div>`);
   bindTankerImport();
-  bindStamp(kind === 'pi' ? 'pi_stamp' : 'quote_stamp', 'doc-stamp', 'doc-stamp-remove', async () => { state.quotes = null; await route(); });
+  bindStamp(`${kind}_stamp`, 'doc-stamp', 'doc-stamp-remove', async () => { state.quotes = null; await route(); });
 
   const form = document.getElementById('doc-form');
   const measure = canvasMeasure();
@@ -3716,7 +3751,8 @@ function viewDoc(d, docKey) {
       if (x.formula && (raw == null || raw === '')) continue;
       ins[x.addr] = cellInput(x.kind, raw);
     }
-    return { inputs: ins, overrides: f.overrides, rsp: f.rsp };
+    // the sheet's "Next Credit Note No." counts Excel's log: here, the app's
+    return { inputs: ins, overrides: cnMac && cnMac.next ? { ...f.overrides, [cnMac.next]: cnNext() } : f.overrides, rsp: f.rsp };
   };
   const calcNow = () => docCalc(model, docKey, docState(), { format, macro: d.macro });
   const page = (calc, imgs = images, fontCss = '') => sheetSvg(layout, { values: pageValues(model, docKey, calc, format), images: imgs, measure, fontCss });
@@ -3729,6 +3765,13 @@ function viewDoc(d, docKey) {
       document.getElementById('doc-no-note').innerHTML = dup
         ? `<span class="warn-text">${esc(no)} is already in the PI Log (Log ID ${dup.id}: ${esc(dup.customer)}, ${fmtDate(dup.pi_date)}) — it will ask before replacing it.</span>`
         : `The next number after the PI Log's highest (still yours to change).${vt ? ` Valid up to <b>${esc(vt)}</b>.` : ''}`;
+    }
+    if (cnNoAddr) {
+      const no = String(f.values[cnNoAddr] || '').trim();
+      const dup = (d.cnLog || []).find((r) => sameCn(r.cn_no, no));
+      document.getElementById('doc-no-note').innerHTML = dup
+        ? `<span class="warn-text">${esc(no)} is already in the CN Log (${esc(dup.customer)}, ${fmtDate(dup.cn_date)}) — it can't be logged again; change the number, or reprint it from the CN Log.</span>`
+        : 'The next number after the CN Log\'s highest (still yours to change).';
     }
     const tbl = document.getElementById('doc-calc');
     if (tbl) {
@@ -3777,7 +3820,7 @@ function viewDoc(d, docKey) {
   });
   render();
 
-  const nameNow = (calc) => (docKey === 'proforma'
+  const nameNow = (calc) => (isCn ? cnFileName(calc, cnMac) : docKey === 'proforma'
     ? docFileName(docKey, calc, { customerAddr: macro.pdf.customer, dateAddr: macro.pdf.date, word: macro.pdf.word })
     : docFileName(docKey, calc, { customerAddr: custInput && custInput.addr, dateAddr: dateInput && dateInput.addr }));
   const pdfOf = async (calc) => pdfFromSvgs([page(calc, await docImagesForPdf(d, kind), await narrowFontCss())], A4, { scale: 3 });
@@ -3793,6 +3836,46 @@ function viewDoc(d, docKey) {
     run('doc-pdf', async (btn) => { btn.textContent = 'Making…'; const c = calcNow(); const n = nameNow(c); download(await pdfOf(c), n); toast(`Saved ${n}`); });
     run('doc-share', async (btn) => { btn.textContent = 'Making…'; const c = calcNow(); const n = nameNow(c); await shareOrSave([new File([await pdfOf(c)], n, { type: 'application/pdf' })], n); });
     run('doc-print', async () => printPages([page(calcNow())], A4));
+    return;
+  }
+  if (isCn) {
+    // PrintAndLogXPCreditNote: the checks, a number already logged refused, the question, the PDF, the log
+    const outCn = async (how, btn) => {
+      const calc = calcNow();
+      const problem = cnProblem(calc, cnMac);
+      if (problem) throw new Error(`Please fix: ${problem}.`);
+      const no = String(calc.value(sheet, cnNoAddr) ?? '').trim();
+      const dup = (d.cnLog || []).find((r) => sameCn(r.cn_no, no));
+      if (dup) throw new Error(`Credit Note ${no} is already in the log. Reprint it from the CN Log, or change the Credit Note No.`);
+      const F = cnFields(cnMac);
+      const row = cnLogRowOf(calc, cnMac, model);
+      if (!window.confirm(`Create and log Credit Note ${no}\n${row[F.customer] || ''}\nCredit: Rs. ${indian(row[F.credit])}`)) return;
+      const name = nameNow(calc);
+      let blob = null;
+      if (how !== 'print') { btn.textContent = 'Making PDF…'; blob = await pdfOf(calc); }
+      if (F.printed_at) row[F.printed_at] = new Date().toISOString();
+      if (F.printed_by) row[F.printed_by] = state.me.email;
+      if (F.reprints) row[F.reprints] = 0;
+      if (F.file) row[F.file] = how === 'print' ? 'Printed' : name;
+      const snap = {};
+      for (const x of inputs) { const v = calc.value(sheet, x.addr); snap[x.addr] = isErr(v) ? null : v; }
+      const rec = { ...cnRecord(row, cnMac), printed_by: state.me.email, doc: { inputs: snap, overrides: f.overrides } };
+      const res = await quotesCall(() => state.store.cnSave(rec));
+      if (res.status === 'exists') throw new Error(`Credit Note ${no} is already in the log. Reprint it from the CN Log, or change the Credit Note No.`);
+      if (how === 'print') printPages([page(calc)], A4);
+      else if (how === 'share') await shareOrSave([new File([blob], name, { type: 'application/pdf' })], name);
+      else download(blob, name);
+      toast(`Credit Note ${no} logged${how === 'pdf' ? ` — saved ${name}` : ''}.`);
+      d.cnLog = await cnLogList();
+      // ready for the next note: the next number, the amount cleared
+      f.values[cnNoAddr] = cnNext();
+      for (const a of cnMac.clear) if (byAddr.has(a)) f.values[a] = '';
+      for (const a of [cnNoAddr, ...cnMac.clear]) { const el = form.querySelector(`[name="${a}"]`); if (el) el.value = f.values[a] ?? ''; }
+      render();
+    };
+    run('doc-pdf', (btn) => outCn('pdf', btn));
+    run('doc-share', (btn) => outCn('share', btn));
+    run('doc-print', (btn) => outCn('print', btn));
     return;
   }
   // PrintAndLogPI: the macro's checks, the PDF, the duplicate question, the log
@@ -3895,6 +3978,239 @@ function piCheckHtml(check, { before = false, log = [], fileName = '', when = ''
   return `<div class="pi-check warn"><b>⚠ ${head}: they don't match</b>
     <p class="small">${plural(alike, 'PI')} alike${before && check.new_from_excel.length ? ` · ${check.new_from_excel.length} new from Excel (will be added)` : ''}.</p>
     ${parts.join('')}</div>`;
+}
+
+// ---- the Price Letter ("TO WHOMSOEVER IT MAY CONCERN": the RSP on a day or over a period) ----
+// Made in the format of the Word file (assets/price-letter.docx). Each day's
+// price is the app's price history — the day's RSP, the highest price billed
+// that day (Home's Day's RSP) — and can be typed over. A period with more
+// than one price lists them in a table.
+const LETTER_TEMPLATE = 'assets/price-letter.docx';
+async function letterPrices(from, to) {
+  const k = `${from}|${to}`;
+  if (!state.letterRsp || state.letterRsp.k !== k) state.letterRsp = { k, rsp: dayRsp((await state.store.dashboard(from, to)).rsp) };
+  return state.letterRsp.rsp;
+}
+// the stamp: the letter's own, else the Proforma's / credit note's from the workbook, else the app's
+const letterStampOf = (d) => d.stamps.letter || d.stamps.pi || d.stamps.cn || null;
+
+async function viewPriceLetter(d) {
+  const today = todayIso();
+  const L = state.letter || (state.letter = { mode: 'day', date: today, from: `${today.slice(0, 7)}-01`, to: today, product: 'HSD', typed: {} });
+  const from = L.mode === 'day' ? L.date : L.from;
+  const to = L.mode === 'day' ? L.date : L.to;
+  let problem = '';
+  if (!from || !to || to < from) problem = 'Pick a From date on or before the To date.';
+  else if (to > today) problem = 'The letter can only be for dates up to today.';
+  else if (daysBetween(from, to) > 365) problem = 'Pick at most a year at a time.';
+  const rsp = problem ? null : await letterPrices(from, to);
+  const dates = problem ? [] : dateRange(from, to);
+  // each day's price from the history; the last days with no bill yet (today, say) carry the
+  // last price known in the week before — marked, to check
+  const carried = new Map();
+  const histPrice = (x) => {
+    const v = rsp.at(L.product, x);
+    if (v != null) return v;
+    for (let i = 1; i <= 7; i++) {
+      const back = addDays(x, -i);
+      const w = rsp.at(L.product, back);
+      if (w == null) continue;
+      for (let j = 1; j <= 7 && addDays(x, j) <= today; j++) if (rsp.at(L.product, addDays(x, j)) != null) return null;   // a later price is known: don't guess
+      carried.set(x, back);
+      return w;
+    }
+    return null;
+  };
+  // the history's runs of one price (a carried price kept apart); a price typed for a run is used for all its days
+  const hist = [];
+  for (const x of dates) {
+    const price = histPrice(x);
+    const c = carried.has(x);
+    const last = hist[hist.length - 1];
+    if (last && last.price === price && last.carried === c) last.to = x;
+    else hist.push({ from: x, to: x, price, carried: c });
+  }
+  const typedOf = (r) => L.typed[`${L.product}|${r.from}|${r.to}`];
+  const priceOf = (r) => { const t = typedOf(r); return t != null && t !== '' && Number(t) > 0 ? Number(t) : r.price; };
+  const days = hist.flatMap((r) => dateRange(r.from, r.to).map((x) => ({ date: x, price: priceOf(r) })));
+  const missing = hist.filter((r) => priceOf(r) == null);
+  const ranges = priceRanges(days);
+  const text = !problem && !missing.length && dates.length ? letterText({ product: L.product, from, to, ranges }) : null;
+  const P = LETTER_PRODUCTS[L.product];
+  setMain(`${quotesHead(d, 'letter')}
+    <div class="doc-wrap">
+      <section class="card doc-form">
+        <h3>Price Letter</h3>
+        <p class="muted small">“To whomsoever it may concern” — the RSP of a product at our outlet on a day or over a period, in the format of your Word letter. The price comes from the app's <b>price history</b> (the day's RSP: the highest price billed that day, as on Home); type over it if it's wrong or missing.</p>
+        <form id="letter-form" autocomplete="off">
+          <div class="two">
+            <label>Product <select name="product">${Object.entries(LETTER_PRODUCTS).map(([k, x]) => `<option value="${k}"${k === L.product ? ' selected' : ''}>${esc(x.name)} (${k})</option>`).join('')}</select></label>
+            <label>For <select name="mode"><option value="day"${L.mode === 'day' ? ' selected' : ''}>One day</option><option value="period"${L.mode === 'period' ? ' selected' : ''}>A period</option></select></label>
+            ${L.mode === 'day' ? `<label>Date <input type="date" name="date" value="${esc(L.date)}" max="${today}"></label><span></span>`
+    : `<label>From <input type="date" name="from" value="${esc(L.from)}" max="${today}"></label><label>To <input type="date" name="to" value="${esc(L.to)}" max="${today}"></label>`}
+          </div>
+          ${problem ? `<p class="warn-text">${esc(problem)}</p>` : `<h4>${L.mode === 'day' ? 'Price' : 'Prices'} <span class="muted small">₹ per litre</span></h4>
+          <div class="letter-prices">${hist.map((r) => {
+    const t = typedOf(r);
+    return `<div class="letter-row"><span class="nw">${r.from === r.to ? esc(dmyLetter(r.from)) : `${esc(dmyLetter(r.from))} – ${esc(dmyLetter(r.to))}`}</span>
+              <input type="number" step="0.01" min="0" inputmode="decimal" data-range="${esc(`${L.product}|${r.from}|${r.to}`)}" value="${esc(t ?? '')}" placeholder="${r.price != null ? esc(price2(r.price)) : 'type it'}" aria-label="Price, ₹ per litre">
+              <small>${t != null && t !== '' ? '<span class="tag warn">typed</span>' : r.price != null && r.carried ? `<span class="warn-text">no bill yet — the price of ${esc(dmyLetter(carried.get(r.from)))}; check it</span>` : r.price != null ? '<span class="muted">from the price history</span>' : '<span class="warn-text">no price recorded — type it</span>'}</small></div>`;
+  }).join('')}</div>
+          ${L.mode === 'period' && ranges.length > 1 ? `<p class="muted small">The price changed during the period: the letter lists each price with its dates.</p>` : ''}`}
+        </form>
+        <p class="actions"><button class="btn" id="letter-docx"${text ? '' : ' disabled'}>Download Word</button><button class="btn ghost" id="letter-pdf"${text ? '' : ' disabled'}>PDF</button><button class="btn ghost" id="letter-share"${text ? '' : ' disabled'}>Share</button><button class="btn ghost" id="letter-print"${text ? '' : ' disabled'}>Print</button></p>
+        ${missing.length ? `<p class="warn-text small">Type the price for ${missing.map((r) => (r.from === r.to ? dmyLetter(r.from) : `${dmyLetter(r.from)} – ${dmyLetter(r.to)}`)).join(', ')} — the app has no ${esc(P.short)} bill on ${missing.length === 1 && missing[0].from === missing[0].to ? 'that day' : 'those days'} (or near ${missing.length === 1 && missing[0].from === missing[0].to ? 'it' : 'them'}) to take it from.</p>` : ''}
+        <div class="stamp-row">
+          ${d.stamps.letter ? `<img src="${esc(d.stamps.letter.data_url)}" alt="Stamp printed on the price letters" class="stamp-thumb">` : `<span class="muted small">Stamp: ${letterStampOf(d) ? 'the Proforma stamp from the Tanker Billing workbook' : 'the app\'s stamp'} — upload one to use another.</span>`}
+          <label class="file"><input type="file" id="letter-stamp" accept="image/png,image/jpeg"><span class="btn ghost small">${d.stamps.letter ? 'Change stamp' : 'Upload stamp'}</span></label>
+          ${d.stamps.letter ? '<button class="btn ghost small" id="letter-stamp-remove">Remove</button>' : ''}
+        </div>
+      </section>
+      <section class="doc-preview"><div class="doc-page" id="letter-page">${text ? '' : '<p class="muted">Pick the dates (and type any missing price) to see the letter.</p>'}</div></section>
+    </div>`);
+  bindTankerImport();
+  bindStamp('letter_stamp', 'letter-stamp', 'letter-stamp-remove', async () => { state.quotes = null; await route(); });
+  const form = document.getElementById('letter-form');
+  form.addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.dataset.range) { L.typed[el.dataset.range] = el.value; } else if (el.name) L[el.name] = el.value;
+    guard(() => viewPriceLetter(d));
+  });
+  if (!text) return;
+  // the page: on screen with blob URLs, in the PDF with data URLs
+  const ctx = document.createElement('canvas').getContext('2d');
+  const measure = (t, st) => { ctx.font = `${st.b ? 'bold ' : ''}${st.s}px 'Times New Roman', Tinos, Times, serif`; return ctx.measureText(String(t)).width; };
+  const stamp = letterStampOf(d);
+  const lh = d.letterheads.cn || d.letterheads.pi;
+  const fontCss = await letterFontCss().catch(() => '');
+  document.getElementById('letter-page').innerHTML = letterSvg(text, { images: { letterhead: lh ? blobUrlOf(lh.data_url) : QUOTE_ASSETS.pi, stamp: stamp ? blobUrlOf(stamp.data_url) : IMAGES.stamp }, measure, fontCss });
+  const name = `${P.short} Price Letter ${from === to ? dmyDash(from) : `${dmyDash(from)} to ${dmyDash(to)}`}`;
+  const pdfBlob = async () => {
+    const images = { letterhead: lh ? lh.data_url : await toDataUrl(QUOTE_ASSETS.pi), stamp: stamp ? stamp.data_url : await toDataUrl(IMAGES.stamp) };
+    return pdfFromSvgs([letterSvg(text, { images, measure, fontCss })], LETTER_PAGE, { scale: 3 });
+  };
+  const run = (id, fn) => { const b = document.getElementById(id); b.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
+  run('letter-docx', async () => {
+    const JSZip = await loadJSZip();
+    const tpl = await (await fetch(LETTER_TEMPLATE)).arrayBuffer();
+    // the stamp as PNG (the template's picture is a PNG)
+    const url = stamp ? stamp.data_url : await toDataUrl(IMAGES.stamp);
+    const png = await pngBytes(url);
+    download(await letterDocx(JSZip, tpl, text, png), `${name}.docx`);
+    toast(`Saved ${name}.docx`);
+  });
+  run('letter-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
+  run('letter-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
+  run('letter-print', async () => printPages([document.getElementById('letter-page').innerHTML], A4));
+}
+// a picture (data: URL) as PNG bytes
+async function pngBytes(dataUrl) {
+  if (dataUrl.startsWith('data:image/png')) return Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// ---- the CN Log (XP Cr Note Log + ReprintXPCreditNote) ----
+// Excel's log (from the import) and every credit note made here, newest
+// first. A reprint puts the logged values back on the sheet with the
+// DUPLICATE COPY label, as the Reprint macro does, and counts it.
+function viewCnLog(d) {
+  if (!d.model || !d.cnMac || d.cnLog === null) return viewDoc(d, 'creditnote');
+  const mac = d.cnMac;
+  const F = cnFields(mac);
+  const f = state.cnLogFilter || { customer: '', from: '', to: '' };
+  const log = d.cnLog || [];
+  const rows = log.filter((r) => (!f.customer || String(r.customer).toLowerCase().includes(f.customer.trim().toLowerCase()))
+    && (!f.from || (r.cn_date || '') >= f.from) && (!f.to || (r.cn_date || '') <= f.to)).sort((a, b) => b.id - a.id);
+  const total = rows.reduce((a, r) => a + (Number(r.credit) || 0), 0);
+  const paid = rows.reduce((a, r) => a + (Number(r.row && r.row[mac.cols.find((c) => /amount paid/i.test(c))]) || 0), 0);
+  const period = (r) => { const v = F.date && r.row ? r.row[mac.cols.find((c) => /period/i.test(c))] : null; return typeof v === 'string' && /^\d{4}-\d{2}/.test(v) ? monthLabel(`${v.slice(0, 7)}-01`) : ''; };
+  const fromExcel = log.filter((r) => r.source === 'workbook').length;
+  const today = todayIso();
+  const dates = log.map((r) => r.cn_date).filter(Boolean).sort();
+  const span = { from: f.from || dates[0] || today, to: f.to || dates[dates.length - 1] || today };
+  setMain(`${quotesHead(d, 'cnlog')}
+    <section class="card">
+      <h3>CN Log <span class="muted small">— ${esc(mac.logTable)}</span></h3>
+      <p class="muted">The workbook's <b>XP Cr Note Log</b> (from the import) and every credit note made here — ${plural(fromExcel, 'note')} from Excel, ${log.length - fromExcel} made in the app. The next Credit Note No. follows the highest in it. <b>Duplicate</b> makes the note again exactly as it was logged, marked <i>${esc(mac.copy.text)}</i>, and counts the reprint.</p>
+      <form class="row-form" id="cnlog-form">
+        <label>Customer contains <input name="customer" value="${esc(f.customer)}" placeholder="blank = all" autocomplete="off"></label>
+        <label>Note dated from <input type="date" name="from" value="${esc(f.from)}"></label>
+        <label>to <input type="date" name="to" value="${esc(f.to)}"></label>
+        <button class="btn ghost" type="submit">Show</button>
+        <button class="btn ghost" type="button" id="cnlog-all">All</button>
+      </form>
+      ${rows.length ? `<p><b>${plural(rows.length, 'credit note')}</b>${f.customer || f.from || f.to ? ` of ${log.length}` : ''} · paid ${fmtMoney(paid)} · credit ${fmtMoney(total)}</p>
+      <p class="actions"><button class="btn ghost" id="cnlog-xlsx">Download log (Excel)</button></p>
+      <div class="table-wrap"><table class="compact pi-log">
+        <thead><tr><th class="r">ID</th><th>Credit Note No.</th><th>Date</th><th>Period</th><th>Customer</th><th class="r">Amount paid</th><th class="r">Credit</th><th>Logged</th><th class="r">Reprints</th><th></th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td class="r">${r.id}</td><td class="nw"><b>${esc(r.cn_no)}</b>${r.source === 'workbook' ? ' <span class="tag">Excel</span>' : ''}</td><td class="nw">${fmtDate(r.cn_date)}</td><td class="nw">${esc(period(r))}</td>
+          <td>${esc(r.customer)}</td><td class="r nw">${esc(fmtMoney(Number(r.row && r.row[mac.cols.find((c) => /amount paid/i.test(c))]) || 0))}</td><td class="r nw"><b>${esc(fmtMoney(Number(r.credit) || 0))}</b></td>
+          <td class="small">${r.printed_at ? esc(new Date(r.printed_at).toLocaleDateString('en-IN')) : ''}${r.printed_by ? `<br><span class="muted">${esc(r.printed_by)}</span>` : ''}</td>
+          <td class="r">${r.reprints || 0}${r.last_reprint ? `<br><small class="muted">${esc(new Date(r.last_reprint).toLocaleDateString('en-IN'))}</small>` : ''}</td>
+          <td class="row-end"><button class="btn small" data-cn-dup="${r.id}">Duplicate</button><button class="btn ghost small" data-cn-print="${r.id}">Print</button><button class="btn ghost small" data-cn-del="${r.id}" title="Remove from the CN Log">✕</button></td></tr>`).join('')}</tbody>
+      </table></div>` : `<p class="muted">${log.length ? 'No credit note matches.' : 'No credit notes yet — make one under <a href="#/quotes/cn">Credit Note</a>, or import the Tanker Billing workbook to bring in its XP Cr Note Log.'}</p>`}
+    </section>`);
+  bindTankerImport();
+  const form = document.getElementById('cnlog-form');
+  form.addEventListener('submit', (e) => { e.preventDefault(); state.cnLogFilter = { customer: form.customer.value, from: form.from.value, to: form.to.value }; viewCnLog(d); });
+  document.getElementById('cnlog-all').addEventListener('click', () => { state.cnLogFilter = null; viewCnLog(d); });
+  const measure = canvasMeasure();
+  const layout = layoutOf(d.model, 'creditnote');
+  // the logged note on the sheet again, marked as a duplicate copy
+  const calcOf = (r) => docCalc(d.model, 'creditnote', cnStateFromLog(r.row || {}, mac, d.model), { format: d.format });
+  const pageOf = (calc, images, fontCss = '') => sheetSvg(layout, { values: pageValues(d.model, 'creditnote', calc, d.format), images, measure, fontCss });
+  const reprinted = async (r) => { await quotesCall(() => state.store.cnReprinted(r.id)); d.cnLog = await cnLogList(); };
+  main().querySelectorAll('[data-cn-dup]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const r = log.find((x) => x.id === Number(b.dataset.cnDup));
+    if (!window.confirm(`Reprint Credit Note ${r.cn_no} (${r.customer}) as ${mac.copy.text}?`)) return;
+    b.disabled = true;
+    b.textContent = 'Making…';
+    try {
+      const calc = calcOf(r);
+      const name = cnFileName(calc, mac, { duplicate: true });
+      const blob = await pdfFromSvgs([pageOf(calc, await docImagesForPdf(d, 'cn'), await narrowFontCss())], A4, { scale: 3 });
+      download(blob, name);
+      await reprinted(r);
+      toast(`Duplicate copy of ${r.cn_no} made — ${name}`);
+    } finally { b.disabled = false; b.textContent = 'Duplicate'; }
+    viewCnLog(d);
+  })));
+  main().querySelectorAll('[data-cn-print]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const r = log.find((x) => x.id === Number(b.dataset.cnPrint));
+    printPages([pageOf(calcOf(r), docImages(d, 'cn'))], A4);
+    await reprinted(r);
+    viewCnLog(d);
+  })));
+  main().querySelectorAll('[data-cn-del]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const r = log.find((x) => x.id === Number(b.dataset.cnDel));
+    if (!window.confirm(`Remove Credit Note ${r.cn_no} (${r.customer}) from the CN Log? Its number can then be used again.`)) return;
+    await quotesCall(() => state.store.cnDelete(r.id));
+    d.cnLog = await cnLogList();
+    toast(`${r.cn_no} removed from the CN Log.`);
+    viewCnLog(d);
+  })));
+  // the log sheet's own columns, in its order — ready to paste into XP Cr Note Log
+  document.getElementById('cnlog-xlsx')?.addEventListener('click', () => guard(() => {
+    const cell = (r, c) => {
+      if (c === F.reprints) return r.reprints || 0;
+      if (c === F.last_reprint) return r.last_reprint ? new Date(r.last_reprint) : '';
+      if (c === F.id) return r.id;
+      const v = r.row ? r.row[c] : null;
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(T|$)/.test(v)) return new Date(v.length === 10 ? `${v}T00:00:00` : v);
+      return v ?? '';
+    };
+    return downloadSheets([{ name: 'XP Cr Note Log', cols: mac.cols.map((c) => Math.max(10, Math.min(40, c.length + 4))), filter: true,
+      rows: [mac.cols, ...[...rows].sort((a, b) => a.id - b.id).map((r) => mac.cols.map((c) => cell(r, c)))] }], `CN Log ${rangeName(span.from, span.to)}.xlsx`);
+  }));
 }
 
 function viewPiLog(d) {
@@ -4029,7 +4345,7 @@ async function workbookParts(buf) {
       const b64 = await f.async('base64');
       const type = b64.startsWith('iVBOR') ? 'image/png' : b64.startsWith('/9j/') ? 'image/jpeg' : null;    // Excel names some PNGs .tmp
       if (!type || b64.length > 1900000) continue;
-      images[`${sheet === 'quotation' ? 'quote' : 'pi'}_${which}`] = `data:${type};base64,${b64}`;
+      images[`${{ quotation: 'quote', proforma: 'pi', creditnote: 'cn' }[sheet] || sheet}_${which}`] = `data:${type};base64,${b64}`;
     }
   }
   return { files, vba, images };
@@ -4048,7 +4364,10 @@ async function tankerChosen(file, input, outId) {
     const { files, vba, images } = await workbookParts(buf);
     const model = buildModel(wb, files, { vba });
     const check = selfCheck(model, format);
-    const missingDocs = DOC_SHEETS.filter((s) => !model.sheets[s] || !model.sheets[s].layout);
+    const missingDocs = DOC_SHEETS.filter((s) => s !== DOCS.creditnote.sheet && (!model.sheets[s] || !model.sheets[s].layout));
+    // the credit notes' log, as the workbook has it (XP Cr Note Log)
+    const cnMac = cnMacro(model);
+    const cnLog = model.sheets[cnMac.sheet] ? cnLogFromModel(model, cnMac).map((r) => cnRecord(r, cnMac)).filter((r) => r.cn_no) : [];
     // the app's log as it is now, to check Excel's PI Log sheet against
     const log = await quotesCall(() => state.store.piList()).catch(() => []);
     const piCheck = comparePiLog(parsed.pi_log, log);
@@ -4063,7 +4382,7 @@ async function tankerChosen(file, input, outId) {
     const rspNow = rsp ? calc.value(rsp.sheet, rsp.addr) : null;
     const formOf = (k) => (model.sheets[DOCS[k].sheet] ? inputsOf(model, k, calc, k === 'proforma' ? macro : null).map((x) => esc(x.label)).join(' · ') : '<span class="warn-text">sheet not found</span>');
     const tableRows = Object.entries(model.tables).map(([n, t]) => `${esc(n)} <span class="muted">(${t.r1 - t.r0} rows)</span>`).join(' · ');
-    const pics = { pi_letterhead: 'Proforma letterhead', pi_stamp: 'Proforma stamp', quote_letterhead: 'Quotation letterhead', quote_stamp: 'Quotation stamp' };
+    const pics = { pi_letterhead: 'Proforma letterhead', pi_stamp: 'Proforma stamp', quote_letterhead: 'Quotation letterhead', quote_stamp: 'Quotation stamp', cn_letterhead: 'Credit note letterhead', cn_stamp: 'Credit note stamp' };
     const ok = !check.bad.length && !check.unknown.length && check.count > 0;
     out.innerHTML = `
       <div class="preview">
@@ -4080,6 +4399,8 @@ async function tankerChosen(file, input, outId) {
           <tr><td>Tables</td><td>${tableRows || '—'}</td></tr>
           <tr><td>Quotation asks for</td><td>${formOf('quotation')}</td></tr>
           <tr><td>Proforma Invoice asks for</td><td>${formOf('proforma')}</td></tr>
+          ${model.sheets[DOCS.creditnote.sheet] ? `<tr><td>Credit Note asks for</td><td>${formOf('creditnote')}</td></tr>
+          <tr><td>Credit note log</td><td>${cnMac.from === 'macro' ? 'filled as the Save/Print &amp; Log macro does' : esc(cnMac.note || '')} · ${plural(cnLog.length, 'note')} in the workbook's ${esc(cnMac.logTable)}</td></tr>` : ''}
           <tr><td>PI Log</td><td>${macro.from === 'macro' ? 'filled as the Print &amp; Log PI macro (Module1) does' : esc(macro.note || '')} · ${plural(parsed.pi_log.length, 'PI')} in the sheet</td></tr>
           <tr><td>Pictures</td><td>${Object.keys(images).map((k) => pics[k] || k).join(', ') || '<span class="muted">none found — the app\'s own letterhead is used</span>'}</td></tr>
         </tbody></table></div>
@@ -4092,7 +4413,7 @@ async function tankerChosen(file, input, outId) {
     go.addEventListener('click', () => guard(async () => {
       go.disabled = true;
       go.textContent = 'Importing…';
-      const res = await quotesCall(() => state.store.tankerImport(file.name, { customers: parsed.customers, data, pi_log: parsed.pi_log, images }));
+      const res = await quotesCall(() => state.store.tankerImport(file.name, { customers: parsed.customers, data, pi_log: parsed.pi_log, cn_log: cnLog, images }));
       input.value = '';
       state.quotes = null;
       state.docForms = null;                    // start from the workbook's new cells

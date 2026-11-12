@@ -2,8 +2,9 @@
 // Writes ledger/js/demo-workbook.js: the ledger demo's Tanker Billing
 // workbook (/ledger/?demo → Quotes), made from the real workbook's design.
 //
-// The Quotation Maker and Proforma Invoice sheets keep their layout, wording,
-// formulas and Module1 (the Print & Log PI macro); everything about real
+// The Quotation Maker, Proforma Invoice and Bank Pay CrNote sheets keep their
+// layout, wording, formulas and macros (Module1: Print & Log PI; the credit
+// note's Save/Print & Log, Reprint); everything about real
 // customers is replaced with made-up data — the Customers / RateCard /
 // TierTerms rows, the typed-in customer, contacts and PI No. — and every
 // formula's saved result is worked out again from the made-up data. The
@@ -36,7 +37,9 @@ const zip = await JSZip.loadAsync(buf);
 const files = {};
 for (const n of Object.keys(zip.files)) if (MODEL_PARTS.test(n)) files[n] = await zip.file(n).async('string');
 const vba = zip.file('xl/vbaProject.bin') ? vbaModules(await zip.file('xl/vbaProject.bin').async('uint8array')) : {};
-const model = buildModel(wb, files, { vba: vba.Module1 ? { Module1: vba.Module1 } : {} });
+// only the macros the app reads: Print & Log PI, and the credit note's
+const keep = Object.fromEntries(Object.entries(vba).filter(([, t]) => /Sub\s+PrintAndLog/i.test(t)));
+const model = buildModel(wb, files, { vba: keep });
 
 // the real names, to make sure none is left
 const realNames = [];
@@ -128,6 +131,11 @@ set('Quotation Maker', 'I7', '00000 00000');
 set('Quotation Maker', 'I8', 'demo@example.com');
 set('Proforma Invoice', 'A12', 'Sample Metals Ltd');
 set('Proforma Invoice', 'G4', 'PI/2026-27/001');
+// the credit note: a made-up customer, PO and our bank account
+set('Bank Pay CrNote', 'A17', 'Demo Power Ltd');
+set('Bank Pay CrNote', 'G17', 'BNK/001');
+set('Bank Pay CrNote', 'G20', 'DP/26/0142');
+set('Bank Pay CrNote', 'K13', 'DEMO BANK, Sample Branch – A/c 000000000000, IFSC DEMO0000000');
 // the seller block names the business; the demo names a made-up one
 for (const [a, v] of [['A4', 'DEMO FUELS'], ['A7', 'GSTIN: 00DEMO0000D0Z0      PAN: DEMO00000D'], ['A8', 'Mob: 00000 00000'], ['A9', 'Email: demo@example.com']]) {
   const c = model.sheets['Proforma Invoice'].cells[a];
@@ -153,7 +161,7 @@ if (left.length) {
 }
 const dest = join(root, 'ledger/js/demo-workbook.js');
 writeFileSync(dest, `// Made by tanker/demo_workbook.mjs — the demo's Tanker Billing workbook: the real sheets'
-// design, formulas and Print & Log PI macro, with made-up customers, rates and contacts.
+// design, formulas and macros (Print & Log PI, the credit note's), with made-up customers, rates and contacts.
 export const DEMO_WORKBOOK = ${out};
 `);
 console.log(`wrote ${dest} (${out.length} bytes; ${realNames.length} real names checked)`);
