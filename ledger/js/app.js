@@ -394,6 +394,28 @@ async function registerAll(force = false) {
   return state.reg.all;
 }
 
+// The paper page's size: zoomed to the width it has (never past its own size),
+// or the size picked with − / +
+function paperFit() {
+  const box = document.querySelector('.paper-scroll');
+  const paper = box && box.querySelector('.paper');
+  if (!paper) return 1;
+  const z = paper.style.zoom;
+  paper.style.zoom = '';
+  const natural = paper.offsetWidth;
+  paper.style.zoom = z;
+  const avail = box.clientWidth - 12;
+  return natural ? Math.min(1, Math.floor((avail / natural) * 1000) / 1000) : 1;
+}
+function fitRegisterPaper(reg) {
+  const paper = document.querySelector('.paper-scroll .paper');
+  if (!paper) return;
+  const z = reg.zoom || paperFit();
+  paper.style.zoom = String(z);
+  const pc = document.getElementById('reg-zoom-pc');
+  if (pc) pc.textContent = `${Math.round(z * 100)}%${reg.zoom ? '' : ' · fits the screen'}`;
+}
+
 // what's typed on the Register (dips, the testing adjustment): read the
 // latest, change it, keep it
 async function saveRegisterEntry(k, mutate) {
@@ -435,7 +457,9 @@ async function importRegisterFile(file) {
   return note;
 }
 
-async function viewRegister(tab, month) {
+// keep: drawn again after a change here (the testing adjustment card stays as
+// it was); otherwise it opens folded and locked
+async function viewRegister(tab, month, keep = false) {
   const all = await registerAll();
   const today = localToday();
   const months = [...new Set(Object.keys(all).filter((k) => /^(dsr|stock):/.test(k)).map((k) => k.slice(-7)))].sort().reverse();
@@ -470,6 +494,7 @@ async function viewRegister(tab, month) {
     typed: (all[`dips:${mk}`] && all[`dips:${mk}`].data[key]) || null,
   });
   const reg = state.regView || (state.regView = { product: 'HSD', editDips: false });
+  if (!keep) { reg.adjOpen = false; reg.adjEdit = false; reg.zoom = null; }
   const key = REG_PRODUCTS.some((p) => p.key === reg.product) ? reg.product : 'HSD';
   const pm = pmOf(m, key);
   const { latest: latestDay, prev: prevDay } = latestDays(pm);
@@ -515,6 +540,8 @@ async function viewRegister(tab, month) {
         <span class="row-gap">${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}
           ${tab === 'stock' ? '' : `<button class="btn ${reg.editDips ? '' : 'ghost '}small" id="reg-edit-dips" type="button">${reg.editDips ? 'Done' : 'Edit dips'}</button>`}
           <button class="btn ghost small" id="reg-print" type="button">Print</button></span></div>
+      <div class="zoom-bar" role="group" aria-label="Page size"><button class="btn ghost small" data-reg-zoom="out" aria-label="Smaller">−</button><button class="btn ghost small" data-reg-zoom="fit">Fit</button><button class="btn ghost small" data-reg-zoom="in" aria-label="Bigger">+</button>
+        <span class="muted small" id="reg-zoom-pc"></span></div>
       ${missing}
       ${(() => { const al = shortageAlert(pm); return al ? `<div class="todo warn reg-alert">${esc(alertText(al, pm.product.short))}</div>` : ''; })()}
       ${reg.editDips && tab !== 'stock' ? '<p class="small warn-text">Type a dip where it was misread (or missing) — it\'s kept and written over the DIP Chart\'s; clear it to go back. <b>Done</b> when finished.</p>' : ''}
@@ -529,14 +556,42 @@ async function viewRegister(tab, month) {
         : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s) and the dips are that stock read on the DIP Chart; meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing. Written as by hand: whole litres and meter readings, sales to the paisa.'}</p>
       ${kpis}
     </section>
-    ${tab === 'stock' && adj ? `<section class="card" id="reg-adjust">${adjustHtml(adj, pm, split, { prevMonth: monthBefore, nextMonth: monthAfter })}</section>` : ''}
+    ${tab === 'stock' && adj ? `<details class="card fold" id="reg-adjust"${reg.adjOpen ? ' open' : ''}>
+      <summary><b>Testing adjustment &amp; actual shortage</b> <span class="muted">· ${esc(pm.product.short)} — Stock Register <span class="${gainClass(split.shortage)}">${gainLoss(split.shortage)}</span> · actual <span class="${gainClass(split.actual)}">${gainLoss(split.actual)}</span></span><span class="fold-hint">tap to ${reg.adjOpen ? 'close' : 'open'}</span></summary>
+      ${adjustHtml(adj, pm, split, { prevMonth: monthBefore, nextMonth: monthAfter, locked: !reg.adjEdit })}</details>` : ''}
     <section class="card">
       <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
       ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
       <p class="muted small">${fileLine}</p>
     </section>`);
   document.getElementById('reg-print')?.addEventListener('click', () => window.print());
-  const again = () => guard(() => viewRegister(tab, month));
+  const again = () => guard(() => viewRegister(tab, month, true));
+  // the page fits the screen's width (a phone held upright sees all of it); − / + make it
+  // smaller or bigger (then it scrolls), Fit goes back; pinching works as on any page
+  fitRegisterPaper(reg);
+  main().querySelectorAll('[data-reg-zoom]').forEach((b) => b.addEventListener('click', () => {
+    const fit = paperFit();
+    const now = reg.zoom || fit;
+    const steps = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5];
+    if (b.dataset.regZoom === 'fit') reg.zoom = null;
+    else if (b.dataset.regZoom === 'in') reg.zoom = steps.find((x) => x > now + 0.01) || 1.5;
+    else reg.zoom = [...steps].reverse().find((x) => x < now - 0.01) || 0.3;
+    if (reg.zoom && Math.abs(reg.zoom - fit) < 0.01) reg.zoom = null;
+    fitRegisterPaper(reg);
+  }));
+  if (!state.regResize) {
+    state.regResize = true;
+    const refit = () => { if (state.regView && document.querySelector('.paper-scroll')) fitRegisterPaper(state.regView); };
+    window.addEventListener('resize', refit);
+    window.addEventListener('orientationchange', () => setTimeout(refit, 200));
+  }
+  document.getElementById('reg-adjust')?.addEventListener('toggle', (e) => {
+    reg.adjOpen = e.target.open;
+    if (!reg.adjOpen) reg.adjEdit = false;
+    const h = e.target.querySelector('.fold-hint');
+    if (h) h.textContent = `tap to ${reg.adjOpen ? 'close' : 'open'}`;
+  });
+  document.getElementById('adj-edit')?.addEventListener('click', () => { reg.adjEdit = !reg.adjEdit; again(); });
   document.getElementById('reg-edit-dips')?.addEventListener('click', () => { reg.editDips = !reg.editDips; again(); });
   // a typed dip: kept straight away; the page is drawn again on Done
   main().querySelectorAll('.dip-in').forEach((inp) => inp.addEventListener('change', () => guard(async () => {
@@ -557,7 +612,7 @@ async function viewRegister(tab, month) {
     const v = typedNumber(e.target.value, { min: -1e6, max: 1e6 });
     await saveRegisterEntry(`adjust:${m}`, (data) => { const o = data.open || (data.open = {}); if (v == null) delete o[key]; else o[key] = v; });
     focusNext('.adj-in');
-    await viewRegister(tab, month);
+    await viewRegister(tab, month, true);
   }));
   main().querySelectorAll('.adj-in').forEach((inp) => inp.addEventListener('change', () => guard(async () => {
     const v = typedNumber(inp.value, { min: 0, max: 5000 });
@@ -569,7 +624,7 @@ async function viewRegister(tab, month) {
     });
     const next = inp.closest('tr').nextElementSibling;
     focusNext(next ? `.adj-in[data-adj-day="${next.querySelector('.adj-in').dataset.adjDay}"]` : null);
-    await viewRegister(tab, month);
+    await viewRegister(tab, month, true);
   })));
   if (state.regFocus) {
     const f = main().querySelector(state.regFocus);
@@ -578,7 +633,7 @@ async function viewRegister(tab, month) {
   }
   bindImport();
   document.getElementById('reg-month')?.addEventListener('change', (e) => { location.hash = `#/register${tab ? `/${tab}` : ''}?m=${e.target.value}`; });
-  main().querySelectorAll('[data-reg-product]').forEach((b) => b.addEventListener('click', () => { reg.product = b.dataset.regProduct; guard(() => viewRegister(tab, month)); }));
+  main().querySelectorAll('[data-reg-product]').forEach((b) => b.addEventListener('click', () => { reg.product = b.dataset.regProduct; guard(() => viewRegister(tab, month, true)); }));
 }
 
 // ---------------------------------------------------------------------------

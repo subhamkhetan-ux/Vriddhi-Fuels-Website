@@ -271,6 +271,11 @@ test('register: the testing adjustment — actual testing carried day to day, mo
   assert.equal(gainLoss(0), '0.00');
   assert.match(html, /December 2026's opening/);
   assert.equal((html.match(/class="adj-in"/g) || []).length, 30);           // every day of the month
+  // locked (until Edit): nothing can be changed by a stray tap
+  const locked = adjustHtml(n, pm, split, { locked: true });
+  assert.equal((locked.match(/class="adj-in" inputmode="decimal" disabled/g) || []).length, 30);
+  assert.match(locked, /id="adj-open" inputmode="decimal" disabled/);
+  assert.match(locked, />Edit<\/button>/);
 });
 
 test('register: typed dips and the testing adjustment are kept per month', async () => {
