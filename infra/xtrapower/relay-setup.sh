@@ -114,6 +114,26 @@ esac
 say "3/3 Sending the monitor's XtraPower traffic through it"
 printf 'XTRAPOWER_RELAY_PORT=%s\nXTRAPOWER_RELAY_HOSTS="%s"\n' "$PORT" "$HOSTS" \
   | sudo install -m 640 -o root -g "$SVC_USER" /dev/stdin "$ENV_FILE"
+# The monitor runs from its own copy of the code ($HOME_DIR/app, fetched by
+# setup.sh), not this one: one fetched before the relay existed would start
+# without it. Bring it to this copy's branch first, as setup.sh does.
+APP="$HOME_DIR/app"
+if ! sudo grep -q "relay.env" "$APP/infra/xtrapower/run.sh" 2>/dev/null; then
+  REF="$(git -C "$HERE/../.." rev-parse --abbrev-ref HEAD)"
+  echo "The monitor's code predates the relay: updating it ($REF)." >&2
+  sudo -H -u "$SVC_USER" git -C "$APP" fetch -q origin "$REF"
+  sudo -H -u "$SVC_USER" git -C "$APP" checkout -q -B "$REF" FETCH_HEAD
+  sudo grep -q "relay.env" "$APP/infra/xtrapower/run.sh" \
+    || die "The monitor's code still has no relay support. Update it: IGNORE_FIREWALL=1 bash infra/xtrapower/setup.sh"
+fi
+since="$(date '+%Y-%m-%d %H:%M:%S')"
 sudo systemctl restart xtrapower
+# (run.sh says so as it starts the monitor's Chromium with the relay)
+used=""
+for _ in $(seq 1 30); do
+  if sudo journalctl -u xtrapower --since "$since" --no-pager -o cat 2>/dev/null | grep -q "through the relay server"; then used=1; break; fi
+  sleep 1
+done
+[ -n "$used" ] || die "The monitor restarted but didn't say it uses the relay. See: journalctl -u xtrapower -n 40"
 echo "Done: the monitor reaches $HOSTS through $RELAY (it restarted; Telegram says so)." >&2
 echo "Straight out again: bash infra/xtrapower/relay-setup.sh --off" >&2

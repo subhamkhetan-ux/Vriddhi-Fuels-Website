@@ -716,6 +716,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
 
     # Submit: try a normal click, then fall back to a direct JS click on the
     # Sign In button (id="normal").
+    trace = _LoginTrace(page)
     if not await _click_first(page, _SUBMIT_SELECTORS):
         try:
             await _eval(frame, 
@@ -724,6 +725,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
                 ".find(x => /sign ?in/i.test(x.innerText||'')); if (b) b.click(); }"
             )
         except Exception:  # noqa: BLE001
+            trace.stop()
             log.warning("login: could not click Sign In")
             return LOGIN_FAILED
     # Poll for the navigation away from the login page (it takes a moment).
@@ -731,10 +733,98 @@ async def do_login(page: Page, username: str, password: str) -> str:
     for _ in range(15):
         await page.wait_for_timeout(1000)
         if await is_logged_in(page):
+            trace.stop()
             await dismiss_popup(page)
             return LOGIN_OK
+    trace.stop()
+    # Still on the login page: say what it shows and what became of its
+    # requests (sent, answered, refused or left hanging), so /logs tells a
+    # wrong password from a portal that doesn't answer.
+    await _log_login_outcome(page, trace)
     await dismiss_popup(page)
     return LOGIN_OK if await is_logged_in(page) else LOGIN_FAILED
+
+
+class _LoginTrace:
+    """The page's requests from Sign In on: method, address (no query string;
+    bodies, which hold the password, are never read), status or failure, and
+    how long each took (or has been waiting)."""
+
+    def __init__(self, page: Page):
+        self.page = page
+        self.items: dict = {}              # request -> what became of it
+        self.t0 = asyncio.get_event_loop().time()
+        self._on = {"request": self._req, "response": self._resp, "requestfailed": self._fail}
+        for ev, fn in self._on.items():
+            page.on(ev, fn)
+
+    def _now(self) -> float:
+        return asyncio.get_event_loop().time()
+
+    def _req(self, req) -> None:
+        # the page's own calls (and anything not a plain GET), not its images and fonts
+        if req.resource_type in ("xhr", "fetch", "document") or req.method != "GET":
+            url = (req.url or "").split("?")[0].split("#")[0]
+            short = url.split("://", 1)[-1][:90]
+            self.items[req] = {"what": f"{req.method} {short}", "t": self._now(), "status": None, "error": None, "took": None}
+
+    def _resp(self, resp) -> None:
+        it = self.items.get(resp.request)
+        if it is not None:
+            it["status"], it["took"] = resp.status, self._now() - it["t"]
+
+    def _fail(self, req) -> None:
+        it = self.items.get(req)
+        if it is not None:
+            it["error"], it["took"] = (req.failure or "failed"), self._now() - it["t"]
+
+    def stop(self) -> None:
+        for ev, fn in self._on.items():
+            try:
+                self.page.remove_listener(ev, fn)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def lines(self) -> list[str]:
+        now = self._now()
+        out = []
+        for it in self.items.values():
+            if it["status"] is not None:
+                how = f"HTTP {it['status']} in {it['took']:.1f} s"
+            elif it["error"]:
+                how = f"failed after {it['took']:.1f} s ({it['error']})"
+            else:
+                how = f"no answer after {now - it['t']:.0f} s"
+            out.append(f"{it['what']} -> {how}")
+        return out
+
+
+_LOGIN_STATE_JS = r"""() => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  const q = (s) => document.querySelector(s);
+  const em = q('#email'), pw = q('#password') || q('[formcontrolname=password]');
+  const btn = q('#normal') || [...document.querySelectorAll('button')].find((b) => /sign ?in/i.test(b.innerText || ''));
+  const msgs = [...document.querySelectorAll('mat-error, .mat-error, .invalid-feedback, .error, .alert, .toast-message, snack-bar-container, .swal2-popup, .modal.show, [role=dialog], [role=alert]')]
+    .filter(vis).map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 160)).filter(Boolean);
+  const loading = [...document.querySelectorAll('*')].some((e) => e.children.length === 0 && /^Loading/.test((e.innerText || '').trim()) && vis(e));
+  const challenge = [...document.querySelectorAll('iframe')].some((f) => /recaptcha\/api2\/bframe/.test(f.src || '') && vis(f));
+  return { user_id_chars: em ? em.value.length : null, password_chars: pw ? pw.value.length : null,
+           sign_in: btn ? (btn.disabled ? 'disabled' : 'enabled') : 'not found', loading, recaptcha_challenge_showing: challenge,
+           messages: [...new Set(msgs)].slice(0, 4) };
+}"""
+
+
+async def _log_login_outcome(page: Page, trace: "_LoginTrace") -> None:
+    try:
+        state = await asyncio.wait_for(page.evaluate(_LOGIN_STATE_JS), 10)
+        log.warning("login: still on the login page: %s", state)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("login: still on the login page (couldn't read it: %s)", exc)
+    lines = trace.lines()
+    if not lines:
+        log.warning("login: the page sent no request after Sign In")
+    for line in lines[-12:]:
+        log.warning("login: request %s", line)
 
 
 async def navigate_to_balance(page: Page, labels) -> None:
