@@ -289,7 +289,10 @@ and meter readings, dips to a mm, testing as typed, sales to the paisa; ×
 for no receipt; today's line highlighted. The Stock Register page is the
 workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
 Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
-the page (A4 landscape). On a wide screen the page takes the window's width.
+the page (A4 landscape). On a wide screen the page takes the window's width;
+on a **phone** the whole page is zoomed out to fit the screen held upright,
+with **− / Fit / +** to make it bigger or smaller (it then scrolls) — and
+pinching works as on any page.
 
 This morning's line is highlighted (but not its receipt and total stock —
 what comes in today isn't known yet, so no × either), and on the line before
@@ -301,7 +304,8 @@ the DIP Chart's, dotted-underlined; a **!** says when typed dips don't come
 to the morning's stock on the chart. Clear a box to go back.
 
 **Testing adjustment & actual shortage** (Stock Register tab, under the
-page). The Stock Register's shortage is a **made-up figure** of two parts:
+page; it opens **folded**, showing just the two shortages, and once opened
+stays **locked** until *Edit*, so nothing is changed by a stray tap). The Stock Register's shortage is a **made-up figure** of two parts:
 the **testing adjustment** — the DSR's testing is written higher than what's
 really tested, which keeps the book stock (and so the shortage on the books)
 higher — and the stock's **actual variation** (what the shortage would be if

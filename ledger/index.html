@@ -519,6 +519,21 @@ table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px 
 /* Register: the DSR book and the Stock Register, drawn as the paper pages they're copied into */
 /* the paper page is wider than the app's column: on a wide screen its card takes the window's width */
 @media (min-width: 1100px) { .reg-paper-card { width: min(1640px, calc(100vw - 48px)); margin-left: 50%; transform: translateX(-50%); } }
+/* on a phone: the page fitted to the width, its card edge to edge */
+details.card.fold > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; color: var(--ink); font-size: 15px; }
+details.card.fold > summary::-webkit-details-marker { display: none; }
+details.card.fold > summary::before { content: "▸"; color: var(--amber); font-size: 14px; transition: transform .15s; }
+details.card.fold[open] > summary::before { transform: rotate(90deg); }
+details.card.fold > summary .fold-hint { margin-left: auto; color: var(--faint); font-size: 12.5px; }
+details.card.fold[open] > summary { margin-bottom: 12px; }
+table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: transparent; border-color: transparent; color: var(--ink); -webkit-text-fill-color: var(--ink); }
+.zoom-bar { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }
+.zoom-bar .btn { min-width: 40px; }
+@media (max-width: 760px) {
+  .reg-paper-card { padding-left: 8px; padding-right: 8px; }
+  .reg-paper-card .paper-scroll { margin: 10px -4px 6px; padding: 2px 0 10px; }
+  .reg-paper-card .paper { padding: 12px 10px 14px; }
+}
 .paper-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px -6px 6px; padding: 4px 6px 14px; }
 .paper { width: max-content; margin: 0 auto; background: #fbfaf5; color: #111; border-radius: 3px; padding: 18px 20px 22px;
   box-shadow: 0 22px 44px -22px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.25);
@@ -576,7 +591,7 @@ table.paper-t.side td.ink { min-width: 110px; text-align: right; }
   .top, .tabs, #auto-bar, .view-chips, .card:not(.reg-paper-card), .reg-paper-card > :not(.paper-scroll) { display: none !important; }
   .reg-paper-card { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
   .paper-scroll { overflow: visible; margin: 0; padding: 0; }
-  .paper { box-shadow: none; padding: 0; background: #fff; zoom: .74; }
+  .paper { box-shadow: none; padding: 0; background: #fff; zoom: .74 !important; }
   .reg-paper-card { width: auto !important; margin: 0 !important; transform: none !important; }
   .reg-flag { display: none !important; }
   table.paper-t th, table.paper-t td { height: 20px; padding-top: 2px; padding-bottom: 2px; }

@@ -155,7 +155,7 @@ export function morningHtml(latest, shortages = {}) {
 // adjustment and the stock's actual variation; both are kept apart here.
 // adj: testingAdjust()'s month, split: actualShortage()
 const OPEN_SRC = { typed: 'typed here', carried: 'last month\'s closing', sheet: 'the Stock Register\'s "Testing Adjustment" cell', none: 'not set — type it' };
-export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null } = {}) {
+export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null, locked = false } = {}) {
   const p = pm.product;
   const mon = monthLabel(pm.month).slice(0, 3);
   const two = (n) => (n == null ? '' : L2.format(n));
@@ -166,12 +166,14 @@ export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null 
     const future = x.dsr == null;
     return `<tr class="${future ? 'future' : ''}"><td class="nowrap">${x.day} ${esc(mon)}</td>
       <td class="r">${future ? '<span class="faint">—</span>' : two(x.dsr)}</td>
-      <td class="r"><input class="adj-in" inputmode="decimal" data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}"></td>
+      <td class="r"><input class="adj-in" inputmode="decimal"${locked ? ' disabled' : ''} data-adj-day="${x.day}" value="${x.actualSrc === 'typed' ? esc(String(x.actual)) : ''}" placeholder="${x.actual == null ? '' : esc(String(x.actual))}" aria-label="Actual testing, ${x.day}"></td>
       <td class="r">${sgn(x.adj)}</td><td class="r">${two(x.running)}</td>
       <td class="r sep">${gl(sp.shortage)}</td><td class="r">${gl(sp.adjust)}</td><td class="r">${gl(sp.actual, true)}</td>
       <td class="r">${gl(sp.actualVar)}</td></tr>`;
   }).join('');
-  return `<div class="row-between"><h2>Testing adjustment &amp; actual shortage <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2></div>
+  return `<div class="row-between"><h2>Testing adjustment &amp; actual shortage <span class="muted">· ${esc(p.short)} · ${esc(monthLabel(pm.month))}</span></h2>
+      <button class="btn ${locked ? 'ghost ' : ''}small" id="adj-edit" type="button">${locked ? 'Edit' : 'Lock'}</button></div>
+    ${locked ? '<p class="small muted">Locked — tap <b>Edit</b> to change the opening or a day\'s actual testing.</p>' : ''}
     <p class="muted small">The Stock Register's shortage is made up of two parts: the <b>testing adjustment</b> (the DSR's testing written higher than what's really tested, so the book stock stays higher) and the stock's <b>actual variation</b> — what the shortage would be if the DSR's testing were the actual. Actual = the Stock Register's shortage less the testing adjustment. Shown here: a shortage is <b class="bad-text">−</b>, a gain <b class="good-text">+</b>.</p>
     <div class="kpis">
       <div class="kpi"><span class="lbl">Stock Register shortage${to}</span><span class="val">${gl(split.shortage)}</span><span class="sub">made up — testing adjustment + actual</span></div>
@@ -181,7 +183,7 @@ export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null 
     </div>
     <div class="kpis">
       <div class="kpi"><span class="lbl">Opening adjustment</span>
-        <span class="val"><input class="adj-open" id="adj-open" inputmode="decimal" value="${adj.openSrc === 'typed' ? esc(String(adj.open)) : ''}" placeholder="${adj.open == null ? '0.00' : esc(adj.open.toFixed(2))}" aria-label="Opening testing adjustment"></span>
+        <span class="val"><input class="adj-open" id="adj-open" inputmode="decimal"${locked ? ' disabled' : ''} value="${adj.openSrc === 'typed' ? esc(String(adj.open)) : ''}" placeholder="${adj.open == null ? '0.00' : esc(adj.open.toFixed(2))}" aria-label="Opening testing adjustment"></span>
         <span class="sub">${esc(OPEN_SRC[adj.openSrc])}${adj.openSrc === 'carried' && prevMonth ? ` (${esc(monthLabel(prevMonth))})` : ''}</span></div>
       <div class="kpi"><span class="lbl">Added this month</span><span class="val">${sgn(adj.added)}</span>
         <span class="sub">DSR testing ${two(adj.dsrTotal)} − actual ${two(adj.actualTotal)} · ${adj.testDays} day${adj.testDays === 1 ? '' : 's'}</span></div>
