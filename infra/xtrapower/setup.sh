@@ -4,6 +4,9 @@
 #
 #   cd ~/Vriddhi-Fuels-Website && bash infra/xtrapower/setup.sh
 #
+# If XtraPower's firewall rejects the server just now, IGNORE_FIREWALL=1 installs
+# all the same (the monitor retries until the block lifts).
+#
 # Run as the default `ubuntu` user (needs sudo). The monitor runs as its own
 # `xtrapower` user, so GitHub Actions jobs cannot read its passwords or drive
 # its logged-in browsers. Re-running the script is safe and updates the code.
@@ -29,10 +32,17 @@ if [ -z "$code" ] || [ "$code" = "000" ]; then
   rm -f "$body"; die "XtraPower did not answer from this server (no connection). Nothing was installed."
 fi
 if grep -qi "requested url was rejected" "$body" && grep -qi "support id" "$body"; then
-  rm -f "$body"; die "XtraPower's firewall rejected this server (\"The requested URL was rejected\"). Nothing was installed."
+  rm -f "$body"
+  # IGNORE_FIREWALL=1: install all the same. A block like this can be
+  # temporary; the monitor keeps retrying, and the phone page works anyway.
+  [ "${IGNORE_FIREWALL:-}" = "1" ] || die "XtraPower's firewall rejected this server (\"The requested URL was rejected\"). Nothing was installed.
+If the block may be temporary, install anyway: put IGNORE_FIREWALL=1 before the command (e.g. IGNORE_FIREWALL=1 bash infra/xtrapower/phone-setup.sh)."
+  echo "XtraPower's firewall rejects this server just now; installing anyway (IGNORE_FIREWALL=1)."
+  echo "The monitor keeps retrying and works once the block lifts."
+else
+  rm -f "$body"
+  echo "XtraPower answered with HTTP $code and no firewall rejection. Good."
 fi
-rm -f "$body"
-echo "XtraPower answered with HTTP $code and no firewall rejection. Good."
 
 say "2/6 Installing the virtual display (Xvfb)"
 sudo apt-get update -q
