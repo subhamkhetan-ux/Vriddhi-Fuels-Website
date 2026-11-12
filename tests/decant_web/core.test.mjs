@@ -2,6 +2,7 @@
 // Run: node --test tests/decant_web
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
 
 import {
   DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainLive, drainTimeline,
@@ -473,14 +474,24 @@ test('IST dates', () => {
 test('density at 15 °C from a hydrometer reading (Table 53B)', async () => {
   const { density15From, densityCheck } = await import('../../decant/js/core.js');
   assert.equal(density15From(829.3, 15), 829.3);                       // at 15 °C nothing to correct
-  assert.equal(density15From(820, 30), 830.5);                          // diesel read warm
-  assert.equal(density15From(737, 32), 752.1);                          // petrol
+  assert.equal(density15From(820, 30), 830.8);                          // diesel read warm
+  assert.equal(density15From(737, 32), 752.4);                          // petrol
+  assert.equal(density15From(690, 0), 675.8);                           // read cold: density falls
+  assert.equal(density15From(1009, 40), 1025.8);
   // the automation's own figures: 810.0 at 29.5 °C is shown as 820.3 (tc)
   assert.ok(Math.abs(density15From(810, 29.5) - 820.3) < 0.5);
   assert.equal(density15From(50, 30), null);
-  assert.deepEqual(densityCheck({ reading: 820, tempC: 30, invoice15: 829.3 }), { d15: 830.5, diff: 1.2, ok: true });
-  assert.deepEqual(densityCheck({ reading: 812, tempC: 30, invoice15: 829.3 }), { d15: 822.6, diff: -6.7, ok: false });
+  assert.deepEqual(densityCheck({ reading: 820, tempC: 30, invoice15: 829.3 }), { d15: 830.8, diff: 1.5, ok: true });
+  assert.deepEqual(densityCheck({ reading: 812, tempC: 30, invoice15: 829.3 }), { d15: 822.9, diff: -6.4, ok: false });
   assert.equal(densityCheck({ reading: 820, tempC: 30, invoice15: null }), null);
+});
+
+test('density at 15 °C agrees with the Table 53B sheet cell for cell', async () => {
+  const { density15From } = await import('../../decant/js/core.js');
+  const { cells } = JSON.parse(fs.readFileSync(new URL('./fixtures/table-53b.json', import.meta.url)));
+  assert.ok(cells.length > 2000);
+  const off = cells.filter(([obs, t, want]) => density15From(obs, t) !== want);
+  assert.deepEqual(off.slice(0, 5).map(([obs, t, want]) => [obs, t, want, density15From(obs, t)]), []);
 });
 
 test('after decanting: chambers that went into the other tank are spotted', async () => {

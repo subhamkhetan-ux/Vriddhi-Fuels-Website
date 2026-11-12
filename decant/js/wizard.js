@@ -291,7 +291,7 @@ function densityRow(s, p) {
   const cur = d.checks.density?.[p] || {};
   const res = densityCheck({ reading: cur.reading, tempC: cur.temp, invoice15: inv15, limitKg: state.settings.densityLimit });
   return `<div class="dens">
-    <div>${productChip(p)}<div class="hint" style="margin-top:4px">Invoice @15 °C: <b>${inv15 ?? '—'}</b></div></div>
+    <div>${productChip(p)}<div class="hint" style="margin-top:4px">Invoice @15 °C: <b>${inv15 != null ? `${inv15} kg/m³` : '—'}</b></div></div>
     <label class="f">Reading (kg/m³)<input type="number" inputmode="decimal" step="0.1" data-dens="${p}" data-k="reading" value="${cur.reading ?? ''}"></label>
     <label class="f">Temp (°C)<input type="number" inputmode="decimal" step="0.1" data-dens="${p}" data-k="temp" value="${cur.temp ?? ''}"></label>
   </div>
@@ -300,7 +300,7 @@ function densityRow(s, p) {
 
 function densityText(res) {
   if (!res) return '';
-  return `@15 °C: <b>${res.d15}</b> — ${fmtSigned(res.diff, '', 1)} vs invoice ${res.ok ? bandBadge('ok') : `<span class="badge high"><i>✕</i>outside ±${state.settings.densityLimit}</span> — check with IndianOil before decanting`}`;
+  return `@15 °C: <b>${res.d15} kg/m³</b> — ${fmtSigned(res.diff, ' kg/m³', 1)} vs invoice ${res.ok ? bandBadge('ok') : `<span class="badge high"><i>✕</i>outside ±${state.settings.densityLimit} kg/m³</span> — check with IndianOil before decanting`}`;
 }
 
 // ---- 2. Stock before ------------------------------------------------------
@@ -1673,7 +1673,7 @@ function resultFooter(s) {
   const d = s.data;
   const dens = Object.entries(d.checks?.density || {}).map(([p, v]) => {
     const c = densityCheck({ reading: v.reading, tempC: v.temp, invoice15: d.densities?.[p], limitKg: state.settings.densityLimit });
-    return c ? `${p} density ${c.d15} (${fmtSigned(c.diff, '', 1)} vs invoice)` : '';
+    return c ? `${p} density ${c.d15} kg/m³ (${fmtSigned(c.diff, ' kg/m³', 1)} vs invoice)` : '';
   }).filter(Boolean);
   return [d.operator ? `By ${d.operator}` : '', ...dens].filter(Boolean).join(' · ');
 }

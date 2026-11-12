@@ -228,7 +228,7 @@ export function logSheets({ month, sessions = [], invoices = [], known = [], set
     'By', 'Tanks', 'Decanted (L)', 'Net variation (L)', 'Variation (%)', 'Value (₹)', 'Audit', 'Density check', 'Notes', 'Cancelled because',
   ]];
   const chambers = [['Decantation ID', 'Invoice', 'Truck', 'Chamber', 'Product', 'Litres', 'Into tank', 'Truck dip (cm)']];
-  const density = [['Decantation ID', 'Invoice', 'Truck', 'Product', 'Reading (kg/m³)', 'Temperature (°C)', 'Density at 15 °C', 'Invoice density at 15 °C', 'Difference', 'OK']];
+  const density = [['Decantation ID', 'Invoice', 'Truck', 'Product', 'Reading (kg/m³)', 'Temperature (°C)', 'Density at 15 °C (kg/m³)', 'Invoice density at 15 °C (kg/m³)', 'Difference (kg/m³)', 'OK']];
   const ordered = [...sessions].sort((x, y) => (Date.parse(x.created_at) || 0) - (Date.parse(y.created_at) || 0));
   for (const s of ordered) {
     const d = s.data || {};
@@ -239,7 +239,7 @@ export function logSheets({ month, sessions = [], invoices = [], known = [], set
       s.id, s.status, s.invoice_no || '', day(dmyToIso(inv.invoice_date)), inv.invoice_time || '', s.tt_no || '',
       at(s.created_at), at(d.startedAt), at(d.decantedAt), at(s.completed_at || d.completedAt),
       d.operator || '', (d.tanks || []).map((t) => t.tank).join(' + '), num(tot.litres), num(tot.variation), num(tot.pct), num(tot.value),
-      auditText(s), dens.filter((x) => Number.isFinite(x.d15)).map((x) => `${x.product} ${x.d15} (${x.diff > 0 ? '+' : ''}${x.diff} vs invoice ${x.invoice15})`).join('; '),
+      auditText(s), dens.filter((x) => Number.isFinite(x.d15)).map((x) => `${x.product} ${x.d15} kg/m³ (${x.diff > 0 ? '+' : ''}${x.diff} vs invoice ${x.invoice15})`).join('; '),
       d.notes || '', d.cancelReason || '',
     ]);
     for (const c of d.chambers || []) {
@@ -253,7 +253,7 @@ export function logSheets({ month, sessions = [], invoices = [], known = [], set
 
   const decanted = decantedPerInvoice(known.length ? known : sessions);
   const invs = [[
-    'Invoice', 'Invoice date', 'Invoice time', 'Truck', 'Line', 'Product', 'Product as invoiced', 'Quantity (L)', 'Compartments', 'Density at 15 °C',
+    'Invoice', 'Invoice date', 'Invoice time', 'Truck', 'Line', 'Product', 'Product as invoiced', 'Quantity (L)', 'Compartments', 'Density at 15 °C (kg/m³)',
     'Terminal tank', 'Line value (₹)', 'Invoice amount (₹)', 'Origin', 'Seals', 'Source', 'Hidden', 'Hidden because', 'Note', 'Entered at',
     'Decanted in the app (L)', 'Still on the truck (L)',
   ]];
