@@ -401,13 +401,49 @@ async function checkMacUpload() {
   try { skipped = localStorage.getItem('fleet-mac-skip'); } catch { /* private mode */ }
   const savedAt = state.meta && state.meta.created_at ? Date.parse(state.meta.created_at) : 0;
   state.macUp = up && Date.parse(up.updated_at) > savedAt && skipped !== up.updated_at ? up : null;
+  if (state.macUp && !state.macTried?.[up.updated_at]) await autoSaveMacUpload(state.macUp);
   paintMacUp();
+}
+// A new Trip Register from the Mac is saved straight away — no preview, no
+// tap — unless the usual check finds something that stops a save (fewer
+// trips than saved, say): then the bar asks for a review instead.
+async function autoSaveMacUpload(u) {
+  (state.macTried || (state.macTried = {}))[u.updated_at] = true;
+  const el = document.getElementById('mac-up');
+  if (el) el.innerHTML = `<div class="newer-bar" role="status">Bringing in the Trip Register from your Mac (uploaded ${esc(new Date(u.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))})…</div>`;
+  try {
+    const file = new File([await state.store.macUploadFile(u.name)], 'Trip_Register.xlsm', { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
+    const data = await readFile(file);
+    const base = await state.store.latest();
+    // saved since the upload (another device, or by hand)? nothing to do
+    if (base && base.meta && Date.parse(base.meta.created_at) > Date.parse(u.updated_at)) {
+      state.macUp = null;
+      if (!state.meta || base.meta.id !== state.meta.id) await loadNewer();
+      return;
+    }
+    const cmp = base && base.payload ? compareUploads(base.payload, data) : null;
+    if (cmp && blocking(cmp)) {
+      state.macUpNote = 'its check found something to look at before saving';
+      return;                                                   // the bar: Review & save
+    }
+    const meta = await state.store.save(file.name, data);
+    state.data = data;
+    state.meta = meta;
+    state.newer = null;
+    state.macUp = null;
+    renderShell();
+    route();
+    toast(`Trip Register from your Mac saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
+  } catch (err) {
+    console.error(err);
+    state.macUpNote = `couldn't save it by itself: ${(err && err.message) || err}`;
+  }
 }
 function paintMacUp() {
   const el = document.getElementById('mac-up');
   if (!el) return;
   const u = state.macUp;
-  el.innerHTML = u ? `<div class="newer-bar" role="status">New Trip Register from your Mac — uploaded ${esc(new Date(u.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}.
+  el.innerHTML = u ? `<div class="newer-bar" role="status">New Trip Register from your Mac — uploaded ${esc(new Date(u.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}${state.macUpNote ? ` — ${esc(state.macUpNote)}` : ''}.
     <span><button class="btn small" id="mac-review">Review &amp; save</button> <button class="btn ghost small" id="mac-skip">Not now</button></span></div>` : '';
   document.getElementById('mac-review')?.addEventListener('click', () => {
     state.pendingMacUpload = u;
