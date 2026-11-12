@@ -1,0 +1,25 @@
+[Unit]
+Description=XtraPower relay: the monitor's XtraPower traffic out through another server (relay-setup.sh)
+Documentation=file:///opt/xtrapower/app/infra/xtrapower/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=xtrapower
+Group=xtrapower
+# RELAY_HOST: the server the traffic goes out through (relay-setup.sh writes it).
+EnvironmentFile=/opt/xtrapower/relay/target
+# Only the xtrapower user may use the tunnel's port, so GitHub Actions jobs
+# (running as `runner`) can't send anything out through the relay server.
+ExecStartPre=+/bin/sh -c 'rule="OUTPUT -o lo -p tcp --dport 1080 -m owner ! --uid-owner xtrapower -j REJECT"; iptables -C $$rule 2>/dev/null || iptables -I $$rule'
+# A SOCKS port on this server's localhost only. The relay server lets this key
+# reach XtraPower's site and nothing else (relay-server.sh).
+ExecStart=/usr/bin/ssh -N -D 127.0.0.1:1080 -i /opt/xtrapower/relay/id_ed25519 \
+  -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/opt/xtrapower/relay/known_hosts \
+  xprelay@${RELAY_HOST}
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
