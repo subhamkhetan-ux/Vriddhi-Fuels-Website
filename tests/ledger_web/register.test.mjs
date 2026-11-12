@@ -192,7 +192,7 @@ test('register: the demo month adds up and draws', async () => {
     // this morning: its receipt and total stock not marked, no × for a receipt yet
     assert.equal((dsr.split('<th class="date">11</th>')[1].split('</tr>')[0].match(/ink hl/g) || []).length, 5);
     const today = dsr.split('<th class="date">12</th>')[1].split('</tr>')[0];
-    assert.equal((today.match(/ink nohl/g) || []).length, 2);
+    assert.equal((today.match(/ink nohl/g) || []).length, 5);                // receipt, total stock, testing, sales, cumulative
     assert.doesNotMatch(today, /×/);
     assert.match(stock, /Testing Adjustment/);
     // the Stock Register page: a shortage in red, a gain in green (the workbook's signs kept)
