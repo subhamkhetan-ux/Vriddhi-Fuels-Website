@@ -134,6 +134,30 @@ phone, use the page above or `/status` on Telegram. On the server:
 Adding an account? Give it a new `cdp_port` between 9222 and 9299. Its window
 opens within a minute.
 
+## XtraPower's firewall rejects this server
+
+If the monitor says *"The site firewall (F5) is rejecting this connection"* and
+`curl -s -m 30 -L https://beta.iocxtrapower.com/ | grep -ic "requested url was rejected"`
+prints `1` here but `0` on another of your servers, the monitor can stay here
+and send just its XtraPower traffic out through that other server, over an SSH
+tunnel. The other server only passes it on: it needs almost no memory, and its
+key reaches XtraPower's site and nothing else. Everything else (Telegram, the
+phone page) still goes straight out. From Oracle **Cloud Shell**, with `MON` the
+monitor's server and `VIA` the other one:
+
+```sh
+MON=ubuntu@MONITOR_IP VIA=ubuntu@OTHER_IP K=~/.ssh/oracle_india
+PUB=$(ssh -i $K $MON "cd ~/Vriddhi-Fuels-Website && git pull -q && bash infra/xtrapower/relay-setup.sh --key")
+ssh -i $K $MON "cat ~/Vriddhi-Fuels-Website/infra/xtrapower/relay-server.sh" | ssh -i $K $VIA "bash -s -- '$PUB'"
+ssh -i $K $MON "cd ~/Vriddhi-Fuels-Website && bash infra/xtrapower/relay-setup.sh ${VIA#ubuntu@}"
+```
+
+The last step opens the tunnel, checks XtraPower answers through it without the
+firewall page, and only then restarts the monitor with it. If the tunnel drops,
+the monitor goes straight out meanwhile and the tunnel comes back by itself.
+Straight out again: `bash infra/xtrapower/relay-setup.sh --off` (and on the
+other server, `bash -s -- --remove` the same way, to remove its relay user).
+
 ## Memory
 
 Each watched account keeps its own Chromium window open (roughly 250–400 MB).

@@ -69,6 +69,22 @@ CHROME_LEAN="--renderer-process-limit=1 --process-per-site \
   --disable-gpu --disk-cache-size=33554432 --js-flags=--max-old-space-size=384 --mute-audio"
 export XTRAPOWER_CHROME_FLAGS="--no-sandbox --password-store=basic --disable-dev-shm-usage $CHROME_LEAN"
 
+# XtraPower's site through another server, when XtraPower's firewall rejects
+# this one (relay-setup.sh): those hosts only, through the tunnel's SOCKS port
+# here (Chromium has the relay server look the names up); straight out while
+# the tunnel is down. Everything else always goes straight out.
+if [ -r "$HOME_DIR/relay.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME_DIR/relay.env"
+  relay_list=""
+  for h in ${XTRAPOWER_RELAY_HOSTS:-}; do relay_list="$relay_list\"$h\","; done
+  if [ -n "$relay_list" ]; then
+    pac="function FindProxyForURL(url, host) { if ([${relay_list%,}].indexOf(host) >= 0) return \"SOCKS5 127.0.0.1:${XTRAPOWER_RELAY_PORT:-1080}; DIRECT\"; return \"DIRECT\"; }"
+    XTRAPOWER_CHROME_FLAGS="$XTRAPOWER_CHROME_FLAGS --proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,$(printf '%s' "$pac" | base64 -w0)"
+    echo "XtraPower's site goes out through the relay server (relay-setup.sh): $XTRAPOWER_RELAY_HOSTS"
+  fi
+fi
+
 # "customer_id port" for every watched account in config.json.
 watched() {
   "$PY" - "$CONFIG" <<'EOF'

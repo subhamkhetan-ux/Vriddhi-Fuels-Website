@@ -46,8 +46,10 @@ fi
 
 say "2/6 Installing the virtual display (Xvfb)"
 sudo apt-get update -q
+# libatomic1: Playwright's driver needs it on ARM (Ampere A1) servers, where
+# Ubuntu doesn't install it by default.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-  ca-certificates curl git python3 python3-venv xvfb iptables nano
+  ca-certificates curl git python3 python3-venv xvfb iptables nano libatomic1
 
 say "3/6 Creating the '$SVC_USER' user and $HOME_DIR"
 if ! id "$SVC_USER" >/dev/null 2>&1; then
