@@ -878,23 +878,27 @@ export function dmyToIso(s) {
 // Density check of the truck's product (optional, before decanting)
 // ---------------------------------------------------------------------------
 
-// ASTM D1250 / IP 200 Table 53B (generalised products): density at 15 °C from a
-// glass-hydrometer reading (kg/m³) at t °C. The reading is first corrected for
-// the hydrometer glass, then the volume correction factor is solved for.
+// Table 53B (generalised products): density at 15 °C from the observed density
+// (kg/m³) at t °C, as in the Table 53B sheet the pump uses (API 11.1 15 °C
+// correlation):
+//   CTL = exp[−α·Δt·(1 + 0.8·α·Δt)],  Δt = t − 15,  α = (K0 + K1·ρ15) / ρ15²
+//   ρ15 = observed / CTL, solved by iteration (α depends on ρ15).
+// The constants are picked by ρ15. The observed reading is used as it is: the
+// table applies no hydrometer-glass correction. This reproduces every cell of
+// that table (0.690–1.009 g/mL, 0–40 °C) to the printed 0.1 kg/m³.
 export function density15From(reading, tempC) {
   if (!(reading > 500 && reading < 1200) || !Number.isFinite(tempC)) return null;
   const dt = tempC - 15;
-  const rhoT = reading * (1 - 0.000023 * dt - 0.00000002 * dt * dt);
-  let rho = rhoT;
-  for (let i = 0; i < 50; i++) {
+  let rho = reading;
+  for (let i = 0; i < 100; i++) {
     let alpha;
-    if (rho < 770.5) alpha = 346.4228 / (rho * rho) + 0.4388 / rho;        // gasolines
+    if (rho < 770.5) alpha = (346.4228 + 0.4388 * rho) / (rho * rho);       // gasolines
     else if (rho < 787.5) alpha = -0.00336312 + 2680.3206 / (rho * rho);    // transition zone
-    else if (rho < 839) alpha = 594.5418 / (rho * rho);                      // kerosene / diesel band
-    else alpha = 186.9696 / (rho * rho) + 0.4862 / rho;                     // fuel oils
-    const vcf = Math.exp(-alpha * dt * (1 + 0.8 * alpha * dt));
-    const next = rhoT / vcf;
-    if (Math.abs(next - rho) < 1e-7) { rho = next; break; }
+    else if (rho < 838.5) alpha = 594.5418 / (rho * rho);                    // jet fuels / kerosene
+    else alpha = (186.9696 + 0.48618 * rho) / (rho * rho);                   // fuel oils, diesel
+    const ctl = Math.exp(-alpha * dt * (1 + 0.8 * alpha * dt));
+    const next = reading / ctl;
+    if (Math.abs(next - rho) < 1e-9) { rho = next; break; }
     rho = next;
   }
   return Math.round(rho * 10) / 10;
