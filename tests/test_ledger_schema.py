@@ -864,6 +864,34 @@ def test_loans_and_emi(pg):
     assert pg.ok("select count(*) from public.ledger_loans;", user=STRANGER, email="stranger@example.com").strip().splitlines()[-1].strip() == "0"
 
 
+def test_register_workbooks_and_tank_log(pg):
+    """Register: one row per workbook and month; the tank log is added to, never replaced."""
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    dsr = {"month": "2026-11", "products": {"MS": {"open": 5000, "days": []}}}
+    assert pg.owner(call("ledger_register_import", "dsr", "E-DSR.xlsx", dsr, {})) == {"key": "dsr:2026-11", "month": "2026-11", "mornings": 0}
+    stock = {"month": "2026-11", "products": {"MS": {"openShortage": 100, "actual": [4390]}}}
+    got = pg.owner(call("ledger_register_import", "stock", "Stock Register.xlsm", stock, {"2026-11-02|mac": {"MS": 4390}}))
+    assert got == {"key": "stock:2026-11", "month": "2026-11", "mornings": 1}
+    pg.owner(call("ledger_register_import", "dipchart", "DIP Chart.xlsm", {"chart": [[1, 11.97]], "reading": {"date": "2026-11-12"}},
+                  {"2026-11-12|chart": {"MS": 7363.22, "HSD1": 7325.24, "HSD2": 7553.7}, "2026-11-02|mac": {"MS": 4391}}))
+    # the same month again replaces it
+    pg.owner(call("ledger_register_import", "stock", "Stock Register.xlsm", dict(stock, products={"MS": {"openShortage": 90}}), {}))
+    allr = pg.owner(call("ledger_register_get"))
+    assert sorted(allr) == ["dipchart", "dsr:2026-11", "stock:2026-11", "tanklog"]
+    assert allr["stock:2026-11"]["data"]["products"]["MS"] == {"openShortage": 90}
+    assert allr["tanklog"]["data"] == {"2026-11-02|mac": {"MS": 4391}, "2026-11-12|chart": {"MS": 7363.22, "HSD1": 7325.24, "HSD2": 7553.7}}
+    assert allr["dsr:2026-11"]["file_name"] == "E-DSR.xlsx" and allr["dsr:2026-11"]["updated_by"] == "owner@example.com"
+    # what isn't accepted
+    assert "month" in pg.fails(call("ledger_register_import", "dsr", "x.xlsx", {"products": {}}, {}), **as_owner)
+    assert "month" in pg.fails(call("ledger_register_import", "stock", "x.xlsm", {"month": "2026-13"}, {}), **as_owner)
+    assert "Unknown register workbook" in pg.fails(call("ledger_register_import", "tanker", "x.xlsm", {}, {}), **as_owner)
+    assert "Bad tank log entry" in pg.fails(call("ledger_register_import", "dipchart", "x.xlsm", {"chart": []}, {"2026-11-02|other": {}}), **as_owner)
+    # members only
+    assert "permission denied" in pg.fails(call("ledger_register_get"), anon=True)
+    assert "member" in pg.fails(call("ledger_register_get"), user=STRANGER, email="stranger@example.com").lower()
+    assert pg.ok("select count(*) from public.ledger_register;", user=STRANGER, email="stranger@example.com").strip().splitlines()[-1].strip() == "0"
+
+
 def test_credit_notes_and_their_log(pg):
     """Bank Pay credit notes: logged once per number (as the macro), reprints counted, the workbook's log imported."""
     as_owner = {"user": OWNER, "email": "owner@example.com"}

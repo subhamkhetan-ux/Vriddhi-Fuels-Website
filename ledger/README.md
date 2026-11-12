@@ -269,6 +269,40 @@ its part when the parts add up ("HDFC" counts as HDFC 1010 when that's the
 only HDFC mode in the period). **Download Excel**: the summary and a sheet per
 mode. (Needs `supabase/ledger-schema.sql` re-run once.)
 
+**Register tab** (right of Home): the pump's **Daily Stock Register** — the
+paper DSR book, a table per product (HSD, MS, XtraGreen) and month — and the
+**Stock Register**, from the three workbooks kept on the Mac:
+
+| Workbook | What the app takes |
+|---|---|
+| **E-DSR.xlsx** (Petrol / Diesel / XtraGreen) | The month (from "DIESEL MONTH OF NOVEMBER 2026"), the opening book stock, each day's receipts, each nozzle's opening meter reading (machines from the merged labels above them) and testing. Sale = the next morning's readings − this morning's − testing, cumulative sale, as its own formulas. |
+| **Stock Register.xlsm** (MS / HSD / XG, Macro Log) | Each day's **Actual Tank Stock** (the next morning's dip stock), the opening shortage and HSD's testing adjustment; every morning its macro logged (**Macro Log**, "LOGGED to F…"). |
+| **DIP Chart.xlsm** (Stock to Dip, Log) | The tank chart (dip in cm → litres, one chart for every tank), **this morning's stock of each tank** (HSD's two tanks), dated by its `=TODAY()`, and its **Log** sheet of mornings. |
+
+*Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
+morning's dip stock), receipt, total stock, the opening **meter reading** of
+every nozzle by machine, testing, **sale** and **cumulative sale**, a total
+row — today's row marked. The opening stock is the DIP Chart's reading
+(else its Log, else the Stock Register's Actual Tank Stock of the day
+before, else its Macro Log); the dips are that stock read back on the chart
+(the nearest row, as *Stock to Dip* does). Where the Stock Register's stock
+differs from the DIP Chart's (a morning logged before the DIP Chart was
+updated), a **!** says so. HSD's per-tank dips are known for the days the
+app has the DIP Chart's reading — from the first day it's brought in (the
+workbooks keep only the total for earlier days). *Stock Register*: book
+stock (opening + receipts − sale), the **actual tank stock**, **shortage**
+(closing book − actual) and **variation** (its change from the day before;
+the first day from the opening shortage), as the workbook works them out.
+*This morning*: each product's stock, dips and shortage.
+
+The workbooks are reused month after month, so each month is **kept in the
+app** once brought in (`ledger_register`: `dsr:YYYY-MM`, `stock:YYYY-MM`,
+`dipchart`, and `tanklog` — every morning's stock, added to by each import,
+never replaced); pick a month at the top of the table. The Mac's sync sends
+the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
+(several at once; which is which is worked out from their sheets). Needs
+`supabase/ledger-schema.sql` re-run once. The demo has a made-up month.
+
 **Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
 the firm's vehicles — our own tanker trucks and cars in the firm's name — from
 the banks' **repayment schedules**. **Add EMI schedules (PDF)** (several at
@@ -458,12 +492,13 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 
 - **From your Mac:** the Google Drive sync on the Mac (`vriddhi_gdrive.sh`,
   run by *Vriddhi 3 — Google Drive.command*) also uploads **Master
-  Ledger.xlsm** and **Tanker Billing.xlsm** to the app's private storage
+  Ledger.xlsm**, **Tanker Billing.xlsm**, **E-DSR.xlsx**, **Stock
+  Register.xlsm** and **DIP Chart.xlsm** (for *Register*) to the app's private storage
   (Supabase Storage bucket `ledger-uploads`, members only) whenever they
   changed. **The app imports them by itself** as soon as it's open on any
   device (and again when it comes back into view) — no preview, no tap: a
   bar at the top says *Bringing in … from your Mac*, then what came in.
-  Import → *From your Mac* lists both (*imported*, with *Import again* for
+  Import → *From your Mac* lists them (*imported*, with *Import again* for
   the usual preview); if one can't be imported, Home says why and offers the
   preview. The script signs in
   as a ledger member; its password is kept in the Mac's Keychain, not in the
@@ -506,6 +541,9 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/daybook.js` | Reads a Tally DayBook like `ImportDayBook` |
 | `js/master.js` | Reads the Master Ledger (sale sheets, Master Paid, Outstanding, Customer GST, every `*_Bulk` sheet) |
 | `js/po.js` | The PO rule of the Bulk sheets |
+| `js/register.js` | Register: reads the E-DSR, Stock Register and DIP Chart; each morning's dip stock and dips; a product's month (the DSR book and the Stock Register) |
+| `js/register-view.js` | Register: the DSR book's and the Stock Register's tables, *This morning* |
+| `js/register-demo.js` | Register: the demo's made-up month (tank chart, readings, receipts, dips) |
 | `js/store.js` | Talks to the database (`ledger_*` functions); also the in-memory demo store |
 | `js/bills.js` | Which bills go in which PDF (Module8 / Module7 rules) |
 | `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs, JPEGs and zips |

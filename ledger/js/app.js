@@ -47,6 +47,8 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
+import { latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, readDipChart, readDsr, readStock, registerKind } from './register.js';
+import { dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
@@ -236,7 +238,7 @@ async function signOut() {
 // shell + routing
 // ---------------------------------------------------------------------------
 const TABS = [
-  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/quotes', 'Quotes'], ['#/statements', 'Statements'], ['#/payments', 'Payments'], ['#/pos', 'POs'],
+  ['#/', 'Home'], ['#/register', 'Register'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/quotes', 'Quotes'], ['#/statements', 'Statements'], ['#/payments', 'Payments'], ['#/pos', 'POs'],
   ['#/loans', 'Loans'], ['#/customers', 'Customers'], ['#/sales', 'Sales'], ['#/tally', 'Tally'],
 ];
 
@@ -259,6 +261,7 @@ function renderShell() {
 
 const ROUTES = [
   [/^#?\/?$/, () => viewHome()],
+  [/^#\/register(?:\/(stock))?(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewRegister(m[1] || '', m[2] || null)],
   [/^#\/import$/, () => viewImport()],
   [/^#\/pos$/, () => viewPos()],
   [/^#\/pos\/(.+)$/, (m) => viewPoGroup(decodeURIComponent(m[1]))],
@@ -365,6 +368,139 @@ async function viewHome() {
       box.innerHTML = errorHtml(err);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register — the Daily Stock Register (the paper DSR book) and the Stock
+// Register, from E-DSR.xlsx, Stock Register.xlsm and DIP Chart.xlsm
+// (register.js); the Mac's sync uploads them, or Import here
+// ---------------------------------------------------------------------------
+const REGISTER_SCHEMA = 'The database needs an update for the Register: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).';
+async function registerCall(fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (/could not find the function|does not exist|schema cache/i.test(String((err && err.message) || err))) throw new Error(REGISTER_SCHEMA);
+    throw err;
+  }
+}
+async function registerAll(force = false) {
+  if (force || !state.reg || Date.now() - state.reg.at > 5 * 60000) state.reg = { at: Date.now(), all: await registerCall(() => state.store.register()) };
+  return state.reg.all;
+}
+
+// one of the three workbooks, read here and kept -> what it brought in, in words
+async function importRegisterFile(file) {
+  const XLSX = await loadSheetJS();
+  const wb = readWorkbook(XLSX, await file.arrayBuffer(), { all: true });
+  const kind = registerKind(wb);
+  if (!kind) throw new Error(`${file.name} isn't the E-DSR, the Stock Register or the DIP Chart (none of their sheets is in it).`);
+  let note;
+  if (kind === 'dsr') {
+    const doc = readDsr(wb);
+    await registerCall(() => state.store.registerImport('dsr', file.name, doc, {}));
+    note = `E-DSR for ${regMonth(doc.month)} (${Object.keys(doc.products).map((k) => REG_PRODUCTS.find((p) => p.key === k).short).join(', ')})`;
+  } else if (kind === 'stock') {
+    const { log, ...doc } = readStock(wb);
+    const res = await registerCall(() => state.store.registerImport('stock', file.name, doc, log));
+    note = `Stock Register for ${regMonth(doc.month)}, ${plural(res.mornings, 'morning')} of its Macro Log`;
+  } else {
+    const { log, ...doc } = readDipChart(wb);
+    await registerCall(() => state.store.registerImport('dipchart', file.name, doc, log));
+    note = `DIP Chart${doc.reading.date ? ` (reading of ${fmtDate(doc.reading.date)})` : ''}`;
+  }
+  state.reg = null;
+  return note;
+}
+
+async function viewRegister(tab, month) {
+  const all = await registerAll();
+  const today = localToday();
+  const months = [...new Set(Object.keys(all).filter((k) => /^(dsr|stock):/.test(k)).map((k) => k.slice(-7)))].sort().reverse();
+  const importBox = `<label class="file"><input type="file" id="reg-file" accept=".xlsx,.xlsm,.xls" multiple><span class="btn ghost small">Import workbooks…</span></label>`;
+  const tabs = `<nav class="chips view-chips" aria-label="Register">${[['', 'Daily Stock Register'], ['stock', 'Stock Register']].map(([k, name]) => `<a class="chip${k === tab ? ' on' : ''}" href="#/register${k ? `/${k}` : ''}${month ? `?m=${month}` : ''}"${k === tab ? ' aria-current="page"' : ''}>${name}</a>`).join('')}</nav>`;
+  const bindImport = () => document.getElementById('reg-file')?.addEventListener('change', (e) => guard(async () => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    const notes = [];
+    for (const f of files) notes.push(await importRegisterFile(f));
+    toast(`Brought in: ${notes.join(' · ')}.`);
+    await route();
+  }));
+  if (!months.length && !all.dipchart) {
+    setMain(`${tabs}<section class="card hero"><h2>Register</h2>
+      <p>The pump's <b>Daily Stock Register</b> (dips, opening stock, receipts, meter readings, testing and sales, as in the DSR book) and the <b>Stock Register</b> (book stock against the tank stock, and the shortage), from three workbooks:
+      <b>E-DSR.xlsx</b>, <b>Stock Register.xlsm</b> and <b>DIP Chart.xlsm</b>.</p>
+      <p>The Mac's Google Drive sync sends them here by itself. Or bring them in from this device:</p>
+      <p>${importBox}</p></section>`);
+    bindImport();
+    return;
+  }
+  const m = month && months.includes(month) ? month : months[0] || today.slice(0, 7);
+  const stockDocs = Object.keys(all).filter((k) => k.startsWith('stock:')).map((k) => all[k].data);
+  const by = mornings((all.tanklog && all.tanklog.data) || {}, stockDocs);
+  const chart = all.dipchart ? all.dipchart.data.chart : null;
+  const pmOf = (mk, key) => productMonth({
+    month: mk, key, by, chart,
+    dsr: (all[`dsr:${mk}`] && all[`dsr:${mk}`].data.products[key]) || null,
+    stock: (all[`stock:${mk}`] && all[`stock:${mk}`].data.products[key]) || null,
+  });
+  const reg = state.regView || (state.regView = { product: 'HSD' });
+  const key = REG_PRODUCTS.some((p) => p.key === reg.product) ? reg.product : 'HSD';
+  const pm = pmOf(m, key);
+  const latest = latestMorning(by, chart, today);
+  const shortages = {};
+  if (months[0]) {
+    for (const p of REG_PRODUCTS) {
+      const x = pmOf(months[0], p.key);
+      shortages[p.key] = { value: x.shortageNow, day: x.shortageDay ? fmtDate(`${months[0]}-${String(x.shortageDay).padStart(2, '0')}`).slice(0, 6) : '' };
+    }
+  }
+  const fileLine = [['dsr', `dsr:${m}`, 'E-DSR'], ['stock', `stock:${m}`, 'Stock Register'], ['dip', 'dipchart', 'DIP Chart']]
+    .map(([, k, name]) => (all[k] ? `${name} <span class="faint">${esc(new Date(all[k].updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span>` : `${name} <span class="warn-text">not brought in</span>`)).join(' · ');
+  const hasDsr = !!all[`dsr:${m}`];
+  const hasStock = !!all[`stock:${m}`];
+  const t = pm.totals;
+  const sold = pm.rows.filter((r) => r.sale != null);
+  const kpis = tab === 'stock' ? `<div class="kpis">
+      <div class="kpi hero"><span class="lbl">Shortage${pm.shortageDay ? ` to ${pm.shortageDay} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(pm.shortageNow)}<small>&nbsp;L</small></span><span class="sub">book stock − tank stock</span></div>
+      <div class="kpi"><span class="lbl">Opening shortage</span><span class="val">${regLitres(pm.openShortage)}</span><span class="sub">as typed in the Stock Register</span></div>
+      <div class="kpi"><span class="lbl">Variation this month</span><span class="val ${t.variation > 0 ? 'bad-text' : t.variation < 0 ? 'good-text' : ''}">${t.variation > 0 ? '+' : ''}${regLitres(t.variation)}</span><span class="sub">${t.sale ? `${((t.variation / t.sale) * 100).toFixed(2)}% of the sale` : ''}</span></div>
+      ${pm.testAdjust ? `<div class="kpi"><span class="lbl">Testing adjustment</span><span class="val">${regLitres(pm.testAdjust)}</span><span class="sub">as typed in the Stock Register</span></div>` : ''}
+    </div>` : `<div class="kpis">
+      <div class="kpi hero"><span class="lbl">Sale${sold.length ? ` to ${sold[sold.length - 1].day} ${esc(regMonth(m).slice(0, 3))}` : ''}</span><span class="val">${regLitres(t.sale)}<small>&nbsp;L</small></span><span class="sub">${plural(sold.length, 'day')}${sold.length ? ` · ${regLitres(Math.round((t.sale / sold.length) * 100) / 100)} L a day` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Receipts</span><span class="val">${regLitres(t.receipt)}</span><span class="sub">${plural(pm.rows.filter((r) => r.receipt).length, 'load')}</span></div>
+      <div class="kpi"><span class="lbl">Testing</span><span class="val">${regLitres(t.test)}</span><span class="sub">returned to the tank</span></div>
+    </div>`;
+  const missing = tab === 'stock' ? (hasStock ? '' : `<p class="warn-text small">The Stock Register for ${esc(regMonth(m))} isn't here: the actual tank stock comes from the DIP Chart's readings instead (marked *).</p>`)
+    : (hasDsr ? '' : `<p class="warn-text small">The E-DSR for ${esc(regMonth(m))} isn't here, so there are no meter readings or sales.</p>`);
+  const flagged = pm.rows.filter((r) => (tab === 'stock' ? r.actualAlt != null : r.differs != null));
+  setMain(`
+    ${tabs}
+    <section class="card">
+      <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
+      ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
+      <p class="muted small">${fileLine}</p>
+    </section>
+    <section class="card">
+      <div class="row-between"><h2>${esc(pm.product.name)} <span class="muted">· ${esc(regMonth(m))}</span></h2>
+        ${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}</div>
+      <div class="chips" role="group" aria-label="Product">${REG_PRODUCTS.map((p) => `<button class="chip${p.key === key ? ' on' : ''}" data-reg-product="${p.key}">${esc(p.short)}</button>`).join('')}</div>
+      ${kpis}
+      ${missing}
+      ${tab === 'stock' ? stockTableHtml(pm, { today }) : dsrTableHtml(pm, { today })}
+      ${flagged.length ? `<p class="small"><i class="reg-flag">!</i> ${tab === 'stock'
+        ? `The Stock Register's tank stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')} — hover or tap the mark to see both.`
+        : `The Stock Register's stock differs from the DIP Chart's on ${flagged.map((r) => r.day).join(', ')}; the DIP Chart's is shown.`}</p>` : ''}
+      <p class="muted small">${tab === 'stock'
+        ? 'As the Stock Register works it out: book stock is the E-DSR\'s (opening + receipts − sale); the actual tank stock is the next morning\'s dip stock; shortage = closing book stock − actual tank stock; variation = the change in the shortage from the day before (the first day: from the opening shortage).'
+        : 'Opening stock is the morning\'s dip stock (the DIP Chart\'s reading, else the Stock Register\'s), and the dips are that stock read on the DIP Chart. Meter readings and testing are the E-DSR\'s; sale = the next morning\'s readings − this morning\'s − testing.'}
+        ${pm.product.tanks === 2 ? ' HSD\'s two tanks: each tank\'s dip is known from the DIP Chart readings the app has, from the day it\'s first brought in.' : ''}</p>
+    </section>`);
+  bindImport();
+  document.getElementById('reg-month')?.addEventListener('change', (e) => { location.hash = `#/register${tab ? `/${tab}` : ''}?m=${e.target.value}`; });
+  main().querySelectorAll('[data-reg-product]').forEach((b) => b.addEventListener('click', () => { reg.product = b.dataset.regProduct; guard(() => viewRegister(tab, month)); }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1452,7 +1588,11 @@ async function viewImport() {
 }
 
 // ---- the Mac's uploads (vriddhi_gdrive.sh → Storage bucket ledger-uploads) ----
-const MAC_FILES = { 'master-ledger.xlsm': { kind: 'master', label: 'Master Ledger.xlsm' }, 'tanker-billing.xlsm': { kind: 'tanker', label: 'Tanker Billing.xlsm' } };
+const MAC_FILES = {
+  'master-ledger.xlsm': { kind: 'master', label: 'Master Ledger.xlsm' }, 'tanker-billing.xlsm': { kind: 'tanker', label: 'Tanker Billing.xlsm' },
+  'e-dsr.xlsx': { kind: 'register', label: 'E-DSR.xlsx' }, 'stock-register.xlsm': { kind: 'register', label: 'Stock Register.xlsm' },
+  'dip-chart.xlsm': { kind: 'register', label: 'DIP Chart.xlsm' },
+};
 const upWhen = (t) => (t ? new Date(t).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 // [{name, label, kind, updated_at, size, fresh}] — fresh: not imported yet (or uploaded again since)
 async function macUploadsList() {
@@ -1488,6 +1628,8 @@ async function autoImportMac() {
           const { payload } = extractMaster(readWorkbook(XLSX, await file.arrayBuffer()));
           const res = await state.store.importMaster(u.label, payload);
           note = `${plural(res.sales_new, 'new bill')}, ${plural(res.payments, 'payment')}${res.pos_new || res.pos_updated || res.pos_removed ? `, PO lists updated` : ''}`;
+        } else if (u.kind === 'register') {
+          note = await importRegisterFile(file);
         } else {
           const r = await readTankerFile(file);
           const res = await quotesCall(() => state.store.tankerImport(u.label, { customers: r.parsed.customers, data: r.data, pi_log: r.parsed.pi_log, cn_log: r.cnLog, images: r.images }));
@@ -1524,7 +1666,11 @@ async function openMacUpload(u) {
   const file = new File([blob], u.label, { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
   file.upload = u;
   if (u.kind === 'master') await masterChosen(file, { value: '' });
-  else await tankerChosen(file, { value: '' }, 'tb-out-import');
+  else if (u.kind === 'register') {
+    const note = await importRegisterFile(file);
+    await markUploadSeen(u);
+    out.innerHTML = `<p class="good-text">${esc(note)} — on <a href="#/register">Register</a>.</p>`;
+  } else await tankerChosen(file, { value: '' }, 'tb-out-import');
 }
 
 function importRow(i) {

@@ -71,6 +71,9 @@ export function supabaseStore(client) {
     cnSave: (cn) => rpc('ledger_cn_save', { p_cn: cn }),
     cnReprinted: (id) => rpc('ledger_cn_reprinted', { p_id: id }),
     cnDelete: (id) => rpc('ledger_cn_delete', { p_id: id }),
+    // the Register (E-DSR / Stock Register / DIP Chart)
+    register: () => rpc('ledger_register_get'),
+    registerImport: (kind, fileName, doc, log = {}) => rpc('ledger_register_import', { p_kind: kind, p_file_name: fileName, p_doc: doc, p_log: log }),
   };
 }
 
@@ -86,7 +89,7 @@ const now = () => new Date().toISOString();
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
     customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
-    discarded: new Map(), proforma: [], loans: new Map(), creditNotes: [],
+    discarded: new Map(), proforma: [], loans: new Map(), creditNotes: [], register: {},
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -914,6 +917,26 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       db.proforma = db.proforma.filter((x) => x.id !== id);
     },
 
+    // the Register — same rules as ledger_register_get / _import in SQL
+    async register() {
+      return clone(db.register);
+    },
+    async registerImport(kind, fileName, doc, log = {}) {
+      let key;
+      if (kind === 'dsr' || kind === 'stock') {
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(doc && doc.month))) fail('The workbook\'s month wasn\'t found (its title should read like "DIESEL MONTH OF NOVEMBER 2026").');
+        key = `${kind}:${doc.month}`;
+      } else if (kind === 'dipchart') key = 'dipchart';
+      else fail(`Unknown register workbook ${kind}.`);
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) fail('Nothing to save.');
+      const bad = Object.keys(log || {}).find((k) => !/^\d{4}-\d{2}-\d{2}\|(mac|log|chart)$/.test(k));
+      if (bad) fail(`Bad tank log entry ${bad}.`);
+      const meta = { file_name: fileName || '', updated_at: now(), updated_by: email };
+      db.register[key] = { data: clone(doc), ...meta };
+      if (log && Object.keys(log).length) db.register.tanklog = { data: { ...((db.register.tanklog || {}).data || {}), ...clone(log) }, ...meta };
+      return { key, month: doc.month || null, mornings: Object.keys(log || {}).length };
+    },
+
     async imports(limit = 20) {
       return clone([...db.imports].reverse().slice(0, Math.max(1, Math.min(limit || 20, 200))));
     },
@@ -923,5 +946,6 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   for (const d of seed.daybooks || []) api.importDaybook(d.fileName, d.rows);
   for (const d of seed.edits || []) d(api, db);
   for (const l of seed.loans || []) api.saveLoan(l, l.unpaid || []);
+  for (const r of seed.register || []) api.registerImport(r.kind, r.fileName, r.doc, r.log);
   return api;
 }

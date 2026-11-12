@@ -246,6 +246,27 @@ create table if not exists public.ledger_credit_notes (
   source       text not null default 'app' check (source in ('app', 'workbook'))
 );
 
+-- Register: the pump's Daily Stock Register and Stock Register, from the
+-- Mac's E-DSR.xlsx, Stock Register.xlsm and DIP Chart.xlsm (read in the app,
+-- ledger/js/register.js). One row per workbook and month, as the app read it:
+--   dsr:YYYY-MM    the E-DSR's month (opening book stock, receipts, meter
+--                  readings, testing) — the workbook is reused every month,
+--                  so each month stays here once brought in
+--   stock:YYYY-MM  the Stock Register's month (Actual Tank Stock, opening
+--                  shortage)
+--   dipchart       the DIP Chart's tank chart and this morning's reading
+--   tanklog        every morning's tank stock, by 'YYYY-MM-DD|source'
+--                  (source: mac = the Stock Register's Macro Log, log = the
+--                  DIP Chart's Log sheet, chart = a DIP Chart reading) —
+--                  added to by each import, never replaced
+create table if not exists public.ledger_register (
+  key        text primary key check (key ~ '^((dsr|stock):[0-9]{4}-[0-9]{2}|dipchart|tanklog)$'),
+  data       jsonb not null,
+  file_name  text not null default '',
+  updated_at timestamptz not null default now(),
+  updated_by text not null default ''
+);
+
 -- Loans & EMI: the vehicles' loans (our own tanker trucks, cars in the
 -- firm's name), from the banks' repayment schedules. One row per loan, by
 -- its account / agreement no. (lan); loan keeps it as the app reads it —
@@ -405,7 +426,8 @@ declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
                            'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
-                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma', 'ledger_loans', 'ledger_credit_notes'] loop
+                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma', 'ledger_loans', 'ledger_credit_notes',
+                           'ledger_register'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -1729,6 +1751,60 @@ begin
   if not found then raise exception 'No credit note %.', p_id; end if;
 end $$;
 
+-- Register ------------------------------------------------------------------
+-- Everything kept: {key: {data, file_name, updated_at, updated_by}}
+create or replace function public.ledger_register_get()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_object_agg(r.key, jsonb_build_object('data', r.data, 'file_name', r.file_name,
+                                                                     'updated_at', r.updated_at, 'updated_by', r.updated_by))
+                   from ledger_register r), '{}'::jsonb);
+end $$;
+
+-- One workbook read in the app: p_kind 'dsr' | 'stock' (p_doc carries its
+-- month) or 'dipchart'; p_log: mornings to add to the tank log
+-- ({'YYYY-MM-DD|src': {MS, HSD, XG, ...}}, replacing the same day and source).
+create or replace function public.ledger_register_import(p_kind text, p_file_name text, p_doc jsonb, p_log jsonb default '{}'::jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_key text;
+  v_month text := p_doc ->> 'month';
+  v_email text := coalesce(auth.jwt() ->> 'email', '');
+  v_bad text;
+begin
+  perform ledger_assert_member();
+  if p_kind in ('dsr', 'stock') then
+    if v_month is null or v_month !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+      raise exception 'The workbook''s month wasn''t found (its title should read like "DIESEL MONTH OF NOVEMBER 2026").';
+    end if;
+    v_key := p_kind || ':' || v_month;
+  elsif p_kind = 'dipchart' then
+    v_key := 'dipchart';
+  else
+    raise exception 'Unknown register workbook %.', p_kind;
+  end if;
+  if jsonb_typeof(p_doc) is distinct from 'object' then raise exception 'Nothing to save.'; end if;
+  if length(p_doc::text) > 400000 then raise exception 'That workbook is too big to keep.'; end if;
+  p_log := coalesce(p_log, '{}'::jsonb);
+  if jsonb_typeof(p_log) is distinct from 'object' then raise exception 'The tank log must be an object.'; end if;
+  select k into v_bad from jsonb_object_keys(p_log) k
+   where k !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[|](mac|log|chart)$' limit 1;
+  if v_bad is not null then raise exception 'Bad tank log entry %.', v_bad; end if;
+  insert into ledger_register (key, data, file_name, updated_at, updated_by)
+  values (v_key, p_doc, coalesce(p_file_name, ''), now(), v_email)
+  on conflict (key) do update set data = excluded.data, file_name = excluded.file_name,
+    updated_at = now(), updated_by = excluded.updated_by;
+  if p_log <> '{}'::jsonb then
+    insert into ledger_register (key, data, file_name, updated_at, updated_by)
+    values ('tanklog', p_log, coalesce(p_file_name, ''), now(), v_email)
+    on conflict (key) do update set data = ledger_register.data || excluded.data, file_name = excluded.file_name,
+      updated_at = now(), updated_by = excluded.updated_by;
+  end if;
+  return jsonb_build_object('key', v_key, 'month', v_month,
+                            'mornings', (select count(*) from jsonb_object_keys(p_log)));
+end $$;
+
 create or replace function public.ledger_pi_delete(p_id int)
 returns void language plpgsql set search_path = public as $$
 begin
@@ -1739,7 +1815,8 @@ end $$;
 
 -- ---------------------------------------------------------------------
 -- From the Mac: the Google Drive sync script (vriddhi_gdrive.sh) also
--- uploads Master Ledger.xlsm and Tanker Billing.xlsm to this private
+-- uploads Master Ledger.xlsm, Tanker Billing.xlsm and the Register's
+-- workbooks (E-DSR, Stock Register, DIP Chart) to this private
 -- bucket, signed in as a ledger member; the app shows them on Home and
 -- Import ("New from your Mac") and imports one with the usual preview.
 -- Only members can read or write it. (Skipped where there's no Supabase
