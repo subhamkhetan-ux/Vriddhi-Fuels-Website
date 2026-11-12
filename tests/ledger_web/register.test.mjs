@@ -188,8 +188,12 @@ test('register: the demo month adds up and draws', async () => {
     const dsr = dsrTableHtml(pm, marks);
     const stock = stockTableHtml(pm, { latest: 12, adj: testingAdjust(all, key).get('2026-11') });
     assert.match(dsr, /<tr class="today"><th class="date">12<\/th>/);
-    // the day before: receipt, testing, sale and cumulative marked (4 cells)
-    assert.equal((dsr.split('<th class="date">11</th>')[1].split('</tr>')[0].match(/ink hl/g) || []).length, 4);
+    // the day before: receipt, total stock, testing, sale and cumulative marked (5 cells);
+    // this morning: its receipt and total stock not marked, no × for a receipt yet
+    assert.equal((dsr.split('<th class="date">11</th>')[1].split('</tr>')[0].match(/ink hl/g) || []).length, 5);
+    const today = dsr.split('<th class="date">12</th>')[1].split('</tr>')[0];
+    assert.equal((today.match(/ink nohl/g) || []).length, 2);
+    assert.doesNotMatch(today, /×/);
     assert.match(stock, /Testing Adjustment/);
     assert.equal((dsr.match(/<th class="date/g) || []).length, 31 + 2);        // 1–31, TOTAL, LAST YEAR SALES
     assert.equal((stock.match(/<th class="date/g) || []).length, 1 + 31 + 1);  // S.No, 1–31, G.TOTAL

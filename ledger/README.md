@@ -291,7 +291,9 @@ workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
 Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
 the page (A4 landscape). On a wide screen the page takes the window's width.
 
-This morning's line is highlighted, and on the line before it the receipt,
+This morning's line is highlighted (but not its receipt and total stock —
+what comes in today isn't known yet, so no × either), and on the line before
+it the receipt, total stock,
 testing, sale and cumulative sale those readings complete. **Edit dips**
 turns the dips into boxes: a dip typed there (one misread, or HSD's per-tank
 dips the DIP Chart didn't keep) is kept (`dips:YYYY-MM`) and written over
