@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 # this order — so a "Dr/Cr" indicator or a bare "Amount" column is recognised
 # before the looser withdrawal/deposit patterns ("debit", "^dr") can claim it.
 _COL_PATTERNS = {
+    # The bank's own transaction id (ICICI "Tran. Id"): an internal transfer shows
+    # the SAME id on both accounts' statements, which ties its two legs together.
+    "txn_id": [r"^(tran|txn|transaction)\.?\s*id$"],
     "drcr": [r"^(dr\s*/\s*cr|cr\s*/\s*dr|debit\s*/\s*credit|credit\s*/\s*debit|"
              r"(txn|tran|transaction)?\s*type)$"],
     "amount": [r"^(txn|tran|transaction)?\s*amount\s*(\((inr|rs\.?|₹)?\s*\))?$"],
@@ -49,6 +52,7 @@ class BankRow:
     balance: float | None
     calc_balance: float | None = None
     reconciles: bool = True
+    txn_id: str = ""                # the bank's transaction id, when the statement has one
 
     @property
     def is_credit(self) -> bool:
@@ -249,7 +253,8 @@ def parse_excel(path: str) -> tuple[list[BankRow], dict]:
             "date": date, "wd": wd, "dep": dep, "amt": amt,
             "bal": _balance(bal_cell), "has_bal": str(bal_cell or "").strip() != "",
             "narration": str(cell("narration") or "").strip(),
-            "ref": str(cell("ref") or "").strip()})
+            "ref": str(cell("ref") or "").strip(),
+            "txn_id": str(cell("txn_id") or "").strip()})
 
     # Some exports list the newest transaction first. If the balance chain only
     # ties out read bottom-up, read it that way (always oldest first after this).
@@ -266,7 +271,7 @@ def parse_excel(path: str) -> tuple[list[BankRow], dict]:
         rows.append(BankRow(
             index=len(rows), date=r["date"], narration=r["narration"], ref=r["ref"],
             withdrawal=r["wd"], deposit=r["dep"], balance=r["bal"],
-            calc_balance=r["calc"], reconciles=r["ok"]))
+            calc_balance=r["calc"], reconciles=r["ok"], txn_id=r["txn_id"]))
 
     summary = {
         "n_rows": len(rows),

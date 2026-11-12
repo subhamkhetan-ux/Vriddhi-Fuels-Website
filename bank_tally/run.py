@@ -97,6 +97,36 @@ def _pair_contras(items):
     return pairs, leftovers
 
 
+def _link_by_txn_id(classified):
+    """Two own accounts' statements showing the SAME bank transaction id (ICICI's
+    "Tran. Id") — one a withdrawal, the other a same-day deposit of the same
+    amount — are the two legs of one transfer between them, whatever the
+    narrations say (``…/ICICICA4716`` on one side, ``…/VRIDDHI FUELS`` on the
+    other). Both are made a Contra naming the other account, so they pair.
+    Only an exact one-withdrawal/one-deposit match counts; a line already
+    posted elsewhere (``skip``, the IOCL PAD) is left alone. Returns the list
+    with those classifications replaced."""
+    groups = {}
+    for i, (acct, row, cl) in enumerate(classified):
+        if getattr(row, "txn_id", ""):
+            groups.setdefault(row.txn_id, []).append(i)
+    out = list(classified)
+    for idxs in groups.values():
+        if len(idxs) != 2:
+            continue
+        (a1, r1, c1), (a2, r2, c2) = (classified[i] for i in idxs)
+        if (a1 == a2 or r1.is_credit == r2.is_credit or c1.skip or c2.skip
+                or abs(r1.amount - r2.amount) >= 0.01 or r1.date != r2.date):
+            continue
+        for i, other in ((idxs[0], a2), (idxs[1], a1)):
+            acct, row, cl = out[i]
+            if cl.vtype == C.CONTRA and cl.counter_ledger == other:
+                continue
+            out[i] = (acct, row, C.Classification(
+                C.CONTRA, other, cl.counterparty_raw, "same-txn-id", [other]))
+    return out
+
+
 def merge_statements(statements):
     """Combine statements of the same account into one (oldest first) and drop
     lines repeated across them — two downloads of overlapping periods, or the
@@ -167,6 +197,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         for r in rows:
             classified.append((bank_ledger, r, C.classify(
                 r, customers, aliases, statement_ledger=bank_ledger)))
+    classified = _link_by_txn_id(classified)
 
     # A stable key per line. Two identical lines (same day, amount, narration —
     # e.g. two equal charges) get distinct keys so dropping/resolving one never
