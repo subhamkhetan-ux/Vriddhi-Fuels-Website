@@ -325,6 +325,11 @@ the DSR's testing were the actual). The app keeps them apart:
   *This morning* shows both shortages per product; the paper page's box
   keeps the Stock Register's own figures (plus the adjustment) as copied.
   Kept as `adjust:YYYY-MM`.
+- **Keeping the books in shortage:** when a product's Stock Register
+  variation this month is a **gain of more than 40 L** (the tank holds more
+  than the books say), Home's *Needs your attention*, the Register page and
+  *This morning* warn to raise the testing adjustment — with about how many
+  litres more DSR testing a day, over the days left, make the gain up.
 
 *Daily Stock Register*: date, **dips** (each tank), **opening stock** (that
 morning's dip stock), receipt, total stock, the opening **meter reading** of

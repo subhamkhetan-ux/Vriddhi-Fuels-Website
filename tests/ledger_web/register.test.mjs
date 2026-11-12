@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  actualShortage, dipOf, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
-  testingAdjust,
+  actualShortage, dipOf, GAIN_LIMIT, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
+  registerAlerts, shortageAlert, testingAdjust,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
-import { adjustHtml, dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
+import { adjustHtml, alertText, dsrTableHtml, stockTableHtml } from '../../ledger/js/register-view.js';
 import { memoryStore } from '../../ledger/js/store.js';
 import { isoToSerial } from '../../ledger/js/util.js';
 
@@ -275,4 +275,21 @@ test('register: typed dips and the testing adjustment are kept per month', async
   const all = await s.register();
   assert.deepEqual(all['dips:2026-11'].data, { HSD: { 1: [181.2, 147.3] } });
   assert.deepEqual(all['adjust:2026-11'].data.open, { HSD: 490 });
+});
+
+test('register: a warning when the books gained more than 40 L in the month', () => {
+  const pm = (variation, day = 11) => ({ key: 'HSD', month: '2026-11', shortageDay: day, totals: { variation } });
+  assert.equal(GAIN_LIMIT, 40);
+  assert.equal(shortageAlert(pm(67.01)), null);              // the shortage grew: fine
+  assert.equal(shortageAlert(pm(-40)), null);                // a gain of 40 L: still within
+  assert.deepEqual(shortageAlert(pm(-120.5)), { key: 'HSD', month: '2026-11', gain: 120.5, day: 11, left: 19, perDay: 7 });
+  assert.deepEqual(shortageAlert(pm(-50, 30)), { key: 'HSD', month: '2026-11', gain: 50, day: 30, left: 0, perDay: 50 });
+  assert.match(alertText(shortageAlert(pm(-120.5)), 'HSD'), /gained 120.50 L this month \(to 11 Nov\).*about 7 L more DSR testing a day for the 19 days left/);
+  // from what's kept: the E-DSR's month and a Stock Register whose tank stock beats the books
+  const d = readDsr(edsr());
+  const stock = { month: '2026-11', products: { MS: { openShortage: 0, actual: [4600, 8100, 7600, ...Array(27).fill(null)] } } };
+  const all = { 'dsr:2026-11': { data: d }, 'stock:2026-11': { data: stock } };
+  // books close 4500, 8000, 7500 against tanks 4600, 8100, 7600: a gain of 100 L
+  assert.deepEqual(registerAlerts(all).map((a) => [a.key, a.gain, a.day]), [['MS', 100, 3]]);
+  assert.deepEqual(registerAlerts({}), []);
 });

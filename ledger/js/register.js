@@ -524,6 +524,35 @@ export function actualShortage(pm, adj) {
   };
 }
 
+// ---- keeping the books in shortage ------------------------------------------
+// The Stock Register's books are kept in shortage. When a month's variation
+// so far is a gain of more than `limit` litres (the tank holds more than the
+// books say), it's time to raise the testing adjustment: the gain spread over
+// the days left is how much more DSR testing a day makes it up.
+export const GAIN_LIMIT = 40;
+export function shortageAlert(pm, limit = GAIN_LIMIT) {
+  const v = pm.totals.variation;
+  if (!(v < -limit) || !pm.shortageDay) return null;
+  const gain = round2(-v);
+  const left = daysIn(pm.month) - pm.shortageDay;
+  return { key: pm.key, month: pm.month, gain, day: pm.shortageDay, left, perDay: Math.ceil(gain / Math.max(1, left)) };
+}
+
+// Every product's alert for the latest month kept: all = store.register()
+export function registerAlerts(all, limit = GAIN_LIMIT) {
+  const months = [...new Set(Object.keys(all || {}).filter((k) => /^(dsr|stock):/.test(k)).map((k) => k.slice(-7)))].sort();
+  const month = months[months.length - 1];
+  if (!month || !all[`dsr:${month}`]) return [];
+  const stockDocs = Object.keys(all).filter((k) => k.startsWith('stock:')).map((k) => all[k].data);
+  const by = mornings((all.tanklog && all.tanklog.data) || {}, stockDocs);
+  const chart = all.dipchart ? all.dipchart.data.chart : null;
+  return PRODUCTS.map((p) => shortageAlert(productMonth({
+    month, key: p.key, by, chart,
+    dsr: all[`dsr:${month}`].data.products[p.key] || null,
+    stock: (all[`stock:${month}`] && all[`stock:${month}`].data.products[p.key]) || null,
+  }), limit)).filter(Boolean);
+}
+
 // a register doc's day ('YYYY-MM-DD') when it last has any figure — for "updated until"
 export function lastDay(pm) {
   const r = [...pm.rows].reverse().find((x) => x.sale != null || x.meters);

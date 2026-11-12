@@ -47,8 +47,8 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { actualShortage, latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind, testingAdjust } from './register.js';
-import { adjustHtml, dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
+import { actualShortage, latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
+import { adjustHtml, alertText, dsrTableHtml, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
@@ -308,7 +308,8 @@ async function route() {
 // Home
 // ---------------------------------------------------------------------------
 async function viewHome() {
-  const [sum, pod, loans] = await Promise.all([state.store.summary(), state.store.poData(), loansList(true).catch(() => [])]);
+  const [sum, pod, loans, regAlerts] = await Promise.all([state.store.summary(), state.store.poData(), loansList(true).catch(() => []),
+    registerAll().then((all) => registerAlerts(all)).catch(() => [])]);
   const groups = poGroups(pod);
   const empty = !sum.last_sale_date;
   const todo = [];
@@ -325,6 +326,10 @@ async function viewHome() {
   // Loans & EMI: EMIs marked not paid
   for (const x of loans.length ? loansSummary(loans, localToday()).loans.filter((y) => y.overdueN) : []) {
     todo.push(`<a class="todo warn" href="#/loans/${encodeURIComponent(x.loan.lan)}"><b>${esc(plateText(x.loan.veh) || x.loan.lan)}:</b> ${plural(x.overdueN, 'EMI')} marked not paid · ${esc(rupees(x.overdueAmt))}</a>`);
+  }
+  // the Register: a product whose books gained this month (keep them in shortage)
+  for (const a of regAlerts) {
+    todo.push(`<a class="todo warn" href="#/register/stock"><b>${esc(REG_PRODUCTS.find((p) => p.key === a.key).short)}:</b> the Stock Register gained ${esc(regLitres(a.gain))} L this month (to ${a.day} ${esc(regMonth(a.month).slice(0, 3))}) — raise the testing adjustment${a.left > 0 ? ` (~${a.perDay} L more testing a day)` : ''}</a>`);
   }
   const last = sum.last_import;
   const play = !state.greeted;                                   // the feather flies once per app open
@@ -480,7 +485,7 @@ async function viewRegister(tab, month) {
       const x = pmOf(months[0], p.key);
       const a = all[`dsr:${months[0]}`] ? testingAdjust(all, p.key).get(months[0]) : null;
       const sp = a ? actualShortage(x, a) : null;
-      shortages[p.key] = { value: x.shortageNow, actual: sp ? sp.actual : null, day: x.shortageDay ? fmtDate(`${months[0]}-${String(x.shortageDay).padStart(2, '0')}`).slice(0, 6) : '' };
+      shortages[p.key] = { value: x.shortageNow, actual: sp ? sp.actual : null, alert: shortageAlert(x), day: x.shortageDay ? fmtDate(`${months[0]}-${String(x.shortageDay).padStart(2, '0')}`).slice(0, 6) : '' };
     }
   }
   const fileLine = [['dsr', `dsr:${m}`, 'E-DSR'], ['stock', `stock:${m}`, 'Stock Register'], ['dip', 'dipchart', 'DIP Chart']]
@@ -511,6 +516,7 @@ async function viewRegister(tab, month) {
           ${tab === 'stock' ? '' : `<button class="btn ${reg.editDips ? '' : 'ghost '}small" id="reg-edit-dips" type="button">${reg.editDips ? 'Done' : 'Edit dips'}</button>`}
           <button class="btn ghost small" id="reg-print" type="button">Print</button></span></div>
       ${missing}
+      ${(() => { const al = shortageAlert(pm); return al ? `<div class="todo warn reg-alert">${esc(alertText(al, pm.product.short))}</div>` : ''; })()}
       ${reg.editDips && tab !== 'stock' ? '<p class="small warn-text">Type a dip where it was misread (or missing) — it\'s kept and written over the DIP Chart\'s; clear it to go back. <b>Done</b> when finished.</p>' : ''}
       ${tab === 'stock' ? stockTableHtml(pm, { latest: latestDay, adj }) : dsrTableHtml(pm, { latest: latestDay, prev: prevDay, edit: reg.editDips })}
       ${flagged.length ? `<p class="small"><i class="reg-flag">!</i> ${tab === 'stock'

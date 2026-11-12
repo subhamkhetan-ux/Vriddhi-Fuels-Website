@@ -134,11 +134,12 @@ export function morningHtml(latest, shortages = {}) {
     const dips = x.tanks ? x.dips.map((d, i) => `Tank ${i + 1} <b>${dip(d)}</b> cm`).join(' · ')
       : x.dips.length && x.dips[0] != null ? `Dip <b>${dip(x.dips[0])}</b> cm` : (p.tanks === 2 && x.stock != null ? '<span class="faint">dips per tank not known</span>' : '');
     const sh = shortages[p.key];
+    const warn = sh && sh.alert ? `<span class="sub warn-text"><b>Gained ${litres(sh.alert.gain)} L this month</b> — raise the testing adjustment</span>` : '';
     return `<div class="kpi reg-kpi k-${p.key.toLowerCase()}"><span class="lbl">${esc(p.short)}</span>
       <span class="val">${x.stock == null ? '—' : `${litres(x.stock)}<small>&nbsp;L</small>`}</span>
       <span class="sub">${dips}</span>
       ${sh && sh.value != null ? `<span class="sub">Stock Register shortage <b>${litres(sh.value)}</b> L${sh.day ? ` <span class="faint">(to ${sh.day})</span>` : ''}</span>` : ''}
-      ${sh && sh.actual != null ? `<span class="sub">Actual shortage <b>${litres(sh.actual)}</b> L <span class="faint">(less the testing adjustment)</span></span>` : ''}</div>`;
+      ${sh && sh.actual != null ? `<span class="sub">Actual shortage <b>${litres(sh.actual)}</b> L <span class="faint">(less the testing adjustment)</span></span>` : ''}${warn}</div>`;
   }).join('')}</div>`;
 }
 
@@ -191,3 +192,9 @@ export function adjustHtml(adj, pm, split, { prevMonth = null, nextMonth = null 
     <p class="muted small">Every day's actual testing can be typed, ahead too — a day not typed takes the day before's (to start: HSD 30, MS 20, XtraGreen 10 L); a day the DSR has no testing has none. Leave the opening blank to carry last month's closing.</p>`;
 }
 const round = (n) => Math.round(n * 100) / 100;
+
+// A month whose Stock Register gained more than the limit: in words
+export function alertText(a, name) {
+  const mon = monthLabel(a.month).slice(0, 3);
+  return `${name}: the Stock Register has gained ${L2.format(a.gain)} L this month (to ${a.day} ${mon}) — more than 40 L. Raise the testing adjustment${a.left > 0 ? `: about ${a.perDay} L more DSR testing a day for the ${a.left} day${a.left === 1 ? '' : 's'} left makes it up` : ''} and keeps the books in shortage.`;
+}
