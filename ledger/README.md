@@ -294,8 +294,9 @@ on a **phone** the whole page is zoomed out to fit the screen held upright,
 with **− / Fit / +** to make it bigger or smaller (it then scrolls) — and
 pinching works as on any page.
 
-This morning's line is highlighted (but not its receipt and total stock —
-what comes in today isn't known yet, so no × either), and on the line before
+This morning's line is highlighted (but not its receipt, total stock,
+testing, sales and cumulative — they come with today's business, so no ×
+either), and on the line before
 it the receipt, total stock,
 testing, sale and cumulative sale those readings complete. **Edit dips**
 turns the dips into boxes: a dip typed there (one misread, or HSD's per-tank

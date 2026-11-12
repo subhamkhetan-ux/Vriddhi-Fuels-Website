@@ -534,6 +534,9 @@ table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: 
   .reg-paper-card .paper-scroll { margin: 10px -4px 6px; padding: 2px 0 10px; }
   .reg-paper-card .paper { padding: 12px 10px 14px; }
 }
+/* the page, scaled (fitRegisterPaper): laid out full size, shrunk as a whole */
+.paper-fit { margin: 0 auto; overflow: hidden; }
+.paper-fit > .paper { transform-origin: 0 0; margin: 0; }
 .paper-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px -6px 6px; padding: 4px 6px 14px; }
 .paper { width: max-content; margin: 0 auto; background: #fbfaf5; color: #111; border-radius: 3px; padding: 18px 20px 22px;
   box-shadow: 0 22px 44px -22px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.25);
@@ -543,8 +546,9 @@ table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: 
 .paper-head h2 { font: 800 21px/1.1 Arial, "Helvetica Neue", sans-serif; color: #000; letter-spacing: .01em; margin: 0; text-align: center; white-space: nowrap; }
 .paper-head .month { justify-self: end; font: 700 12px/1 Arial, sans-serif; color: #000; white-space: nowrap; }
 .paper-head .month u { font: 700 19px/1 "Kalam", "Segoe Print", cursive; color: #c8102e; letter-spacing: .06em; text-decoration-thickness: 1px; text-underline-offset: 4px; margin-left: 2px; }
-table.paper-t { border-collapse: collapse; width: auto; font: 13px/1.15 Arial, "Helvetica Neue", sans-serif; color: #111; border: 2px solid #111; background: transparent; }
-table.paper-t th, table.paper-t td { border: 1px solid #222; padding: 3px 6px; height: 23px; text-align: left; vertical-align: middle; }
+/* --bw: a line's width — set from the page's zoom so a line never gets thinner than a screen pixel (and vanishes) */
+table.paper-t { border-collapse: collapse; width: auto; font: 13px/1.15 Arial, "Helvetica Neue", sans-serif; color: #111; border: calc(var(--bw, 1px) * 2) solid #111; background: transparent; }
+table.paper-t th, table.paper-t td { border: var(--bw, 1px) solid #222; padding: 3px 6px; height: calc(22px + var(--bw, 1px)); text-align: left; vertical-align: middle; }
 table.paper-t thead th { font: 700 11.5px/1.15 Arial, sans-serif; color: #000; text-transform: uppercase; letter-spacing: 0; text-align: center; white-space: nowrap; background: transparent; }
 table.paper-t thead th.v { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9.5px; padding: 4px 2px; min-width: 22px; }
 table.paper-t thead th.small { font-size: 8px; }
@@ -558,10 +562,10 @@ table.paper-t td.ink.m { font-size: 13.5px; }
 table.paper-t td.ink.short { color: #c4141f; }
 table.paper-t td.ink.gain { color: #0f8a3c; }
 table.paper-t td.ink.q { color: #9aa0b8; text-align: center; cursor: help; }
-table.paper-t .nil { display: block; text-align: right; font-size: 15px; }
+table.paper-t .nil { display: block; text-align: center; font-size: 15px; }
 table.paper-t td.gap, table.paper-t th.gap { border-top: 0; border-bottom: 0; min-width: 8px; padding: 0; }
-table.paper-t .remarks { min-width: 110px; border-left: 2px solid #111; }
-table.paper-t tr.tot th, table.paper-t tr.tot td { border-top: 2px solid #111; }
+table.paper-t .remarks { min-width: 110px; border-left: calc(var(--bw, 1px) * 2) solid #111; }
+table.paper-t tr.tot th, table.paper-t tr.tot td { border-top: calc(var(--bw, 1px) * 2) solid #111; }
 table.paper-t tbody tr:hover td { background: transparent; }
 table.paper-t tr.today td, table.paper-t tr.today th { background: rgba(255,230,60,.42); }
 table.paper-t tr.today td.gap { background: transparent; }
@@ -591,7 +595,8 @@ table.paper-t.side td.ink { min-width: 110px; text-align: right; }
   .top, .tabs, #auto-bar, .view-chips, .card:not(.reg-paper-card), .reg-paper-card > :not(.paper-scroll) { display: none !important; }
   .reg-paper-card { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
   .paper-scroll { overflow: visible; margin: 0; padding: 0; }
-  .paper { box-shadow: none; padding: 0; background: #fff; zoom: .74 !important; }
+  .paper { box-shadow: none; padding: 0; background: #fff; zoom: .74 !important; --bw: 1.35px !important; transform: none !important; }
+  .paper-fit { width: auto !important; height: auto !important; overflow: visible !important; }
   .reg-paper-card { width: auto !important; margin: 0 !important; transform: none !important; }
   .reg-flag { display: none !important; }
   table.paper-t th, table.paper-t td { height: 20px; padding-top: 2px; padding-bottom: 2px; }

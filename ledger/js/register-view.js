@@ -78,15 +78,16 @@ export function dsrTableHtml(pm, { latest = null, prev = null, edit = false } = 
     }
     const flagged = r && r.differs != null ? flag(`The Stock Register has ${whole(r.differs)} for this morning; this is ${srcName(r.stockSrc)}'s.`) : '';
     const hl = d === prev ? 'hl' : '';                     // the day before: what this morning's readings complete
-    // this morning's receipt and total stock aren't known yet (what comes in today): not marked
+    // this morning's receipt, total stock, testing, sales and cumulative aren't known
+    // yet (they come with today's business): not marked
     const open = d === latest ? 'nohl' : hl;
     cells.push(ink(r ? `${whole(r.stock)}${flagged}` : ''));
     cells.push(ink(r && r.receipt ? whole(r.receipt) : r && r.stock != null && d !== latest ? '<span class="nil">×</span>' : '', open));
     cells.push(ink(r ? whole(r.total) : '', open));
     for (let i = 0; i < pumps; i++) cells.push(ink(r && r.meters && i < r.meters.length ? whole(r.meters[i]) : '', 'm'));
-    cells.push(ink(r ? testing(r.test) : '', hl));
-    cells.push(ink(r ? paisa(r.sale) : '', hl));
-    cells.push(ink(r ? paisa(r.cum) : '', hl));
+    cells.push(ink(r ? testing(r.test) : '', open));
+    cells.push(ink(r ? paisa(r.sale) : '', open));
+    cells.push(ink(r ? paisa(r.cum) : '', open));
     if (pp.remarks) cells.push('<td class="gap"></td><td class="remarks"></td>');
     rows.push(`<tr class="${d === latest ? 'today' : ''}"><th class="date">${d}</th>${cells.join('')}</tr>`);
   }

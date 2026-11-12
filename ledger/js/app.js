@@ -394,24 +394,46 @@ async function registerAll(force = false) {
   return state.reg.all;
 }
 
-// The paper page's size: zoomed to the width it has (never past its own size),
-// or the size picked with − / +
+// The paper page's size: scaled to the width it has (never past its own size),
+// or the size picked with − / +. It's laid out at full size and scaled as a
+// whole (so nothing moves out of its line), inside a box of the scaled size.
+// Its lines are drawn wider as it gets smaller, so they stay visible however
+// small it is (a phone drops lines thinner than about ¾ of a pixel).
+const lineFor = (z) => `${Math.max(1, Math.round((0.75 / z) * 100) / 100)}px`;
 function paperFit() {
   const box = document.querySelector('.paper-scroll');
   const paper = box && box.querySelector('.paper');
   if (!paper) return 1;
-  const z = paper.style.zoom;
-  paper.style.zoom = '';
-  const natural = paper.offsetWidth;
-  paper.style.zoom = z;
+  const natural = paper.offsetWidth;                       // laid out at full size (a transform doesn't change it)
   const avail = box.clientWidth - 12;
   return natural ? Math.min(1, Math.floor((avail / natural) * 1000) / 1000) : 1;
 }
 function fitRegisterPaper(reg) {
   const paper = document.querySelector('.paper-scroll .paper');
   if (!paper) return;
-  const z = reg.zoom || paperFit();
-  paper.style.zoom = String(z);
+  let fit = paper.parentElement;
+  if (!fit.classList.contains('paper-fit')) {
+    fit = document.createElement('div');
+    fit.className = 'paper-fit';
+    paper.replaceWith(fit);
+    fit.appendChild(paper);
+  }
+  let z = reg.zoom;
+  if (!z) {
+    // thicker lines widen the page a little: fit, set the lines, fit again
+    paper.style.removeProperty('--bw');
+    z = paperFit();
+    for (let i = 0; i < 3; i++) {
+      paper.style.setProperty('--bw', lineFor(z));
+      const again = paperFit();
+      if (Math.abs(again - z) < 0.002) break;
+      z = again;
+    }
+  }
+  paper.style.setProperty('--bw', lineFor(z));
+  paper.style.transform = z === 1 ? '' : `scale(${z})`;
+  fit.style.width = `${Math.ceil(paper.offsetWidth * z)}px`;
+  fit.style.height = `${Math.ceil(paper.offsetHeight * z)}px`;
   const pc = document.getElementById('reg-zoom-pc');
   if (pc) pc.textContent = `${Math.round(z * 100)}%${reg.zoom ? '' : ' · fits the screen'}`;
 }
