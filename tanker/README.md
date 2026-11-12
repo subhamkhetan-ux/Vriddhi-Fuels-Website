@@ -1,151 +1,22 @@
-# Tanker Billing — data sync
+# tanker/ — bill assets shared by the Tally app
 
-The tanker-bill web app never opens the master **`Tanker Billing.xlsm`**. Instead
-a scheduled job reads the workbook, extracts the tables that drive a bill, and
-commits them as **`state/tanker_billing.json`**. The app reads that JSON. This is
-how the app stays current with new customers, changed PO numbers, and price
-changes — all of which you keep editing in the workbook exactly as you do today.
+The standalone tanker-bill app that used to live here, and the GitHub job that
+copied `Tanker Billing.xlsm`'s customers and rates into `state/tanker_billing.json`
+for it, have been removed: nothing used them any more. Customer bills are made
+in the **Tally app** (`/tally/`, from a voucher), with customer details from
+the Master Ledger's Tanker Master sheet in the Ledger app; the Tanker Billing
+workbook itself goes to the **Ledger app** (Quotes, PI Log, credit notes),
+uploaded by the Mac's sync script.
 
-```
-Tanker Billing.xlsm  (iCloud master; you edit it in Excel)
-        │  your existing daily sync
-        ▼
-Google Drive copy  ──[service account, read-only]──►  GitHub Action (daily)
-                                                              │ parse Customers /
-                                                              │ RateCard / ProductRates
-                                                              ▼
-                                                 state/tanker_billing.json  (committed)
-                                                              │
-                                                              ▼
-                                                     tanker-bill web app
-```
+What is left here is used by the Tally app's bill, and is referenced from
+there rather than copied:
 
-Why Drive and not iCloud: iCloud Drive has no service API a server can log into,
-so the app relies on the Google Drive copy you already sync to daily.
+| File | Used for |
+|---|---|
+| `assets/letterhead.png`, `assets/letterhead_grey.png` | The bill's letterhead (customer copy / greyscale receiving copy) |
+| `assets/stamp.png`, `assets/stamp_grey.png` | The stamp, the same two ways |
+| `assets/fonts/` | Times New Roman and BillSerif for the bill (see its README) |
+| `docx-export.js` | **Export Word (.docx)** of a bill |
 
-> **One requirement on the workbook:** the parser reads *cached* formula values
-> (`data_only`), so the Drive copy must have been **saved by Excel at least once
-> after any change**. Your normal "edit in Excel, let it sync" workflow already
-> does this — just don't hand-edit the raw file outside Excel.
-
-## What gets materialized
-
-`state/tanker_billing.json`:
-
-| Key | From the workbook | Used for |
-|---|---|---|
-| `customers[]` | `Customers` table (A1:M32) | name, address lines, GSTIN, payment block, PO label + PO no., price tier, resolved HSD rate |
-| `rate_card` | `RateCard` table (O1:P9) | tier → ₹/Ltr (e.g. `HSD RSP` 100.74, `DBL Price` = RSP−0.75) |
-| `product_rates` | `ProductRates` table (R1:S3) | non-HSD products (Motor Spirit, XtraGreen Diesel) |
-| `fuel_types` | `FuelTypes` table (U1:U4) | the product dropdown (default **High Speed Diesel**) |
-
-A bill's price = customer's `hsd_rate` when product is High Speed Diesel,
-otherwise `product_rates[product]`; amount = `TRUNC(quantity × price)`.
-
-## One-time setup
-
-Two ways to authorize. **Method A (service account) is recommended** — it needs
-**no OAuth consent screen / "Branding" page** and its key **does not expire**,
-which are exactly the two problems with the OAuth flow (Method B): its refresh
-token expires after ~7 days unless you publish the app "In production" (the
-Branding/verification flow). A service account sidesteps all of that and still
-keeps the file private (you share it with one machine account, nothing is made
-public).
-
-### Method A — service account (recommended: no Branding, never expires)
-
-1. **Create the service account** — <https://console.cloud.google.com/> → pick
-   or create a project → **IAM & Admin → Service Accounts → Create service
-   account**. Give it a name (e.g. `tanker-sync`), **no roles needed**, Done.
-   *(This screen has no consent/Branding step.)*
-2. **Make a key** — open the new service account → **Keys → Add key → Create new
-   key → JSON**. A `.json` file downloads. Note the account **email**
-   (`…@…iam.gserviceaccount.com`).
-3. **Enable the Drive API** — **APIs & Services → Library** → search **Google
-   Drive API** → **Enable**. *(Enabling an API is separate from the consent
-   screen — no Branding needed.)*
-4. **Share the workbook with it** — in Google Drive, right-click
-   **`Tanker Billing.xlsm`** (or its folder) → **Share** → paste the service
-   account **email** → **Viewer** → Send.
-5. **Add the GitHub secret/variable** — repo → **Settings → Secrets and
-   variables → Actions**:
-   - **Secrets → New:** `GDRIVE_SA_JSON` = the entire contents of the JSON key.
-   - **Variables → New:** `TANKER_DRIVE_FILE_ID` = the file id from its Drive URL
-     (`.../file/d/<FILE_ID>/view`). *(Optional — the job can also find it by
-     name; override with `TANKER_FILE_NAME`.)*
-
-> If your Google Workspace admin blocks service-account **key creation**, use
-> Method B instead, or ask me to wire the "shared-link" fallback (download a
-> link-shared file with no credentials — simplest, but the link must be treated
-> as a secret since anyone with it can view the file).
-
-### Method B — OAuth refresh token (reuses the Gmail agent's mechanism)
-
-> A Gmail **App Password** (16-char) cannot be used here — App Passwords only
-> work for IMAP/SMTP, not the Drive API. This mints an OAuth refresh token, the
-> same kind `mint_token.py` uses. **Caveat:** to stop the token expiring after
-> ~7 days you must set the OAuth app to "In production" (the Branding flow).
-
-1. **Enable the Drive API** (as above), same project as the Gmail agent is fine.
-2. **Mint the token** on your Mac, signing in as the account whose Drive holds
-   the workbook (reuse the Gmail agent's `credentials.json`):
-   ```bash
-   python3 tanker/mint_drive_token.py --credentials credentials.json --out gdrive_token.json
-   ```
-3. **Add** secret `GDRIVE_TOKEN` = the printed blob, and variable
-   `TANKER_DRIVE_FILE_ID` as above.
-
-That's it. The **Sync tanker billing data** workflow
-(`.github/workflows/tanker-sync.yml`) has **no schedule**: the Mac's Google
-Drive sync (`vriddhi_gdrive.sh`, run by *Vriddhi 3 — Google Drive.command*)
-starts it whenever `Tanker Billing.xlsm` has changed, passing the file's MD5;
-the run waits (up to 20 minutes) until Google Drive has that copy, then
-refreshes the JSON (it only commits on an actual change). It can also be run
-by hand (**Actions → Sync tanker billing data → Run workflow**).
-
-For the Mac to start it, it needs a GitHub token, kept in the Keychain:
-1. GitHub → Settings → Developer settings → **Fine-grained tokens** →
-   Generate: repository access *Only select repositories* → this repository;
-   permissions → **Actions: Read and write**. Copy the token.
-2. On the Mac, in Terminal (it asks for the token):
-   `security add-generic-password -s vriddhi-github -a github -w`
-
-## Running it by hand
-
-Against a local copy of the workbook (no Drive needed) — handy for testing:
-
-```bash
-python3 tanker/sync_tanker_billing.py --xlsm "Tanker Billing.xlsm"
-```
-
-Against Google Drive (what the Action runs):
-
-```bash
-export GDRIVE_TOKEN=/path/to/gdrive_token.json   # OAuth blob (path or inline)
-# or, for method B:  export GDRIVE_SA_JSON=/path/to/service-account.json
-export DRIVE_FILE_ID=<file id>                    # or rely on name search
-python3 tanker/sync_tanker_billing.py --from-drive
-```
-
-Dependencies: `openpyxl`, `google-api-python-client`, `google-auth`
-(all already in the repo's `requirements.txt`). Minting a token additionally
-uses `google-auth-oauthlib`, also already listed.
-
-## Quotations and proforma invoices in the ledger app
-
-The ledger app (`/ledger/`, **Quotes** tab) makes quotations and proforma
-invoices from this workbook: imported in the browser, it reads the Quotation
-Maker and Proforma Invoice sheets (layout, wording, formulas), the tables and
-the Print & Log PI macro, and works the formulas out itself — so changes made
-here need only an import, not a change to the app. The import checks every
-formula against what Excel saved and says if any differs.
-
-The demo's copy of the workbook (`ledger/js/demo-workbook.js`, made-up
-customers) is made from the real file by:
-
-```bash
-LEDGER_XLSX=/path/to/xlsx.mjs JSZIP=/path/to/jszip/lib/index.js \
-  node tanker/demo_workbook.mjs "Tanker Billing.xlsm"
-```
-
-It stops if a real customer's name would end up in the file.
+The Ledger app's demo workbook is made by
+[`ledger/tools/demo_workbook.mjs`](../ledger/tools/demo_workbook.mjs).

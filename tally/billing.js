@@ -12,26 +12,25 @@
  * Pure logic + data loading, no DOM — so it also runs under Node for
  * testing. Exposed as window.VFBilling.
  *
- * The standalone /tanker/ app is untouched. A bill raised from a voucher takes that voucher's
- * invoice number, so the bill and the Tally invoice carry one reference
- * and the tanker app's own running counter is left alone.
+ * A bill raised from a voucher takes that voucher's invoice number, so the
+ * bill and the Tally invoice carry one reference.
  * ===================================================================== */
 (function (global) {
 "use strict";
 
 var HSD = "High Speed Diesel";
 // Density-/Seal No- appear together only for full loads in the reference
-// exports (9000/12000 shown, 3000 hidden) — same cut-offs as /tanker/.
+// exports (9000/12000 shown, 3000 hidden) — same cut-offs as the old /tanker/ app.
 var DENSITY_MIN = 3000, SEAL_MIN = 3000;
 
 var LS_DATA   = "vf_tally_tanker_master_v1";  // last Tanker Master read from the Ledger (offline)
 var LS_OLD    = "vf_tally_billing_v1";         // the Tanker Billing workbook's copy, no longer used
-var LS_BILLNO = "vf_last_billno";        // the /tanker/ app's counter (read-only here)
+var LS_BILLNO = "vf_last_billno";        // the old /tanker/ app's last bill no. (read-only here)
 
 // Tally series -> the product name used on the bill and in the rate tables
 var PRODUCT_BY_SERIES = { hsd: HSD, ms: "Motor Spirit", xg: "XtraGreen Diesel" };
 
-/* ---------------- formatting (identical to the /tanker/ app) ---------------- */
+/* ---------------- formatting (as the old /tanker/ app did) ---------------- */
 
 // Indian digit grouping, rupees only (the bill never prints paise).
 function inr(n){
@@ -185,9 +184,8 @@ function buildModel(o){
 /* ---------------- bill numbering ----------------
    A bill raised here carries the voucher's own invoice number, so the bill
    and the Tally invoice share one reference. This is only the fallback for
-   the case where a voucher has no number yet: the standalone /tanker/
-   app's running counter, read but never written, so that app's own
-   numbering is left exactly as it is. */
+   the case where a voucher has no number yet: the next number after the
+   old /tanker/ app's last bill on this device (read, never written). */
 
 function nextBillNo(){
   var last;

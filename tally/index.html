@@ -17,9 +17,9 @@
 <script src="theme.js"></script>
 <style>
 /* ======================= Tanker bill (invoice) =======================
-   The billing module moved in from the /tanker/ app: an A4 bill rendered
+   The billing module moved in from the old /tanker/ app: an A4 bill rendered
    as SVG, pre-filled from the voucher being created. Its fonts and images
-   are the ones the /tanker/ app already ships — referenced, not copied,
+   are the ones kept in ../tanker/ — referenced, not copied,
    so there is only ever one set to update. */
 .bl-stage{margin-top:14px}
 .bl-sheets{display:flex;flex-direction:column;gap:14px;align-items:center;width:100%;min-width:0}
@@ -38,7 +38,7 @@
 
 /* Exact-match font. Order of preference, per weight/style:
      1. the machine's real Times New Roman (what Excel used) — via local();
-     2. the licensed Times New Roman in the tanker app's assets/fonts/,
+     2. the licensed Times New Roman in ../tanker/assets/fonts/,
         which makes it exact on devices that don't ship the font;
      3. otherwise the embedded, metric-compatible BillSerif, so nothing
         ever lands on a random system serif. */
@@ -312,7 +312,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 </section>
 
 <!-- ======================= TANKER BILL (INVOICE) =======================
-     The billing module, moved in from the /tanker/ app. It is opened from
+     The billing module, moved in from the old /tanker/ app. It is opened from
      the voucher form (or from a saved voucher) with every field already
      filled: the voucher gives date / vehicle / quantity / price / amount
      and the product; the customer's address, GSTIN, P.O. no. and payment
@@ -392,7 +392,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
          font-family='"VriddhiTimes","Times New Roman","BillSerif",serif'>
       <rect x="0" y="0" width="595.28" height="841.89" fill="#fff"/>
 
-      <!-- letterhead + stamp: the exact images the /tanker/ app already ships -->
+      <!-- letterhead + stamp: the images kept in ../tanker/assets -->
       <image href="../tanker/assets/letterhead.png" x="34.2" y="41.3" width="529.3" height="159.4" preserveAspectRatio="none"/>
       <image href="../tanker/assets/stamp.png" x="52.7" y="746.2" width="150.8" height="57.1" preserveAspectRatio="none"/>
 
@@ -727,7 +727,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 
 <script src="config.js"></script>
 <!-- Billing module: the tanker-bill logic, now part of this app. The .docx
-     builder is the /tanker/ app's file, reused as-is (no copy to drift). -->
+     builder is ../tanker/docx-export.js, reused as-is (no copy to drift). -->
 <script src="../tanker/docx-export.js"></script>
 <script src="billing.js"></script>
 <script src="ledger-po.js"></script>
@@ -2809,7 +2809,7 @@ $("btnSave").onclick = function(){
    being created, or a saved one — and then owned by the bill form:
    editing a bill never writes back to the voucher, and the app's own
    invoice numbering is untouched (a bill carries the separate "Bill No"
-   counter shared with the /tanker/ app). */
+   counter, continuing the old /tanker/ app's). */
 var bill = { data: null, from: "new", customer: null, family: [], party: "", voucherNumber: "", saved: false };
 
 function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
@@ -3259,7 +3259,7 @@ function inlinedSvgs(svgs){
   });
 }
 
-// Export the bill as a real .docx, using the /tanker/ app's builder.
+// Export the bill as a real .docx, using ../tanker/docx-export.js.
 $("blWord").onclick = function(){
   if (!window.TankerDocx){ toast("Word export module not loaded"); return; }
   var btn = $("blWord"), label = btn.textContent;

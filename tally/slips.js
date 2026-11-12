@@ -8,7 +8,7 @@
  *
  * slipSvg() and slipBundles() are the Ledger app's own drawing and
  * grouping (ledger/js/render.js, ledger/js/bills.js), ported to a plain
- * script because the Pages site serves only /tanker/ and /tally/.
+ * script because the narrow Pages build serves only /tally/ (and ../tanker/ assets).
  * tests/ledger_web/tally_slips.test.mjs checks that both give exactly the
  * same output, so a change to one without the other fails the tests.
  *

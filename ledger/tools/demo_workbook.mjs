@@ -11,7 +11,7 @@
 // script stops if a real customer's name is still in the output.
 //
 //   LEDGER_XLSX=/path/to/xlsx.mjs JSZIP=/path/to/jszip/lib/index.js \
-//     node tanker/demo_workbook.mjs "Tanker Billing.xlsm"
+//     node ledger/tools/demo_workbook.mjs "Tanker Billing.xlsm"
 //
 // (SheetJS and JSZip aren't part of this repo; the app loads them from CDNs.)
 
@@ -19,10 +19,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const src = process.argv[2];
 if (!src || !process.env.LEDGER_XLSX || !process.env.JSZIP) {
-  console.error('usage: LEDGER_XLSX=…/xlsx.mjs JSZIP=…/jszip/lib/index.js node tanker/demo_workbook.mjs "Tanker Billing.xlsm"');
+  console.error('usage: LEDGER_XLSX=…/xlsx.mjs JSZIP=…/jszip/lib/index.js node ledger/tools/demo_workbook.mjs "Tanker Billing.xlsm"');
   process.exit(2);
 }
 const XLSX = await import(pathToFileURL(process.env.LEDGER_XLSX).href);
@@ -160,7 +160,7 @@ if (left.length) {
   process.exit(1);
 }
 const dest = join(root, 'ledger/js/demo-workbook.js');
-writeFileSync(dest, `// Made by tanker/demo_workbook.mjs — the demo's Tanker Billing workbook: the real sheets'
+writeFileSync(dest, `// Made by ledger/tools/demo_workbook.mjs — the demo's Tanker Billing workbook: the real sheets'
 // design, formulas and macros (Print & Log PI, the credit note's), with made-up customers, rates and contacts.
 export const DEMO_WORKBOOK = ${out};
 `);

@@ -93,7 +93,7 @@ fit its cell is made a little smaller rather than spilling over. The stamps
 can also be changed on each screen (**Change stamp**). The demo
 (`/ledger/?demo`) uses [`js/demo-workbook.js`](./js/demo-workbook.js): the
 real sheets' design, formulas and macro with made-up customers, made by
-[`tanker/demo_workbook.mjs`](../tanker/demo_workbook.mjs). Needs
+[`tools/demo_workbook.mjs`](./tools/demo_workbook.mjs). Needs
 [`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql) run once (the
 Quotes tab says so until then).
 
@@ -518,7 +518,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/price-letter.js` + `assets/price-letter.docx` | The price letter: wording for a day or a period, rupees in words, the Word file (the template with the sentence and stamp put in) and the PDF page |
 | `js/quote.js` | Quotes: the Customers table and PI Log sheet, the PI Log's rules (next PI No., the check against Excel's), file names |
 | `js/sheet-svg.js` | Draws a sheet's print area as an A4 page, as Excel prints it |
-| `js/demo-workbook.js` | The demo's Tanker Billing workbook (made-up data; made by `tanker/demo_workbook.mjs`) |
+| `js/demo-workbook.js` | The demo's Tanker Billing workbook (made-up data; made by `tools/demo_workbook.mjs`) |
 | `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), the quotation's letterhead, logo for the ledger |
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/modes.js` | Payments by mode: modes matched however typed, split payments, Cash / XtraPower first |

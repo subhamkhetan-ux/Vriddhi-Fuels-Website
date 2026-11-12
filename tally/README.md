@@ -207,8 +207,7 @@ The customer details are the Ledger's copy of the **Tanker Master** sheet
 Price Tier), replaced by every **Upload Master Ledger** in the Ledger app and
 read with `ledger_tanker_list()`. To change an address or the bank details,
 edit the Tanker Master sheet and upload the Master Ledger again. The
-`Tanker Billing.xlsm` workbook and `state/tanker_billing.json` are not used
-by this app.
+`Tanker Billing.xlsm` workbook is not used by this app.
 
 - **Not connected to the Ledger:** the bill still opens and prints, with the
   address and payment lines blank, and says so; **Connect the Ledger** fills
@@ -226,8 +225,7 @@ by this app.
   being typed it is the number the app is about to allocate, so save the
   voucher first if it must be guaranteed (in cloud mode the final number is
   assigned by the server on save). Editing it by hand is allowed and the
-  screen then says what the voucher's number was. The `/tanker/` app's own
-  running counter is never written to.
+  screen then says what the voucher's number was.
 - **Party ledger → Tanker Master customer matching** ignores case, spacing,
   punctuation and the usual `M/s` / `Private` / `Limited` / `&` variations.
   If a party is not in the Tanker Master the screen says so and offers the full
@@ -254,9 +252,9 @@ by this app.
   quantity, rate and amount, and the rest of the bill comes from the
   Tanker Master as usual.
 
-The standalone app at `/tanker/` is unchanged and still reads the workbook's
-data file; this app reuses the tanker app's letterhead, stamp,
-fonts and `.docx` builder rather than keeping a second copy of them.
+The letterhead, stamp, fonts and `.docx` builder are the files in
+[`../tanker/`](../tanker/README.md) (where the old standalone tanker-bill app
+lived), referenced rather than copied.
 
 ## Day Book downloads
 
@@ -353,7 +351,7 @@ ones a **DayBook import** brought in.
   and keeps them on that device only — slips still work.
 
 The drawing and grouping are in [`slips.js`](./slips.js), a port of the
-Ledger app's own code (the Pages site serves only `/tanker/` and `/tally/`);
+Ledger app's own code (the narrow Pages build serves only `/tally/` and its bill assets);
 `tests/ledger_web/tally_slips.test.mjs` checks that both produce exactly the
 same slips and PDFs. The PDF and zip libraries (jsPDF, JSZip) load from
 cdnjs the first time slips are downloaded, as in the Ledger app.
