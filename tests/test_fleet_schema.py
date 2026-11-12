@@ -129,3 +129,22 @@ def test_settings_members_only_one_row(pg):
     assert "not on the fleet members list" in pg.fails("select fleet_settings_get();", user=STRANGER, email="stranger@example.com")
     assert "permission denied" in pg.fails("select * from fleet_settings;", anon=True)
     assert pg.ok("select count(*) from fleet_settings;", user=STRANGER, email="stranger@example.com") == "0"
+
+
+def test_mac_uploads_bucket(pg):
+    """The bucket the Mac's sync script uploads the Trip Register to: private, members only (on a stand-in for Supabase Storage)."""
+    src = open(FLEET, encoding="utf-8").read()
+    start = src.index("do $do$")
+    block = src[start:src.index("end $do$;", start) + len("end $do$;")]
+    pg.ok("""
+        create schema if not exists storage;
+        create table if not exists storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint);
+        create table if not exists storage.objects (bucket_id text, name text);
+        alter table storage.objects enable row level security;
+    """)
+    pg.ok(block)
+    pg.ok(block)                                                    # safe to run again
+    assert pg.ok("select public::text from storage.buckets where id = 'fleet-uploads';").strip().splitlines()[-1].strip() == "false"
+    pols = pg.ok("select string_agg(policyname || ':' || cmd, ',' order by policyname) from pg_policies where tablename = 'objects';")
+    for p in ("fleet_uploads_add:INSERT", "fleet_uploads_read:SELECT", "fleet_uploads_change:UPDATE", "fleet_uploads_remove:DELETE"):
+        assert p in pols

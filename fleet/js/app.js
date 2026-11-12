@@ -314,6 +314,7 @@ function demoSettings() {
 function startApp() {
   watchUploads();
   renderShell();
+  checkMacUpload();
   if (!state.routing) {
     window.addEventListener('hashchange', route);
     state.routing = true;
@@ -351,10 +352,12 @@ function renderShell() {
       <button class="more-tab" type="button" id="more-tab" aria-haspopup="dialog"><i class="tab-ic" aria-hidden="true">☰</i>More</button>
     </nav>
     <div id="newer"></div>
+    <div id="mac-up"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
   document.getElementById('more-tab').addEventListener('click', moreSheet);
   paintNewer();
+  paintMacUp();
   bindTheme();
 }
 
@@ -383,8 +386,55 @@ function moreSheet() {
 function watchUploads() {
   if (state.watching) return;
   state.watching = true;
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkNewer(true); });
-  setInterval(() => checkNewer(false), 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkNewer(true); checkMacUpload(); } });
+  setInterval(() => { checkNewer(false); checkMacUpload(); }, 5 * 60 * 1000);
+}
+
+// The Trip Register the Mac's Google Drive sync uploaded (vriddhi_gdrive.sh →
+// Storage bucket fleet-uploads): offered while it's newer than the data saved
+// here — Review & save opens Setup's usual check-and-save preview with it.
+async function checkMacUpload() {
+  if (!state.store || !state.store.macUpload || state.demo || state.localOnly) return;
+  let up;
+  try { up = await state.store.macUpload(); } catch { return; }
+  let skipped = null;
+  try { skipped = localStorage.getItem('fleet-mac-skip'); } catch { /* private mode */ }
+  const savedAt = state.meta && state.meta.created_at ? Date.parse(state.meta.created_at) : 0;
+  state.macUp = up && Date.parse(up.updated_at) > savedAt && skipped !== up.updated_at ? up : null;
+  paintMacUp();
+}
+function paintMacUp() {
+  const el = document.getElementById('mac-up');
+  if (!el) return;
+  const u = state.macUp;
+  el.innerHTML = u ? `<div class="newer-bar" role="status">New Trip Register from your Mac — uploaded ${esc(new Date(u.updated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}.
+    <span><button class="btn small" id="mac-review">Review &amp; save</button> <button class="btn ghost small" id="mac-skip">Not now</button></span></div>` : '';
+  document.getElementById('mac-review')?.addEventListener('click', () => {
+    state.pendingMacUpload = u;
+    if (location.hash === '#/setup') guard(openMacUpload); else location.hash = '#/setup';
+  });
+  document.getElementById('mac-skip')?.addEventListener('click', () => {
+    try { localStorage.setItem('fleet-mac-skip', u.updated_at); } catch { /* private mode */ }
+    state.macUp = null;
+    paintMacUp();
+  });
+}
+async function openMacUpload() {
+  const u = state.pendingMacUpload;
+  const preview = document.getElementById('preview');
+  if (!u || !preview) return;
+  state.pendingMacUpload = null;
+  preview.innerHTML = logoLoader('Fetching the Trip Register from your Mac\'s upload…');
+  preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const file = new File([await state.store.macUploadFile(u.name)], 'Trip_Register.xlsm', { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
+  let data;
+  try {
+    data = await readFile(file);
+  } catch (err) {
+    preview.innerHTML = errorHtml(err);
+    return;
+  }
+  await showPreview(preview, file, data, `From your Mac — uploaded ${esc(new Date(u.updated_at).toLocaleString('en-IN'))}. Check the changes, then save.`);
 }
 async function checkNewer(load) {
   if (!state.store || state.demo || state.localOnly || state.preview || !state.meta || state.meta.id == null || document.hidden) return;
@@ -1996,6 +2046,7 @@ async function showPreview(preview, file, data, note = '') {
     state.data = data;
     state.meta = meta;
     state.newer = null;
+    state.macUp = null;                              // saved: what the Mac sent is in now
     if (state.preview) state.preview = false;
     renderShell();
     toast(`Saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
@@ -2693,6 +2744,7 @@ async function viewLoan(lan) {
 async function viewSetup() {
   setMain(`<div id="upload-box"></div>${state.data ? '<div id="setup-box"></div>' : ''}`);
   await uploadSection(document.getElementById('upload-box'));
+  if (state.pendingMacUpload) await guard(openMacUpload);
   const box = document.getElementById('setup-box');
   if (!box) return;
   const d = state.data;

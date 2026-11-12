@@ -198,6 +198,14 @@ made-up data) and *open a Trip Register just on this device* (nothing saved).
 
 Keep entering, editing and deleting trips, advances, HSD, urea and the SSFC
 ledger in Excel. Save the workbook, then upload it here (from the phone too).
+Or let the Mac send it: the Google Drive sync on the Mac (`vriddhi_gdrive.sh`,
+run by *Vriddhi 3 — Google Drive.command*) also uploads the Trip Register to the
+fleet project's private storage (bucket `fleet-uploads`, members only — made by
+`fleet-schema.sql`) whenever it changed; the app then shows **New Trip Register
+from your Mac** — **Review & save** opens Setup's usual check-and-save preview
+with it (**Not now** hides it until the next upload). The script signs in as a
+fleet member with the password kept in the Mac's Keychain
+(`security add-generic-password -s vriddhi-fleet -a "<email>" -w`).
 
 - **Each upload replaces the saved data as a whole**: the app shows exactly
   what the file has, so an edit or a deleted row in Excel is reflected as it

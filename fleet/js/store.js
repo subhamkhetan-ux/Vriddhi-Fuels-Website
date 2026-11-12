@@ -24,6 +24,18 @@ export function supabaseStore(client) {
     uploads: (limit = 10) => rpc('fleet_uploads_list', { p_limit: limit }),
     settings: () => rpc('fleet_settings_get'),
     saveSettings: (value) => rpc('fleet_settings_save', { p_value: value }),
+    // the Trip Register the Mac's sync uploaded (Storage bucket fleet-uploads): {name, updated_at, size} or null
+    macUpload: async () => {
+      const { data, error } = await client.storage.from('fleet-uploads').list('', { limit: 20, sortBy: { column: 'updated_at', order: 'desc' } });
+      if (error) throw new Error(error.message || String(error));
+      const o = (data || []).find((x) => x.id && x.name === 'trip-register.xlsm');
+      return o ? { name: o.name, updated_at: o.updated_at || o.created_at, size: o.metadata ? o.metadata.size : null } : null;
+    },
+    macUploadFile: async (name) => {
+      const { data, error } = await client.storage.from('fleet-uploads').download(name);
+      if (error) throw new Error(error.message || String(error));
+      return data;
+    },
   };
 }
 
