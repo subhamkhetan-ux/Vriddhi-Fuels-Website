@@ -456,6 +456,17 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 
 ## Day to day
 
+- **From your Mac:** the Google Drive sync on the Mac (`vriddhi_gdrive.sh`,
+  run by *Vriddhi 3 — Google Drive.command*) also uploads **Master
+  Ledger.xlsm** and **Tanker Billing.xlsm** to the app's private storage
+  (Supabase Storage bucket `ledger-uploads`, members only) whenever they
+  changed. Home then shows **New from your Mac** — **Review & import** opens
+  the usual import preview with that file (Import → *From your Mac* lists
+  both, with *Import again*); **Skip this one** hides it. The script signs in
+  as a ledger member; its password is kept in the Mac's Keychain, not in the
+  script (`security add-generic-password -s vriddhi-ledger -a "<email>" -w`).
+  Needs `supabase/ledger-schema.sql` re-run once (it makes the bucket).
+
 - **Sales:** upload the Tally DayBook under **Import** (from any device). If
   you still use Excel for SCPL, the Sales Dashboard or the Own Tanker Report,
   keep importing the DayBook there too — the app never writes back to Excel.

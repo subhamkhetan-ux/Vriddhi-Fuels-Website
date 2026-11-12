@@ -208,12 +208,44 @@ def drive_credentials():
         "GDRIVE_SA_JSON (service account). See tanker/README.md.")
 
 
+def wait_for_copy(get_meta, md5: str, timeout: float = 1200, every: float = 20,
+                  sleep=None, now=None) -> dict:
+    """Wait until Drive holds the copy the Mac just made.
+
+    The Mac's sync (vriddhi_gdrive.sh) starts this run as soon as it has
+    copied the workbook into the Google Drive folder, but Drive for Desktop
+    uploads it in the background. The Mac passes the file's MD5; Drive
+    reports md5Checksum for each file — so wait until they agree.
+    get_meta() -> the file's metadata (with md5Checksum).
+    """
+    import time
+    sleep = sleep or time.sleep
+    now = now or time.monotonic
+    want = md5.strip().lower()
+    end = now() + timeout
+    while True:
+        meta = get_meta()
+        have = (meta.get("md5Checksum") or "").lower()
+        if have == want:
+            return meta
+        if now() >= end:
+            raise SystemExit(
+                f"Google Drive still has an older copy of {meta.get('name') or 'the workbook'} "
+                f"(MD5 {have or '—'}, the Mac's is {want}) after {int(timeout)} s. Is Google "
+                "Drive for Desktop running and online on the Mac? Run the Mac's Google Drive "
+                "sync again once it has uploaded.")
+        print(f"Waiting for Google Drive to have the Mac's copy (MD5 {want[:8]}…, Drive has {have[:8] or '—'}…)")
+        sleep(every)
+
+
 def download_from_drive(dest_path: str) -> dict:
     """Download the workbook from Google Drive.
 
     Auth: GDRIVE_TOKEN (OAuth, recommended) or GDRIVE_SA_JSON — see
     drive_credentials(). File: DRIVE_FILE_ID (preferred) or TANKER_FILE_NAME
-    (default "Tanker Billing.xlsm"). Returns a dict of source metadata.
+    (default "Tanker Billing.xlsm"). With EXPECT_MD5 (set by the Mac's sync),
+    waits until Drive has that copy (WAIT_SECONDS, default 1200). Returns a
+    dict of source metadata.
     """
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
@@ -240,9 +272,13 @@ def download_from_drive(dest_path: str) -> dict:
                 "service account's email. Or set DRIVE_FILE_ID directly.")
         file_id = files[0]["id"]
 
-    meta = service.files().get(
-        fileId=file_id, fields="id, name, modifiedTime",
-        supportsAllDrives=True).execute()
+    def get_meta():
+        return service.files().get(
+            fileId=file_id, fields="id, name, modifiedTime, md5Checksum",
+            supportsAllDrives=True).execute()
+
+    expect = (os.environ.get("EXPECT_MD5") or "").strip()
+    meta = wait_for_copy(get_meta, expect, timeout=float(os.environ.get("WAIT_SECONDS") or 1200)) if expect else get_meta()
 
     request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     import io

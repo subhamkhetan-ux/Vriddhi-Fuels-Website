@@ -168,3 +168,14 @@ test('demo store: credit notes logged once per number, reprints counted, the wor
   await s.cnDelete(2);
   await assert.rejects(s.cnDelete(2), /No credit note/);
 });
+
+test('the Mac\'s uploads: listed, fetched; which ones were imported is a setting', async () => {
+  const { memoryStore: mk } = await import('../../ledger/js/store.js');
+  const s = mk({ macUploads: [{ name: 'master-ledger.xlsm', updated_at: '2026-11-12T05:00:00Z', size: 3, bytes: 'abc' }] });
+  assert.deepEqual(await s.macUploads(), [{ name: 'master-ledger.xlsm', updated_at: '2026-11-12T05:00:00Z', size: 3 }]);
+  assert.equal(await (await s.macUploadFile('master-ledger.xlsm')).text(), 'abc');
+  await assert.rejects(s.macUploadFile('nope.xlsm'), /No upload/);
+  await s.setSetting('mac_uploads', { 'master-ledger.xlsm': '2026-11-12T05:00:00Z' });
+  assert.deepEqual(await s.setting('mac_uploads'), { 'master-ledger.xlsm': '2026-11-12T05:00:00Z' });
+  assert.deepEqual(await mk().macUploads(), []);                               // the demo has none
+});
