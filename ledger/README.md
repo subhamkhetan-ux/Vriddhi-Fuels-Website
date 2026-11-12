@@ -460,9 +460,12 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
   run by *Vriddhi 3 — Google Drive.command*) also uploads **Master
   Ledger.xlsm** and **Tanker Billing.xlsm** to the app's private storage
   (Supabase Storage bucket `ledger-uploads`, members only) whenever they
-  changed. Home then shows **New from your Mac** — **Review & import** opens
-  the usual import preview with that file (Import → *From your Mac* lists
-  both, with *Import again*); **Skip this one** hides it. The script signs in
+  changed. **The app imports them by itself** as soon as it's open on any
+  device (and again when it comes back into view) — no preview, no tap: a
+  bar at the top says *Bringing in … from your Mac*, then what came in.
+  Import → *From your Mac* lists both (*imported*, with *Import again* for
+  the usual preview); if one can't be imported, Home says why and offers the
+  preview. The script signs in
   as a ledger member; its password is kept in the Mac's Keychain, not in the
   script (`security add-generic-password -s vriddhi-ledger -a "<email>" -w`).
   Needs `supabase/ledger-schema.sql` re-run once (it makes the bucket).

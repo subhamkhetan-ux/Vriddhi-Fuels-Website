@@ -219,6 +219,12 @@ async function enter() {
     state.routing = true;
   }
   route();
+  // what the Mac sent: imported straight away, and again whenever the app comes back into view
+  autoImportMac();
+  if (!state.watchingMac) {
+    state.watchingMac = true;
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) autoImportMac(); });
+  }
 }
 
 async function signOut() {
@@ -246,6 +252,7 @@ function renderShell() {
     <nav class="tabs" aria-label="Sections">
       ${TABS.map(([href, name]) => `<a href="${href}" data-tab="${href}">${name}</a>`).join('')}
     </nav>
+    <div id="auto-bar" aria-live="polite"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
 }
@@ -333,13 +340,13 @@ async function viewHome() {
     ${todo.length ? `<section class="card"><h3>Needs your attention</h3><div class="todos">${todo.join('')}</div></section>` : (empty ? '' : '<section class="card good-card"><b>All caught up.</b> Every bulk bill has a PO and every customer has a ledger.</section>')}
     ${groups.length ? `<section class="card"><h3>PO lists</h3><div class="grid">${groups.map(poCard).join('')}</div></section>` : ''}
     ${last ? `<p class="muted small">Last upload: ${last.kind === 'daybook' ? 'DayBook' : 'Master Ledger'} “${esc(last.file_name)}” · ${new Date(last.created_at).toLocaleString('en-IN')}${last.by_email ? ` · ${esc(last.by_email)}` : ''}</p>` : ''}`);
-  // workbooks the Mac uploaded and not imported yet
+  // workbooks the Mac uploaded that the automatic import couldn't bring in
   macUploadsList().then((ups) => {
-    const fresh = ups.filter((u) => u.fresh);
+    const fresh = ups.filter((u) => u.fresh && state.macFailed && state.macFailed[u.name]);
     const mac = document.getElementById('mac-home');
     if (!fresh.length || !mac) return;
-    mac.innerHTML = `<section class="card"><h3>New from your Mac</h3>
-      <p class="muted small">Uploaded by the Google Drive sync — review what changed and import.</p>
+    mac.innerHTML = `<section class="card"><h3>New from your Mac — not imported</h3>
+      <p class="muted small">${fresh.map((u) => `${esc(u.label)}: ${esc(state.macFailed[u.name])}`).join('<br>')}</p>
       <div class="todos">${fresh.map((u) => `<div class="todo warn"><b>${esc(u.label)}</b> · uploaded ${esc(upWhen(u.updated_at))}
         <span class="row-gap"><button class="btn small" data-mac-open="${esc(u.name)}">Review &amp; import</button><button class="btn ghost small" data-mac-skip="${esc(u.name)}">Skip this one</button></span></div>`).join('')}</div></section>`;
     mac.querySelectorAll('[data-mac-open]').forEach((b) => b.addEventListener('click', () => { state.pendingUpload = fresh.find((u) => u.name === b.dataset.macOpen); location.hash = '#/import'; }));
@@ -1431,7 +1438,7 @@ async function viewImport() {
   const box = document.getElementById('mac-import');
   if (ups.length && box) {
     box.innerHTML = `<section class="card"><h3>From your Mac</h3>
-      <p class="muted small">Uploaded by the Google Drive sync on your Mac (<code>vriddhi_gdrive.sh</code>) — the same file, imported here with the usual preview.</p>
+      <p class="muted small">Uploaded by the Google Drive sync on your Mac (<code>vriddhi_gdrive.sh</code>) and imported by itself as soon as the app is open. <b>Import again</b> shows the usual preview first.</p>
       <div class="todos">${ups.map((u) => `<div class="todo${u.fresh ? ' warn' : ''}"><b>${esc(u.label)}</b> · uploaded ${esc(upWhen(u.updated_at))}${u.size ? ` · ${(u.size / 1048576).toFixed(1)} MB` : ''}
         ${u.fresh ? '<span class="tag warn">new</span>' : '<span class="muted small">imported</span>'}
         <button class="btn small" data-mac-import="${esc(u.name)}">${u.fresh ? 'Review &amp; import' : 'Import again'}</button></div>`).join('')}</div></section>`;
@@ -1459,6 +1466,53 @@ async function markUploadSeen(u) {
   const seen = (await state.store.setting('mac_uploads').catch(() => null)) || {};
   await state.store.setSetting('mac_uploads', { ...seen, [u.name]: u.updated_at }).catch(() => null);
 }
+// The Mac's uploads, imported as soon as the app is open — no preview and no
+// tap (the workbooks are the source of truth). Another device may be doing
+// the same: each upload is checked again just before it's imported.
+async function autoImportMac() {
+  if (state.demo || !state.store || !state.store.macUploads || state.macImporting) return;
+  state.macImporting = true;
+  const bar = (html, kind = '') => { const el = document.getElementById('auto-bar'); if (el) el.innerHTML = html ? `<div class="auto-bar ${kind}">${html}</div>` : ''; };
+  let done = 0;
+  try {
+    const fresh = (await macUploadsList()).filter((u) => u.fresh);
+    for (const u of fresh) {
+      const seen = (await state.store.setting('mac_uploads').catch(() => null)) || {};
+      if (seen[u.name] && seen[u.name] >= u.updated_at) continue;          // another device just did it
+      bar(`<span class="spinner"></span> Bringing in <b>${esc(u.label)}</b> from your Mac (uploaded ${esc(upWhen(u.updated_at))})…`);
+      try {
+        const file = new File([await state.store.macUploadFile(u.name)], u.label, { type: 'application/vnd.ms-excel.sheet.macroEnabled.12' });
+        let note;
+        if (u.kind === 'master') {
+          const XLSX = await loadSheetJS();
+          const { payload } = extractMaster(readWorkbook(XLSX, await file.arrayBuffer()));
+          const res = await state.store.importMaster(u.label, payload);
+          note = `${plural(res.sales_new, 'new bill')}, ${plural(res.payments, 'payment')}${res.pos_new || res.pos_updated || res.pos_removed ? `, PO lists updated` : ''}`;
+        } else {
+          const r = await readTankerFile(file);
+          const res = await quotesCall(() => state.store.tankerImport(u.label, { customers: r.parsed.customers, data: r.data, pi_log: r.parsed.pi_log, cn_log: r.cnLog, images: r.images }));
+          state.quotes = null;
+          state.docForms = null;
+          note = `${plural(res.customers, 'customer')}, ${plural(res.pi_new, 'new PI')}${piCheckClean(r.piCheck) ? '' : ' — its PI Log differs from the app\'s (Quotes → PI Log)'}`;
+        }
+        await markUploadSeen(u);
+        if (state.macFailed) delete state.macFailed[u.name];
+        toast(`${u.label} from your Mac is in: ${note}.`);
+        done++;
+      } catch (err) {
+        console.error(err);
+        (state.macFailed || (state.macFailed = {}))[u.name] = (err && err.message) || String(err);
+        bar(`Couldn't bring in <b>${esc(u.label)}</b> from your Mac: ${esc((err && err.message) || err)} <a href="#/import">Import it by hand →</a>`, 'bad');
+        return;
+      }
+    }
+    bar('');
+    if (done && !/^#\/import/.test(location.hash)) route();                  // the screen shows the new figures
+  } finally {
+    state.macImporting = false;
+  }
+}
+
 // fetch an upload and open the import preview with it, as if chosen on this device
 async function openMacUpload(u) {
   if (!u) return;
@@ -4415,31 +4469,39 @@ async function workbookParts(buf) {
   return { files, vba, images };
 }
 
+// The Tanker Billing workbook, read: what the import saves (customers, the
+// model and its self-check, the PI Log and its check, the credit notes' log,
+// the pictures) — for the import screen and the Mac's uploads alike
+async function readTankerFile(file) {
+  const XLSX = await loadSheetJS();
+  const format = (f, v) => XLSX.SSF.format(f, v);
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: false, cellNF: true });
+  const parsed = readTankerBilling(wb);
+  const { files, vba, images } = await workbookParts(buf);
+  const model = buildModel(wb, files, { vba });
+  const check = selfCheck(model, format);
+  const missingDocs = DOC_SHEETS.filter((s) => s !== DOCS.creditnote.sheet && (!model.sheets[s] || !model.sheets[s].layout));
+  // the credit notes' log, as the workbook has it (XP Cr Note Log)
+  const cnMac = cnMacro(model);
+  const cnLog = model.sheets[cnMac.sheet] ? cnLogFromModel(model, cnMac).map((r) => cnRecord(r, cnMac)).filter((r) => r.cn_no) : [];
+  // the app's log as it is now, to check Excel's PI Log sheet against
+  const log = await quotesCall(() => state.store.piList()).catch(() => []);
+  const piCheck = comparePiLog(parsed.pi_log, log);
+  const data = {
+    model,
+    model_check: { count: check.count, bad: check.bad.slice(0, 50), unknown: check.unknown.slice(0, 20), linked: check.linked, unsaved: check.unsaved, checked_at: new Date().toISOString() },
+    pi_check: { ...piCheck, file_name: file.name, checked_at: new Date().toISOString() },
+  };
+  return { XLSX, format, parsed, images, model, check, missingDocs, cnMac, cnLog, log, piCheck, data };
+}
+
 async function tankerChosen(file, input, outId) {
   const out = document.getElementById(outId);
   out.innerHTML = loadingHtml(`Reading ${file.name}…`);
   await paint();
   try {
-    const XLSX = await loadSheetJS();
-    const format = (f, v) => XLSX.SSF.format(f, v);
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: false, cellNF: true });
-    const parsed = readTankerBilling(wb);
-    const { files, vba, images } = await workbookParts(buf);
-    const model = buildModel(wb, files, { vba });
-    const check = selfCheck(model, format);
-    const missingDocs = DOC_SHEETS.filter((s) => s !== DOCS.creditnote.sheet && (!model.sheets[s] || !model.sheets[s].layout));
-    // the credit notes' log, as the workbook has it (XP Cr Note Log)
-    const cnMac = cnMacro(model);
-    const cnLog = model.sheets[cnMac.sheet] ? cnLogFromModel(model, cnMac).map((r) => cnRecord(r, cnMac)).filter((r) => r.cn_no) : [];
-    // the app's log as it is now, to check Excel's PI Log sheet against
-    const log = await quotesCall(() => state.store.piList()).catch(() => []);
-    const piCheck = comparePiLog(parsed.pi_log, log);
-    const data = {
-      model,
-      model_check: { count: check.count, bad: check.bad.slice(0, 50), unknown: check.unknown.slice(0, 20), linked: check.linked, unsaved: check.unsaved, checked_at: new Date().toISOString() },
-      pi_check: { ...piCheck, file_name: file.name, checked_at: new Date().toISOString() },
-    };
+    const { format, parsed, images, model, check, missingDocs, cnMac, cnLog, log, piCheck, data } = await readTankerFile(file);
     const calc = makeCalc(model, { format });
     const macro = piMacro(model);
     const rsp = rspCell(model, macro);

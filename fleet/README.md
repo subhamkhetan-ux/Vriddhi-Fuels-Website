@@ -201,9 +201,11 @@ ledger in Excel. Save the workbook, then upload it here (from the phone too).
 Or let the Mac send it: the Google Drive sync on the Mac (`vriddhi_gdrive.sh`,
 run by *Vriddhi 3 — Google Drive.command*) also uploads the Trip Register to the
 fleet project's private storage (bucket `fleet-uploads`, members only — made by
-`fleet-schema.sql`) whenever it changed; the app then shows **New Trip Register
-from your Mac** — **Review & save** opens Setup's usual check-and-save preview
-with it (**Not now** hides it until the next upload). The script signs in as a
+`fleet-schema.sql`) whenever it changed. **The app saves it by itself** as soon
+as it's open (and when it comes back into view) — unless the usual check finds
+something that stops a save (fewer trips than saved, say): then the bar **New
+Trip Register from your Mac** asks you to **Review & save** (**Not now** hides
+it until the next upload). The script signs in as a
 fleet member with the password kept in the Mac's Keychain
 (`security add-generic-password -s vriddhi-fleet -a "<email>" -w`).
 
