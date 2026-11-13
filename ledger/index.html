@@ -527,6 +527,12 @@ details.card.fold[open] > summary::before { transform: rotate(90deg); }
 details.card.fold > summary .fold-hint { margin-left: auto; color: var(--faint); font-size: 12.5px; }
 details.card.fold[open] > summary { margin-bottom: 12px; }
 table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: transparent; border-color: transparent; color: var(--ink); -webkit-text-fill-color: var(--ink); }
+/* the page as printed, for the phone's PDF: no highlight, no marks */
+.paper.as-printed { box-shadow: none; margin: 0; background: #fff; }
+.paper.as-printed tr.today td, .paper.as-printed tr.today th, .paper.as-printed td.hl { background: transparent; }
+.paper.as-printed .reg-flag { display: none; }
+.paper.as-printed thead th.v { writing-mode: horizontal-tb; transform: none; font-size: 8px; line-height: 1.1; padding: 2px 1px; min-width: 26px; }
+.reg-pdf-ready { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; border-color: rgba(47,208,138,.45); }
 .zoom-bar { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }
 .zoom-bar .btn { min-width: 40px; }
 @media (max-width: 760px) {

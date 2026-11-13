@@ -14,7 +14,7 @@ import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, 
 import { extractMaster, readWorkbook } from './master.js';
 import { poKey, poListChanges } from './po.js';
 import {
-  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
+  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromElement, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
   statementFontCss as letterFontCss, useNarrowFont, zipBlob,
 } from './render.js';
 import {
@@ -394,6 +394,14 @@ async function registerAll(force = false) {
   return state.reg.all;
 }
 
+// A phone or tablet: window.print() does nothing in an iPhone / iPad
+// home-screen app (and printing a page is awkward on any phone)
+function cannotPrint() {
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod|Android/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    || navigator.standalone === true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
 // The paper page's size: scaled to the width it has (never past its own size),
 // or the size picked with − / +. It's laid out at full size and scaled as a
 // whole (so nothing moves out of its line), inside a box of the scaled size.
@@ -564,6 +572,7 @@ async function viewRegister(tab, month, keep = false) {
           <button class="btn ghost small" id="reg-print" type="button">Print</button></span></div>
       <div class="zoom-bar" role="group" aria-label="Page size"><button class="btn ghost small" data-reg-zoom="out" aria-label="Smaller">−</button><button class="btn ghost small" data-reg-zoom="fit">Fit</button><button class="btn ghost small" data-reg-zoom="in" aria-label="Bigger">+</button>
         <span class="muted small" id="reg-zoom-pc"></span></div>
+      <div id="reg-pdf"></div>
       ${missing}
       ${(() => { const al = shortageAlert(pm); return al ? `<div class="todo warn reg-alert">${esc(alertText(al, pm.product.short))}</div>` : ''; })()}
       ${reg.editDips && tab !== 'stock' ? '<p class="small warn-text">Type a dip where it was misread (or missing) — it\'s kept and written over the DIP Chart\'s; clear it to go back. <b>Done</b> when finished.</p>' : ''}
@@ -586,7 +595,38 @@ async function viewRegister(tab, month, keep = false) {
       ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
       <p class="muted small">${fileLine}</p>
     </section>`);
-  document.getElementById('reg-print')?.addEventListener('click', () => window.print());
+  // Print: a computer prints the page; a phone or tablet (an iPhone's home-screen
+  // app can't print at all) gets it as a PDF for the share sheet — Print, Save to Files…
+  document.getElementById('reg-print')?.addEventListener('click', () => guard(async () => {
+    if (!cannotPrint()) { window.print(); return; }
+    const box = document.getElementById('reg-pdf');
+    const paper = document.querySelector('.paper-scroll .paper');
+    if (!box || !paper) return;
+    box.innerHTML = loadingHtml('Making the PDF…');
+    const clone = paper.cloneNode(true);                     // full size, as printed (no highlights or marks)
+    clone.style.transform = '';
+    clone.style.setProperty('--bw', '1px');
+    clone.classList.add('as-printed');
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-30000px;top:0;';
+    holder.append(clone);
+    document.body.append(holder);
+    let blob;
+    try {
+      blob = await pdfFromElement(clone);
+    } catch (err) {
+      box.innerHTML = '';
+      throw err;
+    } finally {
+      holder.remove();
+    }
+    const name = `${tab === 'stock' ? 'Stock Register' : 'DSR'} ${pm.product.short} ${regMonth(m)}.pdf`;
+    const file = new File([blob], name, { type: 'application/pdf' });
+    box.innerHTML = `<div class="todo reg-pdf-ready"><span><b>PDF ready</b> · ${esc(name)}</span>
+      <span class="row-gap"><button class="btn small" id="reg-pdf-share" type="button">Print / Share…</button><button class="btn ghost small" id="reg-pdf-save" type="button">Save</button></span></div>`;
+    document.getElementById('reg-pdf-share').addEventListener('click', () => guard(() => shareOrSave([file], name)));
+    document.getElementById('reg-pdf-save').addEventListener('click', () => download(file, name));
+  }));
   const again = () => guard(() => viewRegister(tab, month, true));
   // the page fits the screen's width (a phone held upright sees all of it); − / + make it
   // smaller or bigger (then it scrolls), Fit goes back; pinching works as on any page

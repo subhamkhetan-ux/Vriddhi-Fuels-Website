@@ -289,7 +289,10 @@ and meter readings, dips to a mm, testing as typed, sales to the paisa; ×
 for no receipt; today's line highlighted. The Stock Register page is the
 workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
 Shortage / Todays Tank Stock / Current Shortage box). **Print** prints just
-the page (A4 landscape). On a wide screen the page takes the window's width;
+the page (A4 landscape) on a computer; on a phone or tablet (an iPhone's
+home-screen app can't print) it makes the page as an A4 PDF — *Print /
+Share…* opens the share sheet (Print, Save to Files, WhatsApp), *Save*
+downloads it. On a wide screen the page takes the window's width;
 on a **phone** the whole page is zoomed out to fit the screen held upright,
 with **− / Fit / +** to make it bigger or smaller (it then scrolls) — and
 pinching works as on any page.
