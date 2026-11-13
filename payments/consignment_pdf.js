@@ -34,7 +34,7 @@ const COLUMNS = ['MS | EBMS', 'XtraGreen HSD', 'HSD', 'LSHFHSD'];
 // Where each value goes on the template (A4 points, from the top; x = left
 // edge, or the cell's centre for the quantities; y = the text's baseline).
 const AT = {
-  serial: { x: 166.0, y: 228.24, size: 12.0, bold: true, underline: true, cover: [165, 216, 229, 232] },
+  serial: { x: 166.0, y: 228.24, size: 12.0, bold: true, cover: [165, 216, 229, 232] },   // not underlined (the form's own underline is covered too)
   date: { x: 476.5, y: 228.24, size: 12.0 },
   origin: { x: 134.16, y: 299.4, size: 12.96, bold: true, cover: [133, 286, 376, 303] },
   qty: { y: 500.76, size: 11.04, centres: { 'MS | EBMS': 179.85, 'XtraGreen HSD': 275.65, HSD: 371.4, LSHFHSD: 467.15 } },

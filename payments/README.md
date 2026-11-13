@@ -59,7 +59,7 @@ each card (not on the printed note). Serials never change once issued.
 
 **Blank note** — at the foot of the list, **⬇ Blank consignment note (A5)**
 gives the same form with nothing filled in except this financial year's serial
-prefix and a line for the number: `VF/CN2627/____` until 31 Mar 2027,
+prefix (not underlined) and a line for the number: `VF/CN2627/____` until 31 Mar 2027,
 `VF/CN2728/____` from 1 Apr 2027, and so on. (The template file's page is A4;
 the PDF puts it on A5, the same shape at ~70%. To change the form, replace that
 file — the values are placed by position, in `consignment_pdf.js`.)
