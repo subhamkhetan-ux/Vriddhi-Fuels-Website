@@ -1,5 +1,7 @@
 // The consignment note as a PDF, on the firm's own blank note
-// (consignment_note_template.pdf): the values are written onto it as text, in
+// (consignment_note_template.pdf — the uploaded form with its serial
+// "VF/CN2627" and Place of Origin erased, as both are written here every
+// time): the values are written onto it as text, in
 // Times like the form, so the printout is exactly that form — letterhead,
 // logos and table as they are. The page is then put on A5 (the template is
 // A4; A5 is the same shape, ~70%).
@@ -29,14 +31,29 @@ export function blankPrefix(d = new Date()) {
   return `VF/CN${fyCode(d)}/`;
 }
 
-const ORIGIN = 'Jharsuguda Terminal, Jharsuguda, Odisha';   // printed on the template
+const ORIGIN = 'Jharsuguda Terminal, Jharsuguda, Odisha';   // the default Place of Origin
+
+// The loading terminals a blank note can be made for ("Place of Origin");
+// Jharsuguda is the default. Any other terminal can be typed in (blankFields).
+export const TERMINALS = [
+  { key: 'jharsuguda', label: 'Jharsuguda', origin: ORIGIN },
+  { key: 'paradeep', label: 'Paradeep', origin: 'Paradeep Terminal, Paradeep, Odisha' },
+];
+
+// A blank note for a terminal: this FY's serial prefix and the Place of
+// Origin; everything else is left for hand. `origin` is a TERMINALS origin or
+// the text typed for another terminal (blank/unknown -> Jharsuguda).
+export function blankFields(origin, d = new Date()) {
+  const o = String(origin || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  return { serial: blankPrefix(d), blank: true, origin: o || ORIGIN };
+}
 const COLUMNS = ['MS | EBMS', 'XtraGreen HSD', 'HSD', 'LSHFHSD'];
 // Where each value goes on the template (A4 points, from the top; x = left
 // edge, or the cell's centre for the quantities; y = the text's baseline).
 const AT = {
-  serial: { x: 166.0, y: 228.24, size: 12.0, bold: true, underline: true, cover: [165, 216, 229, 232] },
+  serial: { x: 166.0, y: 228.24, size: 12.0, bold: true, cover: [165, 216, 229, 232] },   // not underlined (the form's own underline is covered too)
   date: { x: 476.5, y: 228.24, size: 12.0 },
-  origin: { x: 134.16, y: 299.4, size: 12.96, bold: true, cover: [133, 286, 376, 303] },
+  origin: { x: 134.16, y: 299.4, size: 12.96, bold: true, cover: [133, 286, 376, 303], maxWidth: 420 },
   qty: { y: 500.76, size: 11.04, centres: { 'MS | EBMS': 179.85, 'XtraGreen HSD': 275.65, HSD: 371.4, LSHFHSD: 467.15 } },
   value: { x: 146.2, y: 555.0, size: 12.96, bold: true },
   invoiceNo: { x: 146.2, y: 585.0, size: 12.96, bold: true },
@@ -48,13 +65,13 @@ const AT = {
 //   note: { serial_str, reporting_date|date, origin, columns {col: qty},
 //           value, invoice_no, invoice_date }
 export function noteFields(note) {
-  if (!note) return { serial: blankPrefix(), blank: true };
+  if (!note) return blankFields(null);
   const cols = {};
   for (const [c, q] of Object.entries(note.columns || {})) if (COLUMNS.includes(c) && q !== '' && q != null) cols[c] = String(q);
   return {
     serial: note.serial_str || '',
     date: note.reporting_date || note.invoice_date || '',
-    origin: note.origin && note.origin !== ORIGIN ? note.origin : null,
+    origin: note.origin || ORIGIN,
     qty: cols,
     value: note.value == null || note.value === '' ? '' : `${note.value}/-`,
     invoiceNo: note.invoice_no || '',
@@ -76,22 +93,25 @@ export async function buildNotePdf(PDFLib, templateBytes, fields) {
   const text = (s, at, { x = at.x, centre = false } = {}) => {
     if (!s) return 0;
     const font = at.bold ? bold : reg;
-    const w = font.widthOfTextAtSize(s, at.size);
+    let size = at.size;
+    if (at.maxWidth) size = Math.min(size, size * at.maxWidth / font.widthOfTextAtSize(s, size));   // a long name shrinks to fit
+    const w = font.widthOfTextAtSize(s, size);
     const left = centre ? x - w / 2 : x;
-    page.drawText(s, { x: left, y: Y(at.y), size: at.size, font, color: black });
+    page.drawText(s, { x: left, y: Y(at.y), size, font, color: black });
     if (at.underline) page.drawRectangle({ x: left, y: Y(at.y + 2.6), width: w, height: 0.9, color: black });
     return w;
   };
 
-  // the serial: the template's own "VF/CN2627" is replaced by the FY-correct one
+  // the serial: the template's own "VF/CN2627" is replaced by the FY-correct
+  // one — no underline, and on a blank note nothing after "VF/CN2627/" either
   cover(AT.serial.cover);
-  const w = text(fields.serial, AT.serial);
-  if (fields.blank) {                 // a line to write the number on
-    page.drawRectangle({ x: AT.serial.x + w + 1, y: Y(AT.serial.y + 2.6), width: 46, height: 0.6, color: black });
-  }
+  text(fields.serial, AT.serial);
+  // the Place of Origin: the invoice's terminal, or the one a blank note is for
+  // (the cover only matters with an older template that still prints one)
+  cover(AT.origin.cover);
+  text(fields.origin || ORIGIN, AT.origin);
   if (!fields.blank) {
     text(fields.date, AT.date);
-    if (fields.origin) { cover(AT.origin.cover); text(fields.origin, AT.origin); }
     for (const [col, q] of Object.entries(fields.qty || {})) text(q, AT.qty, { x: AT.qty.centres[col], centre: true });
     text(fields.value, AT.value);
     text(fields.invoiceNo, AT.invoiceNo);

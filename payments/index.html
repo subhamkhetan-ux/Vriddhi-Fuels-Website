@@ -373,7 +373,12 @@ summary::-webkit-details-marker{display:none}
 .pdfsheet .t{font-family:var(--display);font-weight:700;margin-bottom:4px}
 .pdfsheet .s{font-size:12.5px;color:var(--muted);margin-bottom:12px}
 .pdfsheet .cn-actions{margin-top:0}
-.cn-blank{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 0;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.cn-blank{margin-top:16px}
+.cn-blank .bt{font-family:var(--display);font-weight:700}
+.cn-blank .bs{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.cn-blank .bs b{font-family:var(--mono);font-weight:600;color:var(--ink)}
+.cn-blank .bl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-top:12px}
+.cn-blank .cands{margin-top:6px}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -1283,9 +1288,22 @@ function renderConsign(){
 }
 
 // At the foot of the notes: a blank note to fill by hand (this FY's prefix).
+// The terminal picked in the card (kept across the list's redraws, which
+// happen whenever a note syncs). Origins are in consignment_pdf.js TERMINALS.
+const BLANK_TERMS = [["jharsuguda","Jharsuguda"],["paradeep","Paradeep"],["other","Other…"]];
+let BLANK_TERM = "jharsuguda", BLANK_OTHER = "";
 function blankBar(){
-  return `<div class="cn-blank"><span>Need one to fill by hand?</span>
-    <button class="btn sm" onclick="blankNote()">⬇ Blank consignment note (A5)</button></div>`;
+  const prefix = "VF/CN" + fyOfDate(new Date()).code + "/";
+  return `<div class="card cn-blank">
+    <div class="bt">Blank consignment note</div>
+    <div class="bs">The form to fill by hand — A5, serial <b>${esc(prefix)}</b>.</div>
+    <div class="bl">Place of Origin — the loading terminal</div>
+    <div class="cands" id="blankTerms">${BLANK_TERMS.map(([k,label])=>
+      `<button class="cand${BLANK_TERM===k?" best":""}" data-term="${escAttr(k)}" onclick="pickBlankTerm(this.dataset.term)">${esc(label)}</button>`).join("")}</div>
+    <input type="text" id="blankOther" placeholder="e.g. Balasore Terminal, Balasore, Odisha" value="${escAttr(BLANK_OTHER)}"
+      oninput="BLANK_OTHER=this.value" style="${BLANK_TERM==="other"?"":"display:none;"}width:100%;box-sizing:border-box;margin-top:10px">
+    <div class="cn-actions"><button class="btn" style="flex:1" onclick="makeBlankNote()">⬇ Make blank note (A5)</button></div>
+  </div>`;
 }
 
 function onReportingDate(id, iso){
@@ -1601,13 +1619,13 @@ function loadPdfLib(url){
     sc.onload=()=>window.PDFLib?res(window.PDFLib):rej(new Error("PDF maker didn't load"));
     sc.onerror=()=>rej(new Error("PDF maker didn't load — check the connection")); document.head.appendChild(sc); });
 }
-async function notePdf(note){
+async function notePdf(note, fields){
   const M = await cnMod();
   const [lib, tpl] = await Promise.all([
     loadPdfLib(M.PDFLIB),
     CN_TPL || fetch("./consignment_note_template.pdf").then(r=>{ if(!r.ok) throw new Error("the note template is missing"); return r.arrayBuffer(); }).then(b=>(CN_TPL=b)),
   ]);
-  return M.buildNotePdf(lib, CN_TPL || tpl, M.noteFields(note));
+  return M.buildNotePdf(lib, CN_TPL || tpl, fields || M.noteFields(note));
 }
 function showPdfSheet(title, fname, bytes){
   const file = new File([bytes], fname, {type:"application/pdf"});
@@ -1651,14 +1669,33 @@ async function printNote(id){
   }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
 }
 // A blank note to fill by hand: the form with this financial year's serial
-// prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…).
-async function blankNote(){
+// prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…) and the
+// loading terminal picked in the card — Jharsuguda (the default), Paradeep,
+// or any other typed in.
+function pickBlankTerm(k){
+  BLANK_TERM = k === "other" || BLANK_TERMS.some(([x])=>x===k) ? k : "jharsuguda";
+  document.querySelectorAll("#blankTerms .cand").forEach(b=>b.classList.toggle("best", b.dataset.term===k));
+  const o = document.getElementById("blankOther");
+  o.style.display = k==="other" ? "" : "none";
+  if(k==="other") o.focus();
+}
+async function makeBlankNote(){
   try{
-    toast("Preparing blank note…");
     const M = await cnMod();
-    const prefix = M.blankPrefix();
-    const bytes = await notePdf(null);
-    showPdfSheet("Blank consignment note · "+prefix, "Blank_Consignment_Note_"+prefix.replace(/[^\w]+/g,"_").replace(/_$/,"")+".pdf", bytes);
+    let origin, label;
+    if(BLANK_TERM==="other"){
+      origin = BLANK_OTHER.trim();
+      if(!origin){ toast("Type the terminal, e.g. Balasore Terminal, Balasore, Odisha"); const o=document.getElementById("blankOther"); if(o) o.focus(); return; }
+      label = origin.split(",")[0].replace(/\s*terminal\s*$/i,"").trim() || "Other";
+    } else {
+      const t = M.TERMINALS.find(x=>x.key===BLANK_TERM) || M.TERMINALS[0];
+      origin = t.origin; label = t.label;
+    }
+    toast("Preparing blank note…");
+    const fields = M.blankFields(origin);
+    const bytes = await notePdf(null, fields);
+    showPdfSheet(`Blank consignment note · ${fields.serial} · ${label}`,
+      "Blank_Consignment_Note_"+fields.serial.replace(/[^\w]+/g,"_").replace(/_$/,"")+"_"+label.replace(/[^\w]+/g,"_")+".pdf", bytes);
   }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
 }
 

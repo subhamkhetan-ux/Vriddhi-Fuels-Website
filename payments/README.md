@@ -57,12 +57,16 @@ each card (not on the printed note). Serials never change once issued.
    the iPhone home-screen app, where a page can't be printed directly.
    (**.docx** is there too if you'd rather open it in Word.)
 
-**Blank note** — at the foot of the list, **⬇ Blank consignment note (A5)**
-gives the same form with nothing filled in except this financial year's serial
-prefix and a line for the number: `VF/CN2627/____` until 31 Mar 2027,
-`VF/CN2728/____` from 1 Apr 2027, and so on. (The template file's page is A4;
-the PDF puts it on A5, the same shape at ~70%. To change the form, replace that
-file — the values are placed by position, in `consignment_pdf.js`.)
+**Blank note** — the **Blank consignment note** card at the foot of the list:
+pick the loading terminal right in the card — **Jharsuguda** (default),
+**Paradeep**, or **Other…** (type it, e.g. *Balasore Terminal, Balasore, Odisha*) —
+and tap **⬇ Make blank note (A5)**. It gives the
+same form with nothing filled in except that Place of Origin and this financial
+year's serial prefix, not underlined: `VF/CN2627/` until 31 Mar 2027,
+`VF/CN2728/` from 1 Apr 2027, and so on — the number is written after it by hand. (The template is the form with its serial and Place of Origin erased — the app
+writes both. Its page is A4; the PDF puts it on A5, the same shape at ~70%. To
+change the form, replace that
+file (keeping those two blank) — the values are placed by position, in `consignment_pdf.js`.)
 
 Numbering starts at **047 = invoice 7010221545** and counts up from there; any
 IOC invoice older than that is ignored (already covered by the manual notes up
