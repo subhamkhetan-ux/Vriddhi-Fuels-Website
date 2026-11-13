@@ -197,7 +197,9 @@ test('register: the demo month adds up and draws', async () => {
     assert.match(stock, /Testing Adjustment/);
     // the Stock Register page: a shortage in red, a gain in green (the workbook's signs kept)
     assert.match(stock, /<td class="ink short">\d[\d.]*<\/td>/);
-    assert.equal((dsr.match(/<th class="date/g) || []).length, 31 + 2);        // 1–31, TOTAL, LAST YEAR SALES
+    assert.equal((dsr.match(/<th class="date/g) || []).length, 31 + 1);        // 1–31, TOTAL (no LAST YEAR SALES line)
+    assert.doesNotMatch(dsr, /LAST/);
+    assert.match(dsr, /<tr class="tot dsr-tot"><th class="date">TOTAL<\/th>/);
     assert.equal((stock.match(/<th class="date/g) || []).length, 1 + 31 + 1);  // S.No, 1–31, G.TOTAL
     assert.match(dsr, /MONTH <u>NOVEMBER-2026<\/u>/);
     assert.match(stock, /MONTH OF NOVEMBER 2026/);
