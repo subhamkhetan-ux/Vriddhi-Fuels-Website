@@ -373,7 +373,10 @@ summary::-webkit-details-marker{display:none}
 .pdfsheet .t{font-family:var(--display);font-weight:700;margin-bottom:4px}
 .pdfsheet .s{font-size:12.5px;color:var(--muted);margin-bottom:12px}
 .pdfsheet .cn-actions{margin-top:0}
-.cn-blank{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 0;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.cn-blank{margin-top:16px}
+.cn-blank .bt{font-family:var(--display);font-weight:700}
+.cn-blank .bs{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.cn-blank .bs b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -1284,8 +1287,12 @@ function renderConsign(){
 
 // At the foot of the notes: a blank note to fill by hand (this FY's prefix).
 function blankBar(){
-  return `<div class="cn-blank"><span>Need one to fill by hand?</span>
-    <button class="btn sm" onclick="blankNote()">⬇ Blank consignment note (A5)…</button></div>`;
+  const prefix = "VF/CN" + fyOfDate(new Date()).code + "/";
+  return `<div class="card cn-blank">
+    <div class="bt">Blank consignment note</div>
+    <div class="bs">The form to fill by hand — A5, serial <b>${esc(prefix)}</b>, for the loading terminal you choose (Jharsuguda, Paradeep or another).</div>
+    <div class="cn-actions"><button class="btn" style="flex:1" onclick="blankNote()">⬇ Blank consignment note (A5)…</button></div>
+  </div>`;
 }
 
 function onReportingDate(id, iso){
