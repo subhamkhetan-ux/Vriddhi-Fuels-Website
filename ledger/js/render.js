@@ -342,6 +342,25 @@ export async function pdfFromSvgs(svgs, size, { scale = 2 } = {}) {
 
 export const loadJSZip = () => loadScript(JSZIP, () => window.JSZip);
 
+// A page of the app drawn as it shows (the Register's paper pages) -> an A4
+// landscape PDF Blob: for phones, where a home-screen app can't print, the
+// PDF goes to the share sheet (Print, Save to Files…). html2canvas draws the
+// page itself, so it works on iPhone Safari too.
+const HTML2CANVAS = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+export async function pdfFromElement(el, { scale = 2 } = {}) {
+  const [html2canvas, { jsPDF }] = await Promise.all([loadScript(HTML2CANVAS, () => window.html2canvas), loadScript(JSPDF, () => window.jspdf)]);
+  const canvas = await html2canvas(el, { scale, backgroundColor: '#ffffff', logging: false, useCORS: true });
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape', compress: true });
+  const W = pdf.internal.pageSize.getWidth();
+  const H = pdf.internal.pageSize.getHeight();
+  const m = 16;
+  const k = Math.min((W - 2 * m) / canvas.width, (H - 2 * m) / canvas.height);
+  const w = canvas.width * k;
+  const h = canvas.height * k;
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (W - w) / 2, (H - h) / 2, w, h);
+  return pdf.output('blob');
+}
+
 // The text of a PDF, a line a row (as the fleet app reads the banks' EMI
 // schedules): pdf.js gives each page's words with their places; words on the
 // same line (the same height, ±2 pt) are joined left to right. '' for a scan.
