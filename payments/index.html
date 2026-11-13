@@ -1285,7 +1285,7 @@ function renderConsign(){
 // At the foot of the notes: a blank note to fill by hand (this FY's prefix).
 function blankBar(){
   return `<div class="cn-blank"><span>Need one to fill by hand?</span>
-    <button class="btn sm" onclick="blankNote()">⬇ Blank consignment note (A5)</button></div>`;
+    <button class="btn sm" onclick="blankNote()">⬇ Blank consignment note (A5)…</button></div>`;
 }
 
 function onReportingDate(id, iso){
@@ -1601,13 +1601,13 @@ function loadPdfLib(url){
     sc.onload=()=>window.PDFLib?res(window.PDFLib):rej(new Error("PDF maker didn't load"));
     sc.onerror=()=>rej(new Error("PDF maker didn't load — check the connection")); document.head.appendChild(sc); });
 }
-async function notePdf(note){
+async function notePdf(note, fields){
   const M = await cnMod();
   const [lib, tpl] = await Promise.all([
     loadPdfLib(M.PDFLIB),
     CN_TPL || fetch("./consignment_note_template.pdf").then(r=>{ if(!r.ok) throw new Error("the note template is missing"); return r.arrayBuffer(); }).then(b=>(CN_TPL=b)),
   ]);
-  return M.buildNotePdf(lib, CN_TPL || tpl, M.noteFields(note));
+  return M.buildNotePdf(lib, CN_TPL || tpl, fields || M.noteFields(note));
 }
 function showPdfSheet(title, fname, bytes){
   const file = new File([bytes], fname, {type:"application/pdf"});
@@ -1651,14 +1651,48 @@ async function printNote(id){
   }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
 }
 // A blank note to fill by hand: the form with this financial year's serial
-// prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…).
+// prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…) and the
+// loading terminal picked here — Jharsuguda (as printed on the form, the
+// default), Paradeep, or any other typed in.
+let BLANK_TERM = "jharsuguda";
 async function blankNote(){
+  const M = await cnMod();
+  BLANK_TERM = "jharsuguda";
+  const chip = (k, label)=>`<button class="cand${BLANK_TERM===k?" best":""}" data-term="${escAttr(k)}" onclick="pickBlankTerm(this.dataset.term)">${esc(label)}</button>`;
+  document.getElementById("pdfSheetWrap").innerHTML = `<div class="pdfsheet" onclick="if(event.target===this)closePdfSheet()"><div class="box">
+    <div class="t">Blank consignment note · ${esc(M.blankPrefix())}</div>
+    <div class="s">Place of Origin — the loading terminal:</div>
+    <div class="cands" id="blankTerms" style="margin-top:0">${M.TERMINALS.map(t=>chip(t.key, t.label)).join("")}${chip("other","Other…")}</div>
+    <input type="text" id="blankOther" placeholder="e.g. Balasore Terminal, Balasore, Odisha" style="display:none;width:100%;box-sizing:border-box;margin-top:10px">
+    <div class="cn-actions" style="margin-top:14px">
+      <button class="cta" style="flex:1" onclick="makeBlankNote()">Make PDF</button>
+      <button class="btn ghost" onclick="closePdfSheet()">Cancel</button>
+    </div></div></div>`;
+}
+function pickBlankTerm(k){
+  BLANK_TERM = k;
+  document.querySelectorAll("#blankTerms .cand").forEach(b=>b.classList.toggle("best", b.dataset.term===k));
+  const o = document.getElementById("blankOther");
+  o.style.display = k==="other" ? "" : "none";
+  if(k==="other") o.focus();
+}
+async function makeBlankNote(){
   try{
-    toast("Preparing blank note…");
     const M = await cnMod();
-    const prefix = M.blankPrefix();
-    const bytes = await notePdf(null);
-    showPdfSheet("Blank consignment note · "+prefix, "Blank_Consignment_Note_"+prefix.replace(/[^\w]+/g,"_").replace(/_$/,"")+".pdf", bytes);
+    let origin, label;
+    if(BLANK_TERM==="other"){
+      origin = (document.getElementById("blankOther").value||"").trim();
+      if(!origin){ toast("Type the terminal, e.g. Balasore Terminal, Balasore, Odisha"); return; }
+      label = origin.split(",")[0].replace(/\s*terminal\s*$/i,"").trim() || "Other";
+    } else {
+      const t = M.TERMINALS.find(x=>x.key===BLANK_TERM) || M.TERMINALS[0];
+      origin = t.origin; label = t.label;
+    }
+    toast("Preparing blank note…");
+    const fields = M.blankFields(origin);
+    const bytes = await notePdf(null, fields);
+    showPdfSheet(`Blank consignment note · ${fields.serial} · ${label}`,
+      "Blank_Consignment_Note_"+fields.serial.replace(/[^\w]+/g,"_").replace(/_$/,"")+"_"+label.replace(/[^\w]+/g,"_")+".pdf", bytes);
   }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
 }
 
