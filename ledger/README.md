@@ -304,7 +304,7 @@ it the receipt, total stock,
 testing, sale and cumulative sale those readings complete. **Edit dips**
 turns the dips into boxes: a dip typed there (one misread, or HSD's per-tank
 dips the DIP Chart didn't keep) is kept (`dips:YYYY-MM`) and written over
-the DIP Chart's, dotted-underlined; a **!** says when typed dips don't come
+the DIP Chart's, looking like any other dip; a **!** says when typed dips don't come
 to the morning's stock on the chart. Clear a box to go back.
 
 **Testing adjustment & actual shortage** (Stock Register tab, under the
