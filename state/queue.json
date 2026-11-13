@@ -7907,6 +7907,27 @@
       },
       "queued_at": "2026-11-13T11:00:29.197243+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "f1488db2feb305f8",
+      "gmail_msg_id": "1881740968389684184",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "13/11/26",
+      "date_serial": 46339,
+      "amount": 596403.0,
+      "raw_payer": "HARNOOR LOGISTICS PRIV",
+      "customer": "Harnoor Logistics Private Limited",
+      "candidates": [
+        "Harnoor Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-13T11:15:27.903297+00:00",
+      "status": "matched"
     }
   ]
 }
