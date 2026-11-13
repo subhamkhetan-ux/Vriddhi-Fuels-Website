@@ -7886,6 +7886,27 @@
       },
       "queued_at": "2026-11-13T10:00:30.454124+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "c9cc16a3f652a894",
+      "gmail_msg_id": "1881740405834074542",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "13/11/26",
+      "date_serial": 46339,
+      "amount": 50000.0,
+      "raw_payer": "EKDANT LOGIS",
+      "customer": "Ekdant Logistic",
+      "candidates": [
+        "Ekdant Logistic"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-13T11:00:29.197243+00:00",
+      "status": "matched"
     }
   ]
 }
