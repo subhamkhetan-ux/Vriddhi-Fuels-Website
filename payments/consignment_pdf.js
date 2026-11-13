@@ -83,12 +83,10 @@ export async function buildNotePdf(PDFLib, templateBytes, fields) {
     return w;
   };
 
-  // the serial: the template's own "VF/CN2627" is replaced by the FY-correct one
+  // the serial: the template's own "VF/CN2627" is replaced by the FY-correct
+  // one — no underline, and on a blank note nothing after "VF/CN2627/" either
   cover(AT.serial.cover);
-  const w = text(fields.serial, AT.serial);
-  if (fields.blank) {                 // a line to write the number on
-    page.drawRectangle({ x: AT.serial.x + w + 1, y: Y(AT.serial.y + 2.6), width: 46, height: 0.6, color: black });
-  }
+  text(fields.serial, AT.serial);
   if (!fields.blank) {
     text(fields.date, AT.date);
     if (fields.origin) { cover(AT.origin.cover); text(fields.origin, AT.origin); }
