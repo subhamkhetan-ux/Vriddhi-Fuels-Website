@@ -7865,6 +7865,27 @@
       },
       "queued_at": "2026-11-13T05:00:23.113797+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "e8a76e5ea154ad7c",
+      "gmail_msg_id": "1881736174928324545",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "13/11/26",
+      "date_serial": 46339,
+      "amount": 1201910.0,
+      "raw_payer": "ARYAN ISPAT AND POWER",
+      "customer": "Aryan Ispat & Power Private Ltd.",
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd."
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-13T10:00:30.454124+00:00",
+      "status": "matched"
     }
   ]
 }
