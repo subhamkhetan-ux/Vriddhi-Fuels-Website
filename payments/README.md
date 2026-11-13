@@ -57,9 +57,10 @@ each card (not on the printed note). Serials never change once issued.
    the iPhone home-screen app, where a page can't be printed directly.
    (**.docx** is there too if you'd rather open it in Word.)
 
-**Blank note** — at the foot of the list, **⬇ Blank consignment note (A5)…**
-asks for the loading terminal — **Jharsuguda** (default), **Paradeep**, or
-**Other…** (type it, e.g. *Balasore Terminal, Balasore, Odisha*) — and gives the
+**Blank note** — the **Blank consignment note** card at the foot of the list:
+pick the loading terminal right in the card — **Jharsuguda** (default),
+**Paradeep**, or **Other…** (type it, e.g. *Balasore Terminal, Balasore, Odisha*) —
+and tap **⬇ Make blank note (A5)**. It gives the
 same form with nothing filled in except that Place of Origin and this financial
 year's serial prefix, not underlined: `VF/CN2627/` until 31 Mar 2027,
 `VF/CN2728/` from 1 Apr 2027, and so on — the number is written after it by hand. (The template is the form with its serial and Place of Origin erased — the app

@@ -377,6 +377,8 @@ summary::-webkit-details-marker{display:none}
 .cn-blank .bt{font-family:var(--display);font-weight:700}
 .cn-blank .bs{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
 .cn-blank .bs b{font-family:var(--mono);font-weight:600;color:var(--ink)}
+.cn-blank .bl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-top:12px}
+.cn-blank .cands{margin-top:6px}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -1286,12 +1288,21 @@ function renderConsign(){
 }
 
 // At the foot of the notes: a blank note to fill by hand (this FY's prefix).
+// The terminal picked in the card (kept across the list's redraws, which
+// happen whenever a note syncs). Origins are in consignment_pdf.js TERMINALS.
+const BLANK_TERMS = [["jharsuguda","Jharsuguda"],["paradeep","Paradeep"],["other","Other…"]];
+let BLANK_TERM = "jharsuguda", BLANK_OTHER = "";
 function blankBar(){
   const prefix = "VF/CN" + fyOfDate(new Date()).code + "/";
   return `<div class="card cn-blank">
     <div class="bt">Blank consignment note</div>
-    <div class="bs">The form to fill by hand — A5, serial <b>${esc(prefix)}</b>, for the loading terminal you choose (Jharsuguda, Paradeep or another).</div>
-    <div class="cn-actions"><button class="btn" style="flex:1" onclick="blankNote()">⬇ Blank consignment note (A5)…</button></div>
+    <div class="bs">The form to fill by hand — A5, serial <b>${esc(prefix)}</b>.</div>
+    <div class="bl">Place of Origin — the loading terminal</div>
+    <div class="cands" id="blankTerms">${BLANK_TERMS.map(([k,label])=>
+      `<button class="cand${BLANK_TERM===k?" best":""}" data-term="${escAttr(k)}" onclick="pickBlankTerm(this.dataset.term)">${esc(label)}</button>`).join("")}</div>
+    <input type="text" id="blankOther" placeholder="e.g. Balasore Terminal, Balasore, Odisha" value="${escAttr(BLANK_OTHER)}"
+      oninput="BLANK_OTHER=this.value" style="${BLANK_TERM==="other"?"":"display:none;"}width:100%;box-sizing:border-box;margin-top:10px">
+    <div class="cn-actions"><button class="btn" style="flex:1" onclick="makeBlankNote()">⬇ Make blank note (A5)</button></div>
   </div>`;
 }
 
@@ -1659,25 +1670,10 @@ async function printNote(id){
 }
 // A blank note to fill by hand: the form with this financial year's serial
 // prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…) and the
-// loading terminal picked here — Jharsuguda (as printed on the form, the
-// default), Paradeep, or any other typed in.
-let BLANK_TERM = "jharsuguda";
-async function blankNote(){
-  const M = await cnMod();
-  BLANK_TERM = "jharsuguda";
-  const chip = (k, label)=>`<button class="cand${BLANK_TERM===k?" best":""}" data-term="${escAttr(k)}" onclick="pickBlankTerm(this.dataset.term)">${esc(label)}</button>`;
-  document.getElementById("pdfSheetWrap").innerHTML = `<div class="pdfsheet" onclick="if(event.target===this)closePdfSheet()"><div class="box">
-    <div class="t">Blank consignment note · ${esc(M.blankPrefix())}</div>
-    <div class="s">Place of Origin — the loading terminal:</div>
-    <div class="cands" id="blankTerms" style="margin-top:0">${M.TERMINALS.map(t=>chip(t.key, t.label)).join("")}${chip("other","Other…")}</div>
-    <input type="text" id="blankOther" placeholder="e.g. Balasore Terminal, Balasore, Odisha" style="display:none;width:100%;box-sizing:border-box;margin-top:10px">
-    <div class="cn-actions" style="margin-top:14px">
-      <button class="cta" style="flex:1" onclick="makeBlankNote()">Make PDF</button>
-      <button class="btn ghost" onclick="closePdfSheet()">Cancel</button>
-    </div></div></div>`;
-}
+// loading terminal picked in the card — Jharsuguda (the default), Paradeep,
+// or any other typed in.
 function pickBlankTerm(k){
-  BLANK_TERM = k;
+  BLANK_TERM = k === "other" || BLANK_TERMS.some(([x])=>x===k) ? k : "jharsuguda";
   document.querySelectorAll("#blankTerms .cand").forEach(b=>b.classList.toggle("best", b.dataset.term===k));
   const o = document.getElementById("blankOther");
   o.style.display = k==="other" ? "" : "none";
@@ -1688,8 +1684,8 @@ async function makeBlankNote(){
     const M = await cnMod();
     let origin, label;
     if(BLANK_TERM==="other"){
-      origin = (document.getElementById("blankOther").value||"").trim();
-      if(!origin){ toast("Type the terminal, e.g. Balasore Terminal, Balasore, Odisha"); return; }
+      origin = BLANK_OTHER.trim();
+      if(!origin){ toast("Type the terminal, e.g. Balasore Terminal, Balasore, Odisha"); const o=document.getElementById("blankOther"); if(o) o.focus(); return; }
       label = origin.split(",")[0].replace(/\s*terminal\s*$/i,"").trim() || "Other";
     } else {
       const t = M.TERMINALS.find(x=>x.key===BLANK_TERM) || M.TERMINALS[0];
