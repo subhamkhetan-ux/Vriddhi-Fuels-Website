@@ -116,3 +116,12 @@ def test_an_existing_install_records_its_notes_and_guards_older_invoices(pg):
     assert not ok and "may already have had a note" in err
     assert counter(pg) == "57"
     assert claim(pg, "7011400060") == "VF/CN2627/057|pending|57"         # newer ones go on as usual
+
+
+def test_the_printed_serial_restarts_each_financial_year(pg):
+    pg.ok(SCHEMA)
+    assert claim(pg, "7013100001", date="13/11/2026") == "VF/CN2627/047|pending|47"
+    assert claim(pg, "7013100002", date="31/03/2027") == "VF/CN2627/048|pending|48"   # last day of FY 2026-27
+    assert claim(pg, "7013100003", date="01/04/2027") == "VF/CN2728/001|pending|49"   # FY 2027-28 starts at 001
+    assert claim(pg, "7013100004", date="02/04/2027") == "VF/CN2728/002|pending|50"
+    assert claim(pg, "7013100005", date="01/04/2028") == "VF/CN2829/001|pending|51"

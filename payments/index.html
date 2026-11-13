@@ -366,33 +366,14 @@ summary::-webkit-details-marker{display:none}
 #crOpenDate,#crHolMark,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
 .cr-holclosing{flex-wrap:wrap;gap:8px}
 .cr-holclosing .cr-holbtns{flex-wrap:wrap;gap:6px}
-/* consignment note print — a hand-built A4 page (no docx renderer), so it looks
-   identical in every browser. Off-screen normally; the only thing printed. */
-#printArea{position:fixed;left:-99999px;top:0}
-.cn-page{width:210mm;min-height:296mm;background:#fff;color:#000;
-  font-family:"Times New Roman",Times,Georgia,serif;font-size:12.5pt;line-height:1.5}
-.cn-page img.cn-lh{display:block;width:100%;margin:0}
-.cn-body{padding:0 12mm}
-.cn-title{text-align:center;font-weight:bold;text-decoration:underline;font-size:14pt;margin:6pt 0 0}
-.cn-sub{text-align:center;margin:2pt 0 8pt}
-.cn-line{margin:7pt 0}
-.cn-slno{display:flex;justify-content:space-between;margin:6pt 0}
-/* pull the Date in from the margin so it ends under the centered line above
-   (matches the Word original: the date ends ~30mm from the page's right edge) */
-.cn-slno .cn-date{margin-right:18mm}
-.cn-u{font-weight:bold;text-decoration:underline}
-.cn-b{font-weight:bold}
-table.cn-goods{width:100%;border-collapse:collapse;margin:6pt 0}
-table.cn-goods th,table.cn-goods td{border:1px solid #000;padding:2pt 6pt;text-align:center;font-weight:normal}
-table.cn-goods td:first-child{text-align:left}
-.cn-sign{text-align:right;margin-top:64pt}
-@media print{
-  @page{size:A4;margin:0}
-  html,body{background:#fff!important;padding:0!important;margin:0!important}
-  body>*{display:none!important}
-  #printArea{display:block!important;position:static!important;left:0!important;top:0!important;width:auto!important}
-  .cn-page{width:auto;min-height:0}
-}
+/* consignment note PDF: Print / Share… / Save sheet (an iPhone home-screen app
+   can't print a page, so the note is made as a PDF and handed on) */
+.pdfsheet{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-end;justify-content:center;background:#0008}
+.pdfsheet .box{width:100%;max-width:520px;margin:0 10px 14px;padding:16px;border-radius:16px;background:#1d1714;border:1px solid var(--glass-line);box-shadow:0 20px 50px -10px #000}
+.pdfsheet .t{font-family:var(--display);font-weight:700;margin-bottom:4px}
+.pdfsheet .s{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+.pdfsheet .cn-actions{margin-top:0}
+.cn-blank{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 0;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -558,7 +539,7 @@ a{color:var(--accent)}
   <button class="cta" id="logBtn" disabled title="Send the selected entries to the Mac agent to log into Master Paid">⤴ Log to Excel</button>
 </div>
 <div class="toast" id="toast"></div>
-<div id="printArea" aria-hidden="true"></div>
+<div id="pdfSheetWrap"></div>
 
 <script>
 const CFG = window.VRIDDHI_PAYMENTS_CONFIG || {};
@@ -1259,7 +1240,7 @@ function renderConsign(){
   const upBar = `<div class="up-bar"><span>Invoice mail didn't come?</span>
     <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn sm" onclick="pickInvoicePdf()">⬆ Upload invoice PDF</button><button class="btn sm" onclick="typeInvoice()" title="No PDF at all? Type it in from the paper invoice">✎ Type it in</button></span></div>`;
   if(!pending.length){
-    w.innerHTML = upBar + `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically — or upload the invoice PDF, or type it in from the paper invoice.</div>`;
+    w.innerHTML = upBar + `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically — or upload the invoice PDF, or type it in from the paper invoice.</div>` + blankBar();
     return;
   }
   // Totals: lifetime = the highest lifetime index we know (newest note); FY = the
@@ -1298,7 +1279,13 @@ function renderConsign(){
       </div>
     </div>`;
   }
-  w.innerHTML = h;
+  w.innerHTML = h + blankBar();
+}
+
+// At the foot of the notes: a blank note to fill by hand (this FY's prefix).
+function blankBar(){
+  return `<div class="cn-blank"><span>Need one to fill by hand?</span>
+    <button class="btn sm" onclick="blankNote()">⬇ Blank consignment note (A5)</button></div>`;
 }
 
 function onReportingDate(id, iso){
@@ -1602,57 +1589,77 @@ async function buildFilledDocx(n, repDmy){
 // letterhead as an image, then the note's fixed boilerplate with the invoice
 // values filled in. Rendered by the browser itself (not a docx engine), so the
 // print looks identical everywhere and always fits one page.
-function buildNoteHTML(n, repDmy){
-  const cols = {"MS | EBMS":"", "XtraGreen HSD":"", "HSD":"", "LSHFHSD":""};
-  for(const [col, q] of Object.entries(noteColumns(n))){
-    if(col in cols) cols[col] = q;
-  }
-  const val = (n.value==null ? "" : String(n.value));
-  return `<div class="cn-page">
-    <img class="cn-lh" src="./letterhead.png" alt="">
-    <div class="cn-body">
-      <div class="cn-title">CONSIGNMENT NOTE</div>
-      <div class="cn-sub">(Issued as per Fuel Notification No. - 512017 - Central Tax dated 19.05.2017 of CGST Act 2017)</div>
-      <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span class="cn-date">Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
-      <div class="cn-line">Name of Consignor : <span class="cn-b">Indian Oil Corporation Ltd. (MD)</span></div>
-      <div class="cn-line">(Place of Origin) : <span class="cn-b">${esc(n.origin||"Jharsuguda Terminal, Jharsuguda, Odisha")}</span></div>
-      <div class="cn-line">Name of the Consignee : <span class="cn-b">VRIDDHI FUELS</span></div>
-      <div class="cn-line">Place of Destination : Jharsuguda (Vriddhi Fuels).</div>
-      <div class="cn-line">Goods Carriage Regn. No. (TT No.) : <span class="cn-b">OD23U8210</span></div>
-      <div class="cn-line">Transporter Name : <span class="cn-b">M/s. VRIDDHI FUELS</span></div>
-      <div class="cn-line">Details of Goods Transported :</div>
-      <table class="cn-goods">
-        <tr><th>Product</th><th>MS | EBMS</th><th>XtraGreen HSD</th><th>HSD</th><th>LSHFHSD</th></tr>
-        <tr><td>Quantity (KL)</td><td>${esc(cols["MS | EBMS"])}</td><td>${esc(cols["XtraGreen HSD"])}</td><td>${esc(cols["HSD"])}</td><td>${esc(cols["LSHFHSD"])}</td></tr>
-      </table>
-      <div class="cn-line">Value of Goods: <span class="cn-b">Rs. ${esc(val)}/-</span></div>
-      <div class="cn-line">Invoice No. &amp; Date: <span class="cn-b">${esc(n.invoice_no||"")} on ${esc(n.invoice_date||"")}</span></div>
-      <div class="cn-line">Person Liability for paying GST - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br>GSTIN of IOCL - <span class="cn-b">21AAACI1681G1Z1</span></div>
-      <div class="cn-line">GST Liability is to be paid by - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br><span class="cn-b">Under Reverse Charge Mechanism (RCM)</span></div>
-      <div class="cn-sign">Signature of the Authorised Person with Rubber Seal</div>
-    </div>
-  </div>`;
+/* ---- the note as a PDF, on the firm's blank note (consignment_pdf.js) ----
+   window.print() does nothing in an iPhone home-screen app, so Print makes the
+   PDF and offers Print / Share… (the share sheet: Print, Save to Files,
+   WhatsApp) and Save PDF — on a computer too, so the paper is the same. */
+let CN_MOD=null, CN_TPL=null, PDF_SHEET=null;
+function cnMod(){ return CN_MOD || (CN_MOD = import("./consignment_pdf.js")); }
+function loadPdfLib(url){
+  if(window.PDFLib) return Promise.resolve(window.PDFLib);
+  return new Promise((res,rej)=>{ const sc=document.createElement("script"); sc.src=url;
+    sc.onload=()=>window.PDFLib?res(window.PDFLib):rej(new Error("PDF maker didn't load"));
+    sc.onerror=()=>rej(new Error("PDF maker didn't load — check the connection")); document.head.appendChild(sc); });
 }
-
-// Print / Save-as-PDF: lay out the note as HTML and open the print dialog (pick a
-// printer or "Save as PDF"). The .docx download stays available for editing in Word.
+async function notePdf(note){
+  const M = await cnMod();
+  const [lib, tpl] = await Promise.all([
+    loadPdfLib(M.PDFLIB),
+    CN_TPL || fetch("./consignment_note_template.pdf").then(r=>{ if(!r.ok) throw new Error("the note template is missing"); return r.arrayBuffer(); }).then(b=>(CN_TPL=b)),
+  ]);
+  return M.buildNotePdf(lib, CN_TPL || tpl, M.noteFields(note));
+}
+function showPdfSheet(title, fname, bytes){
+  const file = new File([bytes], fname, {type:"application/pdf"});
+  if(PDF_SHEET && PDF_SHEET.url) URL.revokeObjectURL(PDF_SHEET.url);
+  PDF_SHEET = {title, file, url:URL.createObjectURL(file)};
+  const canShare = !!(navigator.canShare && navigator.canShare({files:[file]}));
+  document.getElementById("pdfSheetWrap").innerHTML = `<div class="pdfsheet" onclick="if(event.target===this)closePdfSheet()"><div class="box">
+    <div class="t">${esc(title)}</div>
+    <div class="s">A5 PDF on the consignment note form · ${esc(fname)}</div>
+    <div class="cn-actions">
+      <button class="cta" style="flex:1" onclick="sharePdf()">${canShare?"Print / Share…":"Open to print"}</button>
+      <button class="btn" onclick="savePdf()">Save PDF</button>
+      <button class="btn ghost" onclick="closePdfSheet()">Close</button>
+    </div></div></div>`;
+}
+async function sharePdf(){
+  const p=PDF_SHEET; if(!p) return;
+  if(navigator.canShare && navigator.canShare({files:[p.file]})){
+    try{ await navigator.share({files:[p.file], title:p.title}); return; }
+    catch(e){ if(e && e.name==="AbortError") return; }
+  }
+  window.open(p.url, "_blank");          // the browser's PDF viewer has Print
+}
+function savePdf(){
+  const p=PDF_SHEET; if(!p) return;
+  const a=document.createElement("a"); a.href=p.url; a.download=p.file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function closePdfSheet(){
+  if(PDF_SHEET && PDF_SHEET.url) setTimeout(((u)=>()=>URL.revokeObjectURL(u))(PDF_SHEET.url), 60000);
+  PDF_SHEET=null; document.getElementById("pdfSheetWrap").innerHTML="";
+}
 async function printNote(id){
   const n = CNOTES.find(x=>x.id===id); if(!n) return;
   const repDmy = noteReportingDate(n);
   try{
-    const area = document.getElementById("printArea");
-    area.innerHTML = buildNoteHTML(n, repDmy);
+    toast("Preparing note…");
+    const bytes = await notePdf({...n, reporting_date:repDmy, columns:noteColumns(n)});
     if(repDmy) Cloud.setReportingDate(id, repDmy);
-    // wait for the letterhead image so it's captured in the printout
-    const img = area.querySelector("img.cn-lh");
-    await new Promise(res=>{
-      if(!img || img.complete) return res();
-      img.onload = img.onerror = res; setTimeout(res, 4000);
-    });
-    const done = ()=>{ area.innerHTML=""; window.removeEventListener("afterprint", done); };
-    window.addEventListener("afterprint", done);
-    setTimeout(()=>window.print(), 100);
-  }catch(e){ toast("Couldn't prepare print: "+(e&&e.message||e)); }
+    showPdfSheet(n.serial_str||"Consignment note", "Consignment_Note_"+String(n.serial_str||"note").replace(/[^\w]+/g,"_")+".pdf", bytes);
+  }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
+}
+// A blank note to fill by hand: the form with this financial year's serial
+// prefix (VF/CN2627/ until 31 Mar 2027, VF/CN2728/ from 1 Apr 2027…).
+async function blankNote(){
+  try{
+    toast("Preparing blank note…");
+    const M = await cnMod();
+    const prefix = M.blankPrefix();
+    const bytes = await notePdf(null);
+    showPdfSheet("Blank consignment note · "+prefix, "Blank_Consignment_Note_"+prefix.replace(/[^\w]+/g,"_").replace(/_$/,"")+".pdf", bytes);
+  }catch(e){ toast("Couldn't make the PDF: "+(e&&e.message||e)); }
 }
 
 async function downloadNote(id){
