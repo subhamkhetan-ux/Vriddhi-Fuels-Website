@@ -94,9 +94,9 @@ export function dsrTableHtml(pm, { latest = null, prev = null, edit = false } = 
   const t = pm.totals;
   const lead = tanks * 2;
   const tail = (cells) => `${cells}${pp.remarks ? '<td class="gap"></td><td class="remarks"></td>' : ''}`;
-  rows.push(`<tr class="tot"><th class="date">TOTAL</th><td colspan="${lead + 1}"></td>${ink(t.receipt ? whole(t.receipt) : '')}<td></td>
+  // the month's totals, in red; no LAST YEAR SALES line (nothing to put in it)
+  rows.push(`<tr class="tot dsr-tot"><th class="date">TOTAL</th><td colspan="${lead + 1}"></td>${ink(t.receipt ? whole(t.receipt) : '')}<td></td>
     ${'<td></td>'.repeat(pumps)}${tail(`${ink(t.test ? testing(Math.round(t.test * 100) / 100) : '')}${ink(t.sale ? paisa(t.sale) : '')}<td></td>`)}</tr>`);
-  rows.push(`<tr class="tot"><th class="date ly">LAST<br>YEAR<br>SALES</th><td colspan="${lead + 3 + pumps + 3}"></td>${pp.remarks ? '<td class="gap"></td><td class="remarks"></td>' : ''}</tr>`);
   return `<div class="paper-scroll"><div class="paper">${paperHead(pm)}
     <table class="paper-t">${head}<tbody>${rows.join('')}</tbody></table></div></div>`;
 }

@@ -284,7 +284,7 @@ white ruled paper, black print, entries in blue ink: the DSR page as the
 printed book (उत्पाद / PRODUCT title, the month in red, TANK 1–4 with DIP and
 WATER DIP, OPENING : METER READING with PUMPS 1–8 (MS: 1–6 and a REMARKS
 column, XtraGreen: 1–5), TESTING, SALES, COMMUTATIVE SALES, all 31 date
-lines, TOTAL and LAST YEAR SALES), figures written as by hand: whole litres
+lines and the TOTAL in red), figures written as by hand: whole litres
 and meter readings, dips to a mm, testing as typed, sales to the paisa; ×
 for no receipt; today's line highlighted. The Stock Register page is the
 workbook's sheet (S.No … Variation of Shortage, G.TOTAL, and the Opening
