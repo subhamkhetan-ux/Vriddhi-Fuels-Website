@@ -52,3 +52,22 @@ export function qtyByRateSheet(res, title) {
   out.push(['All products', '', res.qty, '', res.bills, res.amount, '', '']);
   return out;
 }
+
+// Only some prices (for the picture): keep = a Set of `${product}|${rate}`
+// keys, or null for all. Totals and shares are worked out again over what's
+// kept; a product with no price left is dropped.
+export const rateKey = (product, rate) => `${product}|${Number(rate).toFixed(2)}`;
+export function qtyPick(res, keep = null) {
+  if (!keep) return res;
+  const products = res.products.map((p) => {
+    const rates = p.rates.filter((r) => keep.has(rateKey(p.product, r.rate))).map((r) => ({ ...r }));
+    const qty = round3(rates.reduce((a, r) => a + r.qty, 0));
+    const amount = round2(rates.reduce((a, r) => a + r.amount, 0));
+    rates.forEach((r) => { r.share = qty ? r.qty / qty : 0; });
+    return { product: p.product, qty, amount, bills: rates.reduce((a, r) => a + r.bills, 0), avg: qty ? round2(amount / qty) : 0, rates };
+  }).filter((p) => p.rates.length);
+  return {
+    from: res.from, to: res.to, qty: round3(products.reduce((a, p) => a + p.qty, 0)), amount: round2(products.reduce((a, p) => a + p.amount, 0)),
+    bills: products.reduce((a, p) => a + p.bills, 0), products,
+  };
+}

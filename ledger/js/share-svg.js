@@ -538,6 +538,53 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${defs(fontCss)}${backdrop(w, h)}${out}</svg>`, size: { width: w, height: h } };
 }
 
+// ---- a bulk customer's litres by billing price ------------------------------------------
+// res: qty-rate.js qtyByRate() (or qtyPick() of it); only what's needed: the
+// total litres, and each product's litres at each price — no bills, no amounts.
+export function qtyByRateSvg(res, { name, period, unit = '', asOn, images = {}, fontCss = '' } = {}) {
+  const w = CARD_WIDTH;
+  const pad = 56;
+  let y = 48;
+  let out = brandRow(w, pad, y, 'Quantity by billing price', asOn, images);
+  y += 172;
+  out += pill(pad, y, 'BULK ACCOUNT', C.amber);
+  out += T(pad, y + 86, name, { size: 44, weight: 800, max: w - 2 * pad, spacing: -0.5 });
+  y += 120;
+  const sub = [unit, period].filter(Boolean).join('  ·  ');
+  if (sub) {
+    out += T(pad, y + 6, sub, { size: 22, fill: C.muted, max: w - 2 * pad });
+    y += 40;
+  }
+  out += hero(pad, y, w - 2 * pad, 200, 'TOTAL QUANTITY', qtyText(res.qty) || '0 L', []);
+  y += 232;
+  const bw = w - 2 * pad;
+  for (const p of res.products) {
+    const color = C[p.product] || C.OTHER;
+    const rows = p.rates.length;
+    const bh = 96 + rows * 66 + 14;
+    out += `${R(pad, y, bw, bh, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 })}${R(pad, y + 24, 6, 50, { rx: 3, fill: color })}
+${T(pad + 30, y + 50, (PRODUCT[p.product] || p.product).toUpperCase(), { size: 24, weight: 800, spacing: 1.5 })}
+${T(pad + 30, y + 78, `${rows} price${rows === 1 ? '' : 's'}`, { size: 16, fill: C.muted })}
+${T(w - pad - 28, y + 60, qtyText(p.qty), { size: 30, weight: 800, anchor: 'end', fill: color })}
+${R(pad + 28, y + 96, bw - 56, 1.5, { opacity: 0.1 })}`;
+    let yy = y + 96;
+    const barX = pad + 300;
+    const barW = bw - 300 - 360;
+    for (const r of p.rates) {
+      out += `${T(pad + 30, yy + 43, `₹${r.rate.toFixed(2)}`, { size: 28, weight: 800 })}${T(pad + 30 + textWidth(`₹${r.rate.toFixed(2)}`, 28, 800) * 0.92 + 4, yy + 43, '/L', { size: 18, fill: C.muted })}
+${R(barX, yy + 30, barW, 8, { rx: 4, opacity: 0.08 })}${R(barX, yy + 30, Math.max(4, barW * r.share), 8, { rx: 4, fill: color, opacity: 0.9 })}
+${T(barX + barW + 18, yy + 41, `${(r.share * 100).toFixed(r.share < 0.1 ? 1 : 0)}%`, { size: 16, weight: 700, fill: C.muted })}
+${T(w - pad - 28, yy + 43, qtyText(r.qty), { size: 26, weight: 700, anchor: 'end' })}`;
+      yy += 66;
+    }
+    y += bh + 24;
+  }
+  y += 8;
+  out += `${R(pad, y, w - 2 * pad, 1.5, { opacity: 0.1 })}${T(pad, y + 40, 'Vriddhi Fuels  ·  litres billed at each price', { size: 16, fill: C.faint })}`;
+  const h = y + 72;
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${defs(fontCss)}${backdrop(w, h)}${out}</svg>`, size: { width: w, height: h } };
+}
+
 // ---- everyone's outstanding ------------------------------------------------------------
 // list: [{name, kind, balance}] (largest first); total; asOn; label (All / Retail / Bulk)
 export function outstandingListSvg({ list, total, asOn, label = '' }, { images = {}, fontCss = '' } = {}) {
