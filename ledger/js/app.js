@@ -672,7 +672,7 @@ async function viewRegister(tab, month, keep = false) {
       box.innerHTML = '';
       throw err;
     }
-    pdfReadyBar(box, blob, `${tab === 'stock' ? 'Stock Register' : 'DSR'} ${pm.product.short} ${regMonth(m)}.pdf`);
+    pdfReadyBar(box, blob, `${regMonth(m)} ${tab === 'stock' ? 'Stock Register' : 'Real DSR'} ${pm.product.short}.pdf`);
   }));
   // a month's DSR (or Stock Register) of every product, in one PDF
   main().querySelectorAll('[data-month-pdf]').forEach((b) => b.addEventListener('click', () => guard(async () => {
@@ -688,7 +688,7 @@ async function viewRegister(tab, month, keep = false) {
       out.innerHTML = '';
       throw err;
     }
-    pdfReadyBar(out, blob, `${kind === 'stock' ? 'Stock Register' : 'DSR'} ${regMonth(mk)}.pdf`);
+    pdfReadyBar(out, blob, `${regMonth(mk)} ${kind === 'stock' ? 'Stock Register' : 'Real DSR'}.pdf`);
     // made: the reminder for this month stops once both are
     markPdfMade(mk, kind);
     const due = monthPdfsDue(months, localToday(), pdfsMade(), monthComplete);

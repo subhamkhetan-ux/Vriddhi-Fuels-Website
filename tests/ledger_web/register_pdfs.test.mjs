@@ -16,7 +16,7 @@ test('register PDFs: the month, its financial-year folder and file names', () =>
   assert.equal(fyFolder('2026-11'), 'FY 2026-27');
   assert.equal(fyFolder('2027-03'), 'FY 2026-27');
   assert.equal(fyFolder('2027-04'), 'FY 2027-28');
-  assert.deepEqual(pdfNames('2026-11'), { dsr: 'DSR November 2026.pdf', stock: 'Stock Register November 2026.pdf' });
+  assert.deepEqual(pdfNames('2026-11'), { dsr: 'November 2026 Real DSR.pdf', stock: 'November 2026 Stock Register.pdf' });
 });
 
 test('register PDFs: waits for the month\'s closing readings, until the 5th', () => {
@@ -54,7 +54,7 @@ test('register PDFs: Google Drive — the folder made where missing, a file uplo
     if (url.includes('/files?q=') || url.includes('/files?')) {
       const q = decodeURIComponent(new URL(url).searchParams.get('q'));
       if (q.includes("name = 'Vriddhi Fuels'")) return json({ files: [{ id: 'vf' }] });
-      if (q.includes("'fy' in parents")) return json({ files: [{ id: 'f1', name: 'DSR November 2026.pdf' }] });
+      if (q.includes("'fy' in parents")) return json({ files: [{ id: 'f1', name: 'November 2026 Real DSR.pdf' }] });
       return json({ files: [] });
     }
     return json({ id: 'up' });
@@ -69,10 +69,10 @@ test('register PDFs: Google Drive — the folder made where missing, a file uplo
   const made = calls.filter(([m, u]) => m === 'POST' && u.endsWith('/files?supportsAllDrives=true')).map(([, , b]) => JSON.parse(b));
   assert.deepEqual(made, [{ name: 'Registers', mimeType: 'application/vnd.google-apps.folder', parents: ['vf'] },
     { name: 'FY 2026-27', mimeType: 'application/vnd.google-apps.folder', parents: ['new-Registers'] }]);
-  assert.deepEqual(await d.files('fy'), { 'DSR November 2026.pdf': 'f1' });
+  assert.deepEqual(await d.files('fy'), { 'November 2026 Real DSR.pdf': 'f1' });
   // a new file into the folder; a new version of one already there
-  await d.upload('fy', 'Stock Register November 2026.pdf', Buffer.from('%PDF'));
-  await d.upload('fy', 'DSR November 2026.pdf', Buffer.from('%PDF'), 'f1');
+  await d.upload('fy', 'November 2026 Stock Register.pdf', Buffer.from('%PDF'));
+  await d.upload('fy', 'November 2026 Real DSR.pdf', Buffer.from('%PDF'), 'f1');
   const ups = calls.filter(([, u]) => u.includes('/upload/'));
   assert.equal(ups[0][0], 'POST');
   assert.match(ups[0][2].toString(), /"parents":\["fy"\]/);

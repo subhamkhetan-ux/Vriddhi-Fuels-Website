@@ -7,8 +7,8 @@
 // figures are all in (its closing readings, or the next month has come in —
 // or from the 5th on, whatever there is), draws its pages exactly as the app
 // does (ledger/paper.css, register-view.js) and saves two PDFs:
-//     DSR <Month YYYY>.pdf             HSD, MS, XtraGreen — a page each
-//     Stock Register <Month YYYY>.pdf  the same, Stock Register pages
+//     <Month YYYY> Real DSR.pdf        HSD, MS, XtraGreen — a page each
+//     <Month YYYY> Stock Register.pdf  the same, Stock Register pages
 // into <DRIVE_FOLDER>/FY <yyyy-yy>/ in Google Drive (made when missing).
 // A month whose two PDFs are already there is left alone (FORCE=1 makes them
 // again, as new versions of the same files).
@@ -48,7 +48,8 @@ export function fyFolder(month) {
   const start = +month.slice(5, 7) >= 4 ? y : y - 1;
   return `FY ${start}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
-export const pdfNames = (month) => ({ dsr: `DSR ${monthLabel(month)}.pdf`, stock: `Stock Register ${monthLabel(month)}.pdf` });
+// the files' names: "November 2026 Real DSR.pdf", "November 2026 Stock Register.pdf"
+export const pdfNames = (month) => ({ dsr: `${monthLabel(month)} Real DSR.pdf`, stock: `${monthLabel(month)} Stock Register.pdf` });
 
 // what to do this run: {month, go, why}
 export function plan(all, today, { month = null, force = false } = {}) {

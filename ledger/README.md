@@ -385,8 +385,9 @@ the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
 from the 1st to the 7th. It signs in to the Ledger, and once last month's
 figures are all in (its closing readings — or from the 5th, whatever there
 is) it draws the month's pages exactly as the app does
-([`paper.css`](./paper.css), `monthPagesHtml()`) and saves **DSR <Month>.pdf**
-(HSD, MS, XtraGreen) and **Stock Register <Month>.pdf** into
+([`paper.css`](./paper.css), `monthPagesHtml()`) and saves **<Month Year> Real DSR.pdf**
+(HSD, MS, XtraGreen) and **<Month Year> Stock Register.pdf** (e.g. *November
+2026 Real DSR.pdf*) into
 **My Drive/Vriddhi Fuels/Registers/FY yyyy-yy/** (folders made when
 missing). A month already saved is left alone. *Run workflow* by hand takes
 a month (YYYY-MM) and *force* (make them again, as new versions).
