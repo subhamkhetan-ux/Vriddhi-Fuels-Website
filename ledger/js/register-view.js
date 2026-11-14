@@ -80,7 +80,7 @@ export function dsrTableHtml(pm, { latest = null, prev = null, edit = false } = 
     const hl = d === prev ? 'hl' : '';                     // the day before: what this morning's readings complete
     // this morning's receipt, total stock, testing, sales and cumulative aren't known
     // yet (they come with today's business): not marked
-    const open = d === latest ? 'nohl' : hl;
+    const open = d === latest && r ? 'nohl' : hl;
     cells.push(ink(r ? `${whole(r.stock)}${flagged}` : ''));
     cells.push(ink(r && r.receipt ? whole(r.receipt) : r && r.stock != null && d !== latest ? '<span class="nil">×</span>' : '', open));
     cells.push(ink(r ? whole(r.total) : '', open));
@@ -89,7 +89,7 @@ export function dsrTableHtml(pm, { latest = null, prev = null, edit = false } = 
     cells.push(ink(r ? paisa(r.sale) : '', open));
     cells.push(ink(r ? paisa(r.cum) : '', open));
     if (pp.remarks) cells.push('<td class="gap"></td><td class="remarks"></td>');
-    rows.push(`<tr class="${d === latest ? 'today' : ''}"><th class="date">${d}</th>${cells.join('')}</tr>`);
+    rows.push(`<tr class="${d === latest && r ? 'today' : ''}"><th class="date">${d}</th>${cells.join('')}</tr>`);
   }
   const t = pm.totals;
   const lead = tanks * 2;
