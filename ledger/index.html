@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Dancing+Script:wght@700&family=Kalam:wght@700&display=swap">
+<link rel="stylesheet" href="paper.css">
 <style>
 /* Same family as /payments: glass panels over a true-black, orange-lit base. */
 :root {
@@ -527,11 +528,6 @@ details.card.fold[open] > summary::before { transform: rotate(90deg); }
 details.card.fold > summary .fold-hint { margin-left: auto; color: var(--faint); font-size: 12.5px; }
 details.card.fold[open] > summary { margin-bottom: 12px; }
 table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: transparent; border-color: transparent; color: var(--ink); -webkit-text-fill-color: var(--ink); }
-/* the page as printed, for the phone's PDF: no highlight, no marks */
-.paper.as-printed { box-shadow: none; margin: 0; background: #fff; }
-.paper.as-printed tr.today td, .paper.as-printed tr.today th, .paper.as-printed td.hl { background: transparent; }
-.paper.as-printed .reg-flag { display: none; }
-.paper.as-printed thead th.v { writing-mode: horizontal-tb; transform: none; font-size: 8px; line-height: 1.1; padding: 2px 1px; min-width: 26px; }
 /* Monthly PDFs: flashes once a month is over until both its PDFs are made */
 @keyframes reg-flash { 0%, 100% { border-color: rgba(255,178,62,.35); box-shadow: 0 0 0 0 rgba(255,178,62,0), var(--glass-shadow); }
   50% { border-color: rgba(255,178,62,1); box-shadow: 0 0 0 4px rgba(255,178,62,.35), 0 0 28px rgba(255,178,62,.45); } }
@@ -550,43 +546,6 @@ table.adj .adj-in:disabled, .kpi .adj-open:disabled { opacity: .75; background: 
 .paper-fit { margin: 0 auto; overflow: hidden; }
 .paper-fit > .paper { transform-origin: 0 0; margin: 0; }
 .paper-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px -6px 6px; padding: 4px 6px 14px; }
-.paper { width: max-content; margin: 0 auto; background: #fbfaf5; color: #111; border-radius: 3px; padding: 18px 20px 22px;
-  box-shadow: 0 22px 44px -22px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.25);
-  background-image: linear-gradient(90deg, rgba(0,0,0,.025), rgba(0,0,0,0) 30px, rgba(0,0,0,0) calc(100% - 30px), rgba(0,0,0,.035)); }
-.paper-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 16px; margin: 0 0 8px; }
-.paper-head .hindi { font: 600 17px/1.2 "Noto Sans Devanagari", "Kohinoor Devanagari", "Mangal", sans-serif; color: #111; }
-.paper-head h2 { font: 800 21px/1.1 Arial, "Helvetica Neue", sans-serif; color: #000; letter-spacing: .01em; margin: 0; text-align: center; white-space: nowrap; }
-.paper-head .month { justify-self: end; font: 700 12px/1 Arial, sans-serif; color: #000; white-space: nowrap; }
-.paper-head .month u { font: 700 19px/1 "Kalam", "Segoe Print", cursive; color: #c8102e; letter-spacing: .06em; text-decoration-thickness: 1px; text-underline-offset: 4px; margin-left: 2px; }
-/* --bw: a line's width — set from the page's zoom so a line never gets thinner than a screen pixel (and vanishes) */
-table.paper-t { border-collapse: collapse; width: auto; font: 13px/1.15 Arial, "Helvetica Neue", sans-serif; color: #111; border: calc(var(--bw, 1px) * 2) solid #111; background: transparent; }
-table.paper-t th, table.paper-t td { border: var(--bw, 1px) solid #222; padding: 3px 6px; height: calc(22px + var(--bw, 1px)); text-align: left; vertical-align: middle; }
-table.paper-t thead th { font: 700 11.5px/1.15 Arial, sans-serif; color: #000; text-transform: uppercase; letter-spacing: 0; text-align: center; white-space: nowrap; background: transparent; }
-table.paper-t thead th.v { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9.5px; padding: 4px 2px; min-width: 22px; }
-table.paper-t thead th.small { font-size: 8px; }
-table.paper-t thead th.pump { min-width: 70px; font-weight: 600; }
-table.paper-t thead th.pump.unused { min-width: 42px; }
-table.paper-t thead th.w { min-width: 66px; }
-table.paper-t th.date { text-align: center; font: 700 12.5px/1 Arial, sans-serif; color: #000; min-width: 44px; background: transparent; }
-table.paper-t td.ink { color: #1c2fa0; font: 500 14.5px/1.1 "Segoe UI", Roboto, Arial, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: .01em; }
-table.paper-t td.ink.m { font-size: 13.5px; }
-table.paper-t td.ink.short { color: #c4141f; }
-table.paper-t td.ink.gain { color: #0f8a3c; }
-table.paper-t td.ink.q { color: #9aa0b8; text-align: center; cursor: help; }
-table.paper-t .nil { display: block; text-align: center; font-size: 15px; }
-table.paper-t td.gap, table.paper-t th.gap { border-top: 0; border-bottom: 0; min-width: 8px; padding: 0; }
-table.paper-t .remarks { min-width: 110px; border-left: calc(var(--bw, 1px) * 2) solid #111; }
-table.paper-t tr.tot th, table.paper-t tr.tot td { border-top: calc(var(--bw, 1px) * 2) solid #111; }
-table.paper-t tr.dsr-tot td.ink { color: #c4141f; font-weight: 700; }
-table.paper-t tbody tr:hover td { background: transparent; }
-table.paper-t tr.today td, table.paper-t tr.today th { background: rgba(255,230,60,.42); }
-table.paper-t tr.today td.gap { background: transparent; }
-table.paper-t td.hl { background: rgba(255,230,60,.42); }
-table.paper-t tr.today td.nohl { background: transparent; }
-table.paper-t td.edit { padding: 1px 2px; background: #fffbe0; }
-table.paper-t .dip-in { width: 54px; padding: 2px 4px; border: 1px solid #9aa3c7; border-radius: 3px; background: #fff; color: #1c2fa0; font: 500 14px/1.1 "Segoe UI", Roboto, Arial, sans-serif; box-shadow: none; }
-table.paper-t .dip-in:focus { border-color: #1c2fa0; box-shadow: 0 0 0 2px rgba(28,47,160,.2); }
-table.paper-t .dip-in.saved { border-color: #2fa36b; }
 .kpi .adj-open { width: 100%; max-width: 170px; font: 800 22px/1.1 var(--display); padding: 2px 8px; }
 table.adj .adj-in { width: 84px; padding: 4px 8px; text-align: right; display: inline-block; }
 table.adj small { margin-left: 6px; }
@@ -595,12 +554,6 @@ table.adj th.grp { text-align: center; color: var(--muted); }
 table.adj .sep { border-left: 1px solid var(--glass-line); }
 table.adj tr.future td { color: var(--faint); }
 table.adj tfoot th, table.adj tfoot td { border-top: 1px solid var(--glass-line); font-weight: 700; }
-.paper .reg-flag { background: #ffd666; color: #7a4a00; }
-.paper-row { display: flex; gap: 22px; align-items: flex-start; }
-table.paper-t.side th { text-align: left; font: 700 12px/1.1 Arial, sans-serif; white-space: nowrap; color: #000; text-transform: none; letter-spacing: 0; }
-table.paper-t.side td.ink { min-width: 110px; text-align: right; }
-.paper.stock table.paper-t td.ink { text-align: right; min-width: 92px; }
-.paper.stock .paper-head h2 { font-size: 18px; }
 @media print {
   body { background: #fff !important; }
   .top, .tabs, #auto-bar, .view-chips, .card:not(.reg-paper-card), .reg-paper-card > :not(.paper-scroll) { display: none !important; }
