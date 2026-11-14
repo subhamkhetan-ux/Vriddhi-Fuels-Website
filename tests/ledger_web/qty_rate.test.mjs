@@ -40,3 +40,39 @@ test('litres by billing price: the spreadsheet', () => {
   assert.deepEqual(rows[6], ['HSD total', 89.1, 45000, 100, 4, 4009500, '', '']);
   assert.deepEqual(rows[rows.length - 1], ['All products', '', 45200, '', 5, 4029740, '', '']);
 });
+
+test('qtyPick keeps only the ticked prices and works the totals out again', async () => {
+  const { qtyByRate, qtyPick, rateKey } = await import('../../ledger/js/qty-rate.js');
+  const res = qtyByRate([
+    { sale_date: '2026-10-02', product: 'HSD', qty: 1000, rate: 90.5, amount: 90500 },
+    { sale_date: '2026-10-09', product: 'HSD', qty: 3000, rate: 91, amount: 273000 },
+    { sale_date: '2026-10-12', product: 'MS', qty: 200, rate: 100, amount: 20000 },
+  ]);
+  assert.equal(qtyPick(res, null), res);
+  const one = qtyPick(res, new Set([rateKey('HSD', 91)]));
+  assert.equal(one.qty, 3000);
+  assert.equal(one.products.length, 1);
+  assert.equal(one.products[0].rates[0].share, 1);
+  assert.equal(one.products[0].avg, 91);
+  const two = qtyPick(res, new Set([rateKey('HSD', 90.5), rateKey('MS', 100)]));
+  assert.deepEqual(two.products.map((p) => [p.product, p.qty]), [['HSD', 1000], ['MS', 200]]);
+  assert.equal(two.qty, 1200);
+  assert.equal(res.qty, 4200);                                // the original is untouched
+});
+
+test('qtyByRateSvg draws the litres at each price without bills or amounts', async () => {
+  const { qtyByRate } = await import('../../ledger/js/qty-rate.js');
+  const { qtyByRateSvg } = await import('../../ledger/js/share-svg.js');
+  const res = qtyByRate([
+    { sale_date: '2026-10-02', product: 'HSD', qty: 1000, rate: 90.5, amount: 90500 },
+    { sale_date: '2026-10-09', product: 'HSD', qty: 3000, rate: 91, amount: 273000 },
+  ]);
+  const { svg, size } = qtyByRateSvg(res, { name: 'Demo Power', period: 'October 2026', asOn: '2026-11-14' });
+  assert.match(svg, /4,000 L/);
+  assert.match(svg, /₹91\.00/);
+  assert.match(svg, /₹90\.50/);
+  assert.match(svg, /3,000 L/);
+  assert.doesNotMatch(svg, /\d+ bills?\b/i);
+  assert.doesNotMatch(svg, /2,73,000|3,63,500/);
+  assert.ok(size.height > 600);
+});

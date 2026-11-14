@@ -396,8 +396,11 @@ pumps).
 litres billed over a period — the whole account, a month, or from–to — each
 product's total and how much went at each billing price (₹/L, highest first:
 litres, share, bills, amount, the dates billed), with the average price; a
-unit-wise account (SMC) one unit at a time or all; **Download Excel**
-(`js/qty-rate.js`).
+unit-wise account (SMC) one unit at a time or all; **Download Excel**.
+**Share picture**: the total litres and the litres at each price as one
+picture (and PDF) to send — no bills or amounts; tick or untick prices in the
+tables to put only some of them in it, the totals and shares worked out again
+over the ticked ones (`js/qty-rate.js` qtyPick, `share-svg.js` qtyByRateSvg).
 
 **Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
 the firm's vehicles — our own tanker trucks and cars in the firm's name — from

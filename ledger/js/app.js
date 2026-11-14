@@ -41,13 +41,13 @@ import {
   poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, statementLines, unitLabel,
 } from './ledger-view.js';
 import {
-  dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
+  dMon, dMonY, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyByRateSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
 } from './share-svg.js';
 import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { qtyByRate, qtyByRateSheet } from './qty-rate.js';
+import { qtyByRate, qtyByRateSheet, qtyPick, rateKey } from './qty-rate.js';
 import { fitPaperToPage } from './paper-fit.js';
 import { handwritePage } from './handwrite.js';
 import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
@@ -1560,18 +1560,25 @@ function unitsHtml(acct) {
 // the whole account, a month or from–to — each product's total and its litres
 // at each price; one unit at a time for a unit-wise account; Download Excel.
 function paintQtyByRate(box, { code, name, sales, months, from: since, units }) {
-  const q = state.qtyView && state.qtyView.code === code ? state.qtyView : (state.qtyView = { code, period: '', from: '', to: '', unit: '*' });
+  const q = state.qtyView && state.qtyView.code === code ? state.qtyView : (state.qtyView = { code, period: '', from: '', to: '', unit: '*', off: new Set() });
+  q.off ||= new Set();
   const range = q.period === 'custom' ? { from: q.from || since, to: q.to || localToday() }
     : q.period ? { from: `${q.period}-01`, to: monthEnd(`${q.period}-01`) } : { from: since, to: null };
   const unitList = units ? units.filter((u) => u.unit).map((u) => u.unit) : [];
   const res = qtyByRate(sales, { from: range.from, to: range.to, unit: q.unit === '*' ? undefined : q.unit });
+  // the prices ticked for the picture (all by default; q.off holds the unticked)
+  const allKeys = res.products.flatMap((p) => p.rates.map((r) => rateKey(p.product, r.rate)));
+  const keep = new Set(allKeys.filter((k) => !q.off.has(k)));
+  const picked = qtyPick(res, q.off.size ? keep : null);
+  const nPicked = keep.size;
   const what = q.period === 'custom' ? `${fmtDate(range.from)} – ${fmtDate(range.to)}`
     : q.period ? monthName(q.period) : `since ${fmtDate(since)}`;
   const L = (n) => `${fmtLitres(n)} L`;                     // exact litres, not KL
   const pct = (v) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
   const span = (r) => (r.first === r.last ? fmtDate(r.first) : `${fmtDate(r.first)} – ${fmtDate(r.last)}`);
   box.innerHTML = `<div class="row-between"><h3>Quantity by billing price <span class="muted">· ${esc(what)}</span></h3>
-      ${res.bills ? '<button class="btn ghost small" type="button" id="qty-xlsx">Download Excel</button>' : ''}</div>
+      ${res.bills ? `<span class="actions"><button class="btn small" type="button" id="qty-pic"${picked.bills ? '' : ' disabled'}>Share picture${picked.bills && q.off.size ? ` (${plural(nPicked, 'price')})` : ''}</button>
+        <button class="btn ghost small" type="button" id="qty-xlsx">Download Excel</button></span>` : ''}</div>
     <div class="share-row">
       <label class="inline-label small">Period <select id="qty-period">
         <option value="">The whole account (since ${esc(fmtDate(since))})</option>
@@ -1587,18 +1594,41 @@ function paintQtyByRate(box, { code, name, sales, months, from: since, units }) 
       </div>
       ${res.products.map((p) => `<h3 class="sub-h">${esc(PRODUCT_NAME[p.product] || p.product)} <span class="muted">· ${esc(L(p.qty))} at ${plural(p.rates.length, 'price')}</span></h3>
         <div class="table-wrap"><table class="compact">
-          <thead><tr><th class="r">Billing price</th><th class="r">Litres</th><th class="r">Share</th><th class="r">Bills</th><th class="r">Amount</th><th>Billed</th></tr></thead>
-          <tbody>${p.rates.map((r) => `<tr><td class="r"><b>₹${r.rate.toFixed(2)}</b>/L</td><td class="r">${esc(L(r.qty))}</td>
+          <thead><tr><th class="tick"><input type="checkbox" data-qty-all="${esc(p.product)}" aria-label="All ${esc(PRODUCT_NAME[p.product] || p.product)} prices in the picture"${p.rates.every((r) => keep.has(rateKey(p.product, r.rate))) ? ' checked' : ''}></th><th class="r">Billing price</th><th class="r">Litres</th><th class="r">Share</th><th class="r">Bills</th><th class="r">Amount</th><th>Billed</th></tr></thead>
+          <tbody>${p.rates.map((r) => `<tr${keep.has(rateKey(p.product, r.rate)) ? '' : ' class="dim"'}><td class="tick"><input type="checkbox" data-qty-rate="${esc(rateKey(p.product, r.rate))}" aria-label="₹${r.rate.toFixed(2)} in the picture"${keep.has(rateKey(p.product, r.rate)) ? ' checked' : ''}></td><td class="r"><b>₹${r.rate.toFixed(2)}</b>/L</td><td class="r">${esc(L(r.qty))}</td>
             <td class="r"><span class="mini-track qty-bar"><span class="mini" style="width:${Math.max(2, r.share * 100)}%"><i style="flex:1;background:${(SERIES[p.product] || {}).color || 'var(--accent)'}"></i></span></span> ${pct(r.share)}</td>
             <td class="r">${r.bills}</td><td class="r">${esc(fmtMoney(r.amount))}</td><td class="nowrap small">${esc(span(r))}</td></tr>`).join('')}</tbody>
-          <tfoot><tr><th class="r">Total</th><th class="r">${esc(L(p.qty))}</th><th class="r">100%</th><th class="r">${p.bills}</th><th class="r">${esc(fmtMoney(p.amount))}</th><th class="small muted">avg ₹${p.avg.toFixed(2)}/L</th></tr></tfoot>
+          <tfoot><tr><th></th><th class="r">Total</th><th class="r">${esc(L(p.qty))}</th><th class="r">100%</th><th class="r">${p.bills}</th><th class="r">${esc(fmtMoney(p.amount))}</th><th class="small muted">avg ₹${p.avg.toFixed(2)}/L</th></tr></tfoot>
         </table></div>`).join('')}`
     : `<p class="muted">No bills ${q.period ? 'in this period' : 'yet'}${q.unit !== '*' ? ` for ${esc(unitLabel(q.unit))}` : ''}.</p>`}`;
   const again = () => paintQtyByRate(box, { code, name, sales, months, from: since, units });
-  box.querySelector('#qty-period').addEventListener('change', (e) => { q.period = e.target.value; again(); });
-  box.querySelector('#qty-from')?.addEventListener('change', (e) => { q.from = e.target.value; again(); });
-  box.querySelector('#qty-to')?.addEventListener('change', (e) => { q.to = e.target.value; again(); });
-  box.querySelectorAll('[data-qty-unit]').forEach((b) => b.addEventListener('click', () => { q.unit = b.dataset.qtyUnit; again(); }));
+  box.querySelector('#qty-period').addEventListener('change', (e) => { q.period = e.target.value; q.off.clear(); again(); });
+  box.querySelector('#qty-from')?.addEventListener('change', (e) => { q.from = e.target.value; q.off.clear(); again(); });
+  box.querySelector('#qty-to')?.addEventListener('change', (e) => { q.to = e.target.value; q.off.clear(); again(); });
+  box.querySelectorAll('[data-qty-unit]').forEach((b) => b.addEventListener('click', () => { q.unit = b.dataset.qtyUnit; q.off.clear(); again(); }));
+  box.querySelectorAll('[data-qty-rate]').forEach((c) => c.addEventListener('change', () => {
+    if (c.checked) q.off.delete(c.dataset.qtyRate); else q.off.add(c.dataset.qtyRate);
+    again();
+  }));
+  box.querySelectorAll('[data-qty-all]').forEach((c) => c.addEventListener('change', () => {
+    const p = res.products.find((x) => x.product === c.dataset.qtyAll);
+    p.rates.forEach((r) => { const k = rateKey(p.product, r.rate); if (c.checked) q.off.delete(k); else q.off.add(k); });
+    again();
+  }));
+  box.querySelector('#qty-pic')?.addEventListener('click', () => {
+    const who = `${name}${q.unit !== '*' ? ` ${unitLabel(q.unit)}` : ''}`;
+    const base = safeName(`${who} Quantity by Price ${q.period === 'custom' ? `${dmyDash(range.from)} to ${dmyDash(range.to)}` : q.period ? monthName(q.period) : 'all'}`);
+    const period = q.period === 'custom' ? `${dMonY(range.from)} – ${dMonY(range.to)}`
+      : q.period ? monthName(q.period) : `${dMonY(picked.from)} – ${dMonY(picked.to)}`;
+    const draw = async () => {
+      const { images, fontCss } = await shareImages();
+      return qtyByRateSvg(picked, { name, unit: q.unit !== '*' ? unitLabel(q.unit) : '', period, asOn: localToday(), images, fontCss });
+    };
+    sharePictures(`${who} — quantity by price`, [{ label: '', make: async () => {
+      const { svg, size } = await draw();
+      return [{ files: [new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' })], pdf: async () => { const d = await draw(); await longPdf(d.svg, d.size, base); } }];
+    } }]);
+  });
   box.querySelector('#qty-xlsx')?.addEventListener('click', () => guard(async () => {
     const XLSX = await loadSheetJS();
     const title = `${name}${q.unit !== '*' ? ` ${unitLabel(q.unit)}` : ''} — litres by billing price`;
@@ -1655,7 +1685,7 @@ async function viewBulkAccount(code) {
       ${acct.units ? '<p class="small muted">Shares one set of pictures per unit — or switch to <b>Both units together</b> in the share sheet.</p>' : ''}
       ${acct.companies ? `<p class="small muted">A statement of account for each of the ${acct.companies.length} companies — its own bills, payments, running balance and pending bills: <b>Company-wise</b> in the share sheet, or <b>Company statements</b> for one PDF per company in a .zip.</p>` : ''}` : ''}
     </section>
-    ${view === 'statement' && state.qtyOpen === code ? `<section class="card" id="qty-card"></section>` : ''}
+    ${view === 'statement' && state.qtyOpen === code ? `<section class="card qty-card" id="qty-card"></section>` : ''}
     ${view === 'statement' ? `${acct.units ? `<section class="card">${unitsHtml(acct)}</section>` : ''}
       ${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}
       <section class="card" id="pending-card">${pendingHtml(acct, { group: res.kind === 'group' })}</section>
