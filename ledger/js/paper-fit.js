@@ -7,9 +7,7 @@
 // paper: a .paper element on screen; W × H: the sheet's printable size in CSS
 // px (or W = 0: keep the page's own width and fit H / W as the sheet's shape,
 // given as `ratio`). Returns the zoom to print at.
-//
-// Self-contained (no imports, no closures) so a headless browser can run it
-// as it is (page.evaluate in ledger/tools/register_pdfs.mjs).
+
 export function fitPaperToPage(paper, W, H, ratio = 0, maxZoom = 1.5) {
   paper.classList.add('fit-page');
   paper.style.zoom = '1';

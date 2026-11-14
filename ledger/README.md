@@ -378,32 +378,6 @@ the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
 (several at once; which is which is worked out from their sheets). Needs
 `supabase/ledger-schema.sql` re-run once. The demo has a made-up month.
 
-**Register PDFs saved to Google Drive every month (GitHub).** The
-*Register PDFs to Google Drive* workflow
-([`.github/workflows/register-pdfs.yml`](../.github/workflows/register-pdfs.yml),
-[`tools/register_pdfs.mjs`](./tools/register_pdfs.mjs)) runs every morning
-from the 1st to the 7th. It signs in to the Ledger, and once last month's
-figures are all in (its closing readings — or from the 5th, whatever there
-is) it draws the month's pages exactly as the app does
-([`paper.css`](./paper.css), `monthPagesHtml()`) and saves **<Month Year> Real DSR.pdf**
-(HSD, MS, XtraGreen) and **<Month Year> Stock Register.pdf** (e.g. *November
-2026 Real DSR.pdf*) into
-**My Drive/Vriddhi Fuels/Registers/FY yyyy-yy/** (folders made when
-missing). A month already saved is left alone. *Run workflow* by hand takes
-a month (YYYY-MM) and *force* (make them again, as new versions).
-One-time setup — repository Settings → Secrets and variables → Actions:
-
-1. **LEDGER_EMAIL** / **LEDGER_PASSWORD**: a Ledger member's login (the app's own).
-2. **GDRIVE_TOKEN**: on the Mac, with the Google Cloud OAuth client
-   (`credentials.json`, Desktop app; Google Drive API enabled; consent screen
-   *In production*): `pip3 install google-auth-oauthlib` then
-   `python3 ledger/tools/mint_drive_token.py --credentials credentials.json`,
-   sign in as the Drive's owner, and paste the printed JSON.
-3. Optional variable **REGISTER_DRIVE_FOLDER** for another folder (default
-   `Vriddhi Fuels/Registers`).
-
-Try it once with *Run workflow* (month blank = last month).
-
 **Petrol and XtraGreen sales on Home** come from the pumps once the E-DSR
 is in: the app's sales are the credit bills, but the E-DSR has every day's
 sale through the pumps. For each day it has, the litres beyond that day's
@@ -653,10 +627,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/po.js` | The PO rule of the Bulk sheets |
 | `js/register.js` | Register: reads the E-DSR, Stock Register and DIP Chart; each morning's dip stock and dips; a product's month (the DSR book and the Stock Register) |
 | `js/register-view.js` | Register: the DSR book's and the Stock Register's tables, *This morning* |
-| `paper.css` | Register: the paper pages' look — shared by the app and the monthly PDFs job |
-| `tools/register_pdfs.mjs` | Register: the month's DSR / Stock Register PDFs into Google Drive (GitHub, monthly) |
-| `tools/drive.mjs` | Google Drive for that job: a folder by its path, its files, an upload |
-| `tools/mint_drive_token.py` | One-time: the Google Drive token (GDRIVE_TOKEN) that job uses |
+| `paper.css` | Register: the paper pages' look (screen, Print and the Monthly PDFs) |
 | `js/register-demo.js` | Register: the demo's made-up month (tank chart, readings, receipts, dips) |
 | `js/store.js` | Talks to the database (`ledger_*` functions); also the in-memory demo store |
 | `js/bills.js` | Which bills go in which PDF (Module8 / Module7 rules) |
