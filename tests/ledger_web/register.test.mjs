@@ -320,3 +320,26 @@ test('register: once a month is over, its two PDFs are asked for until made', ()
   assert.deepEqual(monthPdfsDue(months, '2026-12-02'), { month: '2026-11', missing: ['dsr', 'stock'] });
   assert.equal(monthPdfsDue([], '2026-12-02'), null);
 });
+
+test('register: the month\'s end — the next month\'s first readings close the last day, and aren\'t a line', () => {
+  // a 30-day month whose E-DSR has its 30 days and the 1st's readings (its last row)
+  const days = Array.from({ length: 31 }, (_, i) => ({ receipt: null, test: i < 30 ? 10 : null, meters: [1000 + 100 * i] }));
+  const dsr = { open: 5000, nozzles: [{ label: 'A1', machine: 'Machine No. 1' }], days };
+  const pm = productMonth({ month: '2026-11', key: 'MS', dsr, stock: null, by: null, chart: null });
+  assert.equal(pm.closed, true);
+  assert.equal(pm.rows[29].sale, 90);                                       // 30 Nov: 1 Dec's readings − 30 Nov's − testing
+  assert.equal(pm.rows.length, 30);                                         // 1 Dec isn't a line of November's page
+  assert.deepEqual(latestDays(pm), { latest: 31, prev: 30 });
+  const html = dsrTableHtml(pm, latestDays(pm));
+  assert.doesNotMatch(html, /class="today"/);                               // no "this morning" line
+  const last = html.split('<th class="date">30</th>')[1].split('</tr>')[0];
+  assert.equal((last.match(/ink hl/g) || []).length, 5);                    // its receipt, total, testing, sale, cumulative
+  assert.equal(html.split('<th class="date">31</th>')[1].split('</tr>')[0].includes('hl'), false);
+  // not closed yet: the last line with readings is this morning's
+  const open = productMonth({ month: '2026-11', key: 'MS', dsr: { ...dsr, days: days.map((x, i) => (i === 30 ? { ...x, meters: null } : x)) }, stock: null, by: null, chart: null });
+  assert.equal(open.closed, false);
+  assert.deepEqual(latestDays(open), { latest: 30, prev: 29 });
+  // the month's PDFs are asked for only once it's complete
+  assert.equal(monthPdfsDue(['2026-11'], '2026-12-01', {}, () => false), null);
+  assert.deepEqual(monthPdfsDue(['2026-11'], '2026-12-01', {}, () => true), { month: '2026-11', missing: ['dsr', 'stock'] });
+});

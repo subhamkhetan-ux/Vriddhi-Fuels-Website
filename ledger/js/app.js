@@ -609,7 +609,9 @@ async function viewRegister(tab, month, keep = false) {
     : (hasDsr ? '' : `<p class="warn-text small">The E-DSR for ${esc(regMonth(m))} isn't here, so there are no meter readings or sales.</p>`);
   const flagged = pm.rows.filter((r) => (tab === 'stock' ? r.actualAlt != null : r.differs != null));
   // a month that's over and whose PDFs haven't been made yet: the card flashes
-  const pdfDue = monthPdfsDue(months, today, pdfsMade());
+  // (only once its figures are all in: the last day's sale needs the next month's first readings)
+  const monthComplete = (mk) => months.some((x) => x > mk) || REG_PRODUCTS.some((p) => pmOf(mk, p.key).closed);
+  const pdfDue = monthPdfsDue(months, today, pdfsMade(), monthComplete);
   const unknownDips = pm.product.tanks === 2 && pm.rows.some((r) => r.stock != null && r.dips[0] == null);
   setMain(`
     ${tabs}
@@ -691,7 +693,7 @@ async function viewRegister(tab, month, keep = false) {
     pdfReadyBar(out, blob, `${kind === 'stock' ? 'Stock Register' : 'DSR'} ${regMonth(mk)}.pdf`);
     // made: the reminder for this month stops once both are
     markPdfMade(mk, kind);
-    const due = monthPdfsDue(months, localToday(), pdfsMade());
+    const due = monthPdfsDue(months, localToday(), pdfsMade(), monthComplete);
     if (!due || due.month !== mk) {
       document.getElementById('reg-month-pdfs')?.classList.remove('flash');
       document.getElementById('reg-pdf-due')?.remove();

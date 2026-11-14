@@ -391,6 +391,9 @@ export function productMonth({ month, key, dsr, stock, by, chart, typed = null }
   const last = [...rows].reverse().find((r) => r.shortage != null);
   return {
     month, key, product: prod, nozzles: dsr ? dsr.nozzles : [], rows, totals,
+    // the month is closed: the E-DSR has the next month's first readings (its
+    // last row), which only give the last day its sale — they're not a day here
+    closed: !!(dsr && dsr.days[n] && dsr.days[n].meters && dsr.days[n].meters.some((v) => v != null)),
     openShortage: stock ? stock.openShortage : null,
     testAdjust: stock ? stock.testAdjust : null,
     shortageNow: last ? last.shortage : (stock ? stock.openShortage : null),
@@ -437,7 +440,11 @@ export function pumpSales(all, keys = ['MS', 'XG']) {
 
 // The latest day with readings (this morning's), and the one before it
 // (whose testing, sale and receipt those readings complete): {latest, prev} day numbers
+// At the month's end the latest readings are the next month's first (not a
+// line of this page): then there's no "this morning" line, and the last day
+// is the one completed — {latest: days + 1, prev: days}.
 export function latestDays(pm) {
+  if (pm.closed) return { latest: pm.rows.length + 1, prev: pm.rows.length };
   const r = [...pm.rows].reverse().find((x) => x.meters || x.stock != null);
   return r ? { latest: r.day, prev: r.day > 1 ? r.day - 1 : null } : { latest: null, prev: null };
 }
@@ -557,9 +564,11 @@ export function registerAlerts(all, limit = GAIN_LIMIT) {
 // months: the months kept (any order); today: 'YYYY-MM-DD'; done: {month:
 // {dsr: true, stock: true}} (the PDFs made) -> the latest month that's over
 // and still lacks one of its two PDFs: {month, missing: ['dsr' | 'stock']}, or null
-export function monthPdfsDue(months, today, done = {}) {
+// complete(month): whether the month's figures are all in (its last day's
+// sale needs the next month's first readings) — asked for only once they are
+export function monthPdfsDue(months, today, done = {}, complete = () => true) {
   const now = String(today || '').slice(0, 7);
-  const over = [...new Set(months || [])].filter((m) => m < now).sort().reverse();
+  const over = [...new Set(months || [])].filter((m) => m < now && complete(m)).sort().reverse();
   if (!over.length) return null;
   const m = over[0];
   const missing = ['dsr', 'stock'].filter((k) => !(done[m] && done[m][k]));

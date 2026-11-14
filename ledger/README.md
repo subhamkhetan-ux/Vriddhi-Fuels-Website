@@ -298,7 +298,12 @@ three** in one — HSD, MS and XtraGreen, an A4 page each, as printed — for
 any month the app has kept (made from the kept data when asked, so a past
 month is always there). **Once a month is over** the card flashes, and a
 note at the top of the tab points to it, until both of that month's PDFs
-have been made (remembered on each device). On a wide screen the page takes the window's width;
+have been made (remembered on each device) — once the month's figures are
+all in. **The month's end:** the E-DSR's last row holds the next month's
+first readings; they only give the last day its sale (and aren't a line of
+the month's page). Once they're in, the month is *closed*: its page has no
+"this morning" line, and the last day's receipt, total stock, testing, sale
+and cumulative are highlighted as the day completed. On a wide screen the page takes the window's width;
 on a **phone** the whole page is zoomed out to fit the screen held upright,
 with **− / Fit / +** to make it bigger or smaller (it then scrolls) — and
 pinching works as on any page.
