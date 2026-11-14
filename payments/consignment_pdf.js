@@ -54,10 +54,14 @@ const AT = {
   serial: { x: 166.0, y: 228.24, size: 12.0, bold: true, cover: [165, 216, 229, 232] },   // not underlined (the form's own underline is covered too)
   date: { x: 476.5, y: 228.24, size: 12.0 },
   origin: { x: 134.16, y: 299.4, size: 12.96, bold: true, cover: [133, 286, 376, 303], maxWidth: 420 },
-  qty: { y: 500.76, size: 11.04, centres: { 'MS | EBMS': 179.85, 'XtraGreen HSD': 275.65, HSD: 371.4, LSHFHSD: 467.15 } },
+  // the quantity row runs 490.6–515.9: the figure is large and bold, centred in it
+  qty: { y: 508.4, size: 15, bold: true, centres: { 'MS | EBMS': 179.85, 'XtraGreen HSD': 275.65, HSD: 371.4, LSHFHSD: 467.15 } },
   value: { x: 146.2, y: 555.0, size: 12.96, bold: true },
-  invoiceNo: { x: 146.2, y: 585.0, size: 12.96, bold: true },
-  invoiceDate: { x: 341.0, y: 585.0, size: 12.96, bold: true },
+  // "7013100230 on 14/11/2026" written as one line after "Invoice No. & Date:";
+  // the form's own fixed "on" (far to the right) is erased from the template —
+  // a blank note gets it back in its old place, to write either side of by hand
+  invoice: { x: 146.2, y: 585.0, size: 12.96, bold: true },
+  blankOn: { x: 324.0, y: 585.0, size: 12.96, bold: true, cover: [323, 572, 339, 588] },
 };
 
 // The note's values -> what is written. A blank note writes only the
@@ -110,12 +114,14 @@ export async function buildNotePdf(PDFLib, templateBytes, fields) {
   // (the cover only matters with an older template that still prints one)
   cover(AT.origin.cover);
   text(fields.origin || ORIGIN, AT.origin);
-  if (!fields.blank) {
+  cover(AT.blankOn.cover);           // (only matters with an older template that still prints "on")
+  if (fields.blank) {
+    text('on', AT.blankOn);
+  } else {
     text(fields.date, AT.date);
     for (const [col, q] of Object.entries(fields.qty || {})) text(q, AT.qty, { x: AT.qty.centres[col], centre: true });
     text(fields.value, AT.value);
-    text(fields.invoiceNo, AT.invoiceNo);
-    text(fields.invoiceDate, AT.invoiceDate);
+    text([fields.invoiceNo, fields.invoiceDate].filter(Boolean).join(' on '), AT.invoice);
   }
 
   // onto A5: the same page, scaled to fit and centred

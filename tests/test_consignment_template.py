@@ -1,5 +1,5 @@
 """payments/consignment_note_template.pdf: the firm's blank consignment note,
-with the serial and the Place of Origin erased — payments/consignment_pdf.js
+with the serial, the Place of Origin and the invoice line's "on" erased — payments/consignment_pdf.js
 writes both on every note (the FY's VF/CNyyyy/ prefix, the chosen terminal).
 If the form is replaced, it must keep the labels and drop those two values,
 or a printed note would carry a hidden second serial / terminal."""
@@ -24,3 +24,7 @@ def test_template_has_the_form_but_not_the_values_the_app_writes():
     assert "VF/CN" not in text                          # the serial is written by the app
     assert "Jharsuguda Terminal" not in text            # so is the Place of Origin
     assert "Place of Destination : Jharsuguda (Vriddhi Fuels)." in text   # this one stays
+    # the invoice line is written whole ("7013100230 on 14/11/2026"): the form's
+    # own fixed "on", far to the right, is erased too
+    line = text[text.index("Invoice No. & Date:"):text.index("Person Liability")]
+    assert line.strip() == "Invoice No. & Date:"
