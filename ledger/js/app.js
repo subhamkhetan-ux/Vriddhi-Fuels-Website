@@ -48,7 +48,7 @@ import {
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
 import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
-import { adjustHtml, alertText, dsrTableHtml, gainClass, gainLoss, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
+import { adjustHtml, alertText, dsrTableHtml, gainClass, gainLoss, litres as regLitres, monthComplete as regMonthComplete, monthLabel as regMonth, monthPagesHtml, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
@@ -610,7 +610,7 @@ async function viewRegister(tab, month, keep = false) {
   const flagged = pm.rows.filter((r) => (tab === 'stock' ? r.actualAlt != null : r.differs != null));
   // a month that's over and whose PDFs haven't been made yet: the card flashes
   // (only once its figures are all in: the last day's sale needs the next month's first readings)
-  const monthComplete = (mk) => months.some((x) => x > mk) || REG_PRODUCTS.some((p) => pmOf(mk, p.key).closed);
+  const monthComplete = (mk) => regMonthComplete(all, mk);
   const pdfDue = monthPdfsDue(months, today, pdfsMade(), monthComplete);
   const unknownDips = pm.product.tanks === 2 && pm.rows.some((r) => r.stock != null && r.dips[0] == null);
   setMain(`
@@ -677,12 +677,7 @@ async function viewRegister(tab, month, keep = false) {
     const mk = document.getElementById('reg-pdf-month').value;
     const kind = b.dataset.monthPdf;
     out.innerHTML = loadingHtml(`Making the ${kind === 'stock' ? 'Stock Register' : 'DSR'} of ${regMonth(mk)}…`);
-    const pages = REG_PRODUCTS.map((p) => {
-      const x = pmOf(mk, p.key);
-      return kind === 'stock'
-        ? stockTableHtml(x, { adj: all[`dsr:${mk}`] ? testingAdjust(all, p.key).get(mk) : null })
-        : dsrTableHtml(x, {});
-    });
+    const pages = monthPagesHtml(all, mk, kind);
     let blob;
     try {
       blob = await papersPdf(pages);

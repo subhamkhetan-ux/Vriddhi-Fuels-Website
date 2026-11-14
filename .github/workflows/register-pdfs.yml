@@ -1,0 +1,58 @@
+name: Register PDFs to Google Drive
+
+# Each month, the Ledger app's Register for the month just ended — the DSR of
+# HSD, MS and XtraGreen in one PDF, their Stock Register in another — saved
+# into Google Drive (My Drive/<DRIVE_FOLDER>/FY yyyy-yy/), drawn exactly as
+# the app draws the pages. Runs every morning from the 1st to the 7th: it
+# waits for the month's closing readings (from the 5th it saves whatever
+# there is) and leaves a month alone once both PDFs are there.
+# ledger/tools/register_pdfs.mjs does the work; ledger/README.md has the setup.
+#
+# Secrets: LEDGER_EMAIL, LEDGER_PASSWORD (a Ledger member's login) and
+# GDRIVE_TOKEN (ledger/tools/mint_drive_token.py). Optional variable:
+# REGISTER_DRIVE_FOLDER (default "Vriddhi Fuels/Registers").
+
+on:
+  schedule:
+    - cron: '17 3 1-7 * *'        # 08:47 in India, the 1st to the 7th
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Month to save, YYYY-MM (blank: last month)'
+        required: false
+        default: ''
+      force:
+        description: 'Make the PDFs again even if they are in Drive (a new version of each)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: register-pdfs
+  cancel-in-progress: false
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium (Playwright)
+        run: |
+          npm install --no-save --no-package-lock playwright@1.48.2
+          npx playwright install --with-deps chromium
+      - name: Save the month's PDFs to Google Drive
+        env:
+          LEDGER_EMAIL: ${{ secrets.LEDGER_EMAIL }}
+          LEDGER_PASSWORD: ${{ secrets.LEDGER_PASSWORD }}
+          GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+          DRIVE_FOLDER: ${{ vars.REGISTER_DRIVE_FOLDER }}
+          MONTH: ${{ inputs.month }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+        run: node ledger/tools/register_pdfs.mjs

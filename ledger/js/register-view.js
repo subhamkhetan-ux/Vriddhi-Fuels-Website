@@ -2,6 +2,8 @@
 // like the paper book, and the Stock Register, from register.js's
 // productMonth(). No DOM, no network.
 
+import { mornings, PRODUCTS, productMonth, testingAdjust } from './register.js';
+
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const L2 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const litres = (n) => (n == null ? '' : L2.format(n));
@@ -207,4 +209,35 @@ const round = (n) => Math.round(n * 100) / 100;
 export function alertText(a, name) {
   const mon = monthLabel(a.month).slice(0, 3);
   return `${name}: the Stock Register has gained ${L2.format(a.gain)} L this month (to ${a.day} ${mon}) — more than 40 L. Raise the testing adjustment${a.left > 0 ? `: about ${a.perDay} L more DSR testing a day for the ${a.left} day${a.left === 1 ? '' : 's'} left makes it up` : ''} and keeps the books in shortage.`;
+}
+
+// A month's pages for all three products (HSD, MS, XtraGreen), as printed:
+// all = store.register(), kind 'dsr' | 'stock' -> HTML strings, one per product
+export function monthPagesHtml(all, month, kind) {
+  const stockDocs = Object.keys(all || {}).filter((k) => k.startsWith('stock:')).map((k) => all[k].data);
+  const by = mornings((all.tanklog && all.tanklog.data) || {}, stockDocs);
+  const chart = all.dipchart ? all.dipchart.data.chart : null;
+  return PRODUCTS.map((p) => {
+    const pm = productMonth({
+      month, key: p.key, by, chart,
+      dsr: (all[`dsr:${month}`] && all[`dsr:${month}`].data.products[p.key]) || null,
+      stock: (all[`stock:${month}`] && all[`stock:${month}`].data.products[p.key]) || null,
+      typed: (all[`dips:${month}`] && all[`dips:${month}`].data[p.key]) || null,
+    });
+    return kind === 'stock'
+      ? stockTableHtml(pm, { adj: all[`dsr:${month}`] ? testingAdjust(all, p.key).get(month) : null })
+      : dsrTableHtml(pm, {});
+  });
+}
+
+// Whether a month's figures are all in: its last day's sale needs the next
+// month's first readings (the E-DSR's last row), or the next month has come in
+export function monthComplete(all, month) {
+  const later = Object.keys(all || {}).some((k) => /^(dsr|stock):/.test(k) && k.slice(-7) > month);
+  const d = all && all[`dsr:${month}`];
+  return later || !!(d && PRODUCTS.some((p) => {
+    const x = d.data.products[p.key];
+    const n = x ? x.days.length - 1 : -1;
+    return n >= 0 && x.days[n] && x.days[n].meters && x.days[n].meters.some((v) => v != null);
+  }));
 }
