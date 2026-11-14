@@ -48,6 +48,7 @@ import {
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
 import { fitPaperToPage } from './paper-fit.js';
+import { handwritePage } from './handwrite.js';
 import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
 import { adjustHtml, alertText, dsrTableHtml, gainClass, gainLoss, litres as regLitres, monthComplete as regMonthComplete, monthLabel as regMonth, monthPagesHtml, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
@@ -397,7 +398,12 @@ async function registerAll(force = false) {
 
 // Paper pages drawn off the screen at full size, as printed (no highlights or
 // marks) -> a PDF Blob, a page each. pages: HTML strings, or .paper elements to copy.
-async function papersPdf(pages) {
+// look 'hand': the Monthly PDFs' "Handwritten on paper" option (handwrite.js)
+// totals false: the TOTAL / G.TOTAL line left blank (its boxes drawn, not filled in)
+async function papersPdf(pages, { look = 'print', totals = true } = {}) {
+  if (look === 'hand' && document.fonts) {
+    await Promise.all([document.fonts.load('400 17px Kalam'), document.fonts.load('700 17px Kalam')]).catch(() => {});
+  }
   const holder = document.createElement('div');
   holder.style.cssText = 'position:fixed;left:-30000px;top:0;';
   for (const pg of pages) {
@@ -412,6 +418,8 @@ async function papersPdf(pages) {
     }
     paper.style.setProperty('--bw', '1px');
     paper.classList.add('as-printed');
+    if (!totals) paper.querySelectorAll('tr.tot td.ink').forEach((td) => { td.textContent = ''; });
+    if (look === 'hand') handwritePage(paper);
     holder.append(paper);
   }
   document.body.append(holder);
@@ -649,6 +657,8 @@ async function viewRegister(tab, month, keep = false) {
         <select id="reg-pdf-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === (pdfDue ? pdfDue.month : m) ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select></div>
       ${pdfDue ? `<p class="warn-text small" id="reg-pdf-due"><b>${esc(regMonth(pdfDue.month))} is over</b> — download its ${pdfDue.missing.length === 2 ? 'DSR and Stock Register' : pdfDue.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF${pdfDue.missing.length === 2 ? 's' : ''} to keep.</p>` : ''}
       <p class="muted small">A month's pages for all three products in one PDF — HSD, MS and XtraGreen, a page each, as printed. Any month the app has.</p>
+      <div class="chips small-chips" role="group" aria-label="Look">${[['print', 'Printed'], ['hand', 'Handwritten on paper']].map(([k, n]) => `<button class="chip${(reg.pdfLook || 'print') === k ? ' on' : ''}" type="button" data-pdf-look="${k}">${n}</button>`).join('')}</div>
+      <div class="chips small-chips" role="group" aria-label="Totals">${[['on', 'Totals: Written'], ['off', 'Totals: Left blank']].map(([k, n]) => `<button class="chip${(reg.pdfTotals || 'on') === k ? ' on' : ''}" type="button" data-pdf-totals="${k}">${n}</button>`).join('')}</div>
       <div class="row-gap"><button class="btn small" type="button" data-month-pdf="dsr">DSR — all products</button><button class="btn small" type="button" data-month-pdf="stock">Stock Register — all products</button></div>
       <div id="reg-month-pdf-out"></div>
     </section>
@@ -681,14 +691,16 @@ async function viewRegister(tab, month, keep = false) {
     const kind = b.dataset.monthPdf;
     out.innerHTML = loadingHtml(`Making the ${kind === 'stock' ? 'Stock Register' : 'DSR'} of ${regMonth(mk)}…`);
     const pages = monthPagesHtml(all, mk, kind);
+    const look = reg.pdfLook === 'hand' ? 'hand' : 'print';
+    const totals = reg.pdfTotals !== 'off';
     let blob;
     try {
-      blob = await papersPdf(pages);
+      blob = await papersPdf(pages, { look, totals });
     } catch (err) {
       out.innerHTML = '';
       throw err;
     }
-    pdfReadyBar(out, blob, `${regMonth(mk)} ${kind === 'stock' ? 'Stock Register' : 'Real DSR'}.pdf`);
+    pdfReadyBar(out, blob, `${regMonth(mk)} ${kind === 'stock' ? 'Stock Register' : 'Real DSR'}${look === 'hand' ? ' (handwritten)' : ''}.pdf`);
     // made: the reminder for this month stops once both are
     markPdfMade(mk, kind);
     const due = monthPdfsDue(months, localToday(), pdfsMade(), monthComplete);
@@ -701,6 +713,14 @@ async function viewRegister(tab, month, keep = false) {
       if (note) note.innerHTML = `<b>${esc(regMonth(mk))} is over</b> — download its ${due.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF too.`;
     }
   })));
+  main().querySelectorAll('[data-pdf-totals]').forEach((b) => b.addEventListener('click', () => {
+    reg.pdfTotals = b.dataset.pdfTotals;
+    main().querySelectorAll('[data-pdf-totals]').forEach((x) => x.classList.toggle('on', x === b));
+  }));
+  main().querySelectorAll('[data-pdf-look]').forEach((b) => b.addEventListener('click', () => {
+    reg.pdfLook = b.dataset.pdfLook;
+    main().querySelectorAll('[data-pdf-look]').forEach((x) => x.classList.toggle('on', x === b));
+  }));
   document.getElementById('reg-due-go')?.addEventListener('click', () => document.getElementById('reg-month-pdfs')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   const again = () => guard(() => viewRegister(tab, month, true));
   // the page fits the screen's width (a phone held upright sees all of it); − / + make it

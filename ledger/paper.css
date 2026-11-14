@@ -55,3 +55,16 @@ table.paper-t.side th { text-align: left; font: 700 12px/1.1 Arial, sans-serif; 
 table.paper-t.side td.ink { min-width: 110px; text-align: right; }
 .paper.stock table.paper-t td.ink { text-align: right; min-width: 92px; }
 .paper.stock .paper-head h2 { font-size: 18px; }
+/* "Handwritten on paper" (handwrite.js, the Monthly PDFs' option): the paper's
+   texture is set on the element; the ruling a little faded; figures in a
+   ballpoint hand, each digit placed a little differently */
+.paper.realistic { background-color: #f6f1e3; border-radius: 0; position: relative; }
+.paper.realistic table.paper-t { border-color: #2b2b2b; }
+.paper.realistic table.paper-t th, .paper.realistic table.paper-t td { border-color: rgba(30,30,30,.72); background: transparent; }
+.paper.realistic table.paper-t thead th, .paper.realistic table.paper-t th.date, .paper.realistic .paper-head h2, .paper.realistic .paper-head .month { color: #1b1b1b; }
+.paper.realistic td.ink { color: var(--ink, #1f2f86); font: 400 17px/1 "Kalam", "Segoe Print", cursive; letter-spacing: .02em; }
+.paper.realistic td.ink.m { font-size: 16px; }
+.paper.realistic td.ink.short { --ink: #b3141c; }
+.paper.realistic td.ink.gain { --ink: #11793a; }
+.paper.realistic tr.dsr-tot td.ink { font-weight: 700; }
+.paper.realistic .hw { display: inline-block; transform-origin: 50% 70%; }
