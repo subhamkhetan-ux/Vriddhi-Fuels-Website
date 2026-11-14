@@ -1,7 +1,7 @@
 /* The Register's paper pages — the Daily Stock Register book and the Stock
    Register, as they're copied into every morning: white ruled paper, black
-   print, blue-ink entries. Shared by the app (ledger/index.html) and the
-   monthly PDFs made on GitHub (ledger/tools/register_pdfs.mjs).
+   print, blue-ink entries. Used on the screen, by Print and by the
+   Monthly PDFs (ledger/index.html, app.js).
    --bw: a line's width (the app widens it when the page is shrunk to fit a
    phone, so a line never gets thinner than a screen pixel). */
 /* the page as printed, for the phone's PDF: no highlight, no marks */
