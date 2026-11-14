@@ -3,8 +3,7 @@
 // fibres, soft shading at the edges, the ruling a little faded — and its
 // figures written in a ballpoint hand: each digit leaning and sitting a
 // little differently, the ink a little heavier or lighter. The same figures,
-// only drawn differently; a small grey line at the foot of each page says it
-// is a computer-made copy from the E-DSR.
+// only drawn differently.
 //
 // Browser only (canvas). Repeatable: the same page comes out the same way.
 
@@ -65,8 +64,8 @@ export function paperTexture() {
   return tile;
 }
 
-// One page: the paper, and its figures in a hand. note: the foot line's text.
-export function handwritePage(paper, note) {
+// One page: the paper, and its figures in a hand
+export function handwritePage(paper) {
   paper.classList.add('realistic');
   paper.style.backgroundImage = `radial-gradient(ellipse at 50% 45%, rgba(255,255,255,0) 55%, rgba(120,95,50,.16) 100%), url(${paperTexture()})`;
   paper.style.backgroundSize = 'cover, 512px 512px';
@@ -104,8 +103,4 @@ export function handwritePage(paper, note) {
     };
     walk(td);
   }
-  const foot = document.createElement('div');
-  foot.className = 'hw-note';
-  foot.textContent = note;
-  paper.append(foot);
 }

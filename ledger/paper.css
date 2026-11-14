@@ -68,4 +68,3 @@ table.paper-t.side td.ink { min-width: 110px; text-align: right; }
 .paper.realistic td.ink.gain { --ink: #11793a; }
 .paper.realistic tr.dsr-tot td.ink { font-weight: 700; }
 .paper.realistic .hw { display: inline-block; transform-origin: 50% 70%; }
-.paper.realistic .hw-note { position: absolute; right: 14px; bottom: 4px; font: 8.5px/1 Arial, sans-serif; color: rgba(0,0,0,.38); }

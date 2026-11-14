@@ -300,8 +300,8 @@ month is always there). **Look**: *Printed* (as on the screen) or
 *Handwritten on paper* — a real-looking sheet (warm paper, grain, fibres,
 soft edges, the ruling a little faded) with the figures in a ballpoint hand,
 each digit placed a little differently (`js/handwrite.js`); the same figures,
-with a small grey line at the foot of each page saying it's a computer-made
-copy from the E-DSR, and "(handwritten)" in the file's name. **Once a month is over** the card flashes, and a
+"(handwritten)" in the file's name. **Totals**: *Written* or *Left blank* (the
+TOTAL / G.TOTAL line drawn, its boxes empty). **Once a month is over** the card flashes, and a
 note at the top of the tab points to it, until both of that month's PDFs
 have been made (remembered on each device) — once the month's figures are
 all in. **The month's end:** the E-DSR's last row holds the next month's

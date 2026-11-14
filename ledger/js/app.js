@@ -399,7 +399,8 @@ async function registerAll(force = false) {
 // Paper pages drawn off the screen at full size, as printed (no highlights or
 // marks) -> a PDF Blob, a page each. pages: HTML strings, or .paper elements to copy.
 // look 'hand': the Monthly PDFs' "Handwritten on paper" option (handwrite.js)
-async function papersPdf(pages, { look = 'print' } = {}) {
+// totals false: the TOTAL / G.TOTAL line left blank (its boxes drawn, not filled in)
+async function papersPdf(pages, { look = 'print', totals = true } = {}) {
   if (look === 'hand' && document.fonts) {
     await Promise.all([document.fonts.load('400 17px Kalam'), document.fonts.load('700 17px Kalam')]).catch(() => {});
   }
@@ -417,7 +418,8 @@ async function papersPdf(pages, { look = 'print' } = {}) {
     }
     paper.style.setProperty('--bw', '1px');
     paper.classList.add('as-printed');
-    if (look === 'hand') handwritePage(paper, `Computer-made copy from the E-DSR · Vriddhi Ledger · ${fmtDate(localToday())}`);
+    if (!totals) paper.querySelectorAll('tr.tot td.ink').forEach((td) => { td.textContent = ''; });
+    if (look === 'hand') handwritePage(paper);
     holder.append(paper);
   }
   document.body.append(holder);
@@ -656,6 +658,7 @@ async function viewRegister(tab, month, keep = false) {
       ${pdfDue ? `<p class="warn-text small" id="reg-pdf-due"><b>${esc(regMonth(pdfDue.month))} is over</b> — download its ${pdfDue.missing.length === 2 ? 'DSR and Stock Register' : pdfDue.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF${pdfDue.missing.length === 2 ? 's' : ''} to keep.</p>` : ''}
       <p class="muted small">A month's pages for all three products in one PDF — HSD, MS and XtraGreen, a page each, as printed. Any month the app has.</p>
       <div class="chips small-chips" role="group" aria-label="Look">${[['print', 'Printed'], ['hand', 'Handwritten on paper']].map(([k, n]) => `<button class="chip${(reg.pdfLook || 'print') === k ? ' on' : ''}" type="button" data-pdf-look="${k}">${n}</button>`).join('')}</div>
+      <div class="chips small-chips" role="group" aria-label="Totals">${[['on', 'Totals: Written'], ['off', 'Totals: Left blank']].map(([k, n]) => `<button class="chip${(reg.pdfTotals || 'on') === k ? ' on' : ''}" type="button" data-pdf-totals="${k}">${n}</button>`).join('')}</div>
       <div class="row-gap"><button class="btn small" type="button" data-month-pdf="dsr">DSR — all products</button><button class="btn small" type="button" data-month-pdf="stock">Stock Register — all products</button></div>
       <div id="reg-month-pdf-out"></div>
     </section>
@@ -689,9 +692,10 @@ async function viewRegister(tab, month, keep = false) {
     out.innerHTML = loadingHtml(`Making the ${kind === 'stock' ? 'Stock Register' : 'DSR'} of ${regMonth(mk)}…`);
     const pages = monthPagesHtml(all, mk, kind);
     const look = reg.pdfLook === 'hand' ? 'hand' : 'print';
+    const totals = reg.pdfTotals !== 'off';
     let blob;
     try {
-      blob = await papersPdf(pages, { look });
+      blob = await papersPdf(pages, { look, totals });
     } catch (err) {
       out.innerHTML = '';
       throw err;
@@ -709,6 +713,10 @@ async function viewRegister(tab, month, keep = false) {
       if (note) note.innerHTML = `<b>${esc(regMonth(mk))} is over</b> — download its ${due.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF too.`;
     }
   })));
+  main().querySelectorAll('[data-pdf-totals]').forEach((b) => b.addEventListener('click', () => {
+    reg.pdfTotals = b.dataset.pdfTotals;
+    main().querySelectorAll('[data-pdf-totals]').forEach((x) => x.classList.toggle('on', x === b));
+  }));
   main().querySelectorAll('[data-pdf-look]').forEach((b) => b.addEventListener('click', () => {
     reg.pdfLook = b.dataset.pdfLook;
     main().querySelectorAll('[data-pdf-look]').forEach((x) => x.classList.toggle('on', x === b));
