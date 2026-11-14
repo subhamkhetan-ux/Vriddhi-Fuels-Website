@@ -1,7 +1,7 @@
 # IOCL Challan — invoice PDFs saved to Google Drive (Google Apps Script)
 
-[`iocl_challan.gs`](./iocl_challan.gs) saves every IndianOil invoice PDF from
-Gmail into Google Drive, named by its invoice number and filed by its
+[`iocl_challan.gs`](./iocl_challan.gs) saves every IndianOil **fuel invoice** PDF
+from Gmail into Google Drive, named by its invoice number and filed by its
 **invoice date**, the same way as the challans already there:
 
 ```
@@ -24,9 +24,15 @@ What it does:
   That includes a late challan you downloaded and put in yourself, named by its
   invoice number (`7013019147.pdf`, or `7013019147 (1).pdf`), in any month
   folder or at the top.
-- **The invoice date** is the one the payment agent read off the PDF, from the
-  decant app's invoice list. A mail newer than the agent waits for the next
-  run; after 6 hours it's filed by the mail's own date.
+- **Only fuel tax invoices.** A PDF is saved only if the payment agent read it
+  as a tax invoice with a truck (T.T.No.) and products with quantities. Those
+  are the ones on the decant app's invoice list, with their invoice date.
+  - **Other IOCL PDFs are left out.** These come from the same sender but are
+    never on that list: credit notes for dealer margin, statements and so on.
+  - **A mail the agent hasn't reached yet waits** for a later run. If it's still
+    not on the list after 24 hours, it's taken as not a fuel invoice.
+  - **If the list can't be reached, the mail just waits.** It's never left out
+    for that.
 - **Done mails get the Gmail label "IOCL Challan saved"** and aren't looked at
   again. Remove the label from a mail to have it checked again.
 - **If a run fails**, Google emails you about it.
@@ -66,7 +72,7 @@ Google emails sunilkhetan1976@gmail.com.
 | `FOLDER_ID` | `1wcWIymyJ11TkA3Hl6Cegn-ktKmNPQKZs` | the "IOCL Challan" folder (subhamkhetan@gmail.com's, shared to the mail account) |
 | `FOLDER_PATH` | `Vriddhi Fuels/OLD Data/IOCL Challan` | used instead when `FOLDER_ID` is empty: the path from the top of the script account's My Drive |
 | `START` | `2026/11/01` | the oldest mails looked at. The folder already has everything before this; set it earlier to back-fill (50 mails a run) |
-| `WAIT_HOURS` | `6` | how long a mail waits for its invoice date before it's filed by the mail's date |
+| `WAIT_HOURS` | `24` | how long a PDF waits to appear on the invoice list before it's taken as not a fuel invoice |
 
 Tests: [`tests/apps_script/`](../tests/apps_script/) runs the script in Node
 against stand-ins for Gmail and Drive (`python3 -m pytest tests/test_apps_script.py`).
