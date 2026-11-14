@@ -45,6 +45,13 @@ jobs:
           # Optional: mirror the queue to Supabase for the /payments app.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # IOCL Challan: invoice PDFs to Google Drive (agent/drive_archive.py).
+          # Skipped until the secret is set; DRIVE_ARCHIVE_SINCE (optional repo
+          # variable, YYYY-MM-DD) back-fills from that date on the first runs.
+          GDRIVE_UPLOAD_TOKEN: ${{ secrets.GDRIVE_UPLOAD_TOKEN }}
+          DRIVE_ARCHIVE_SINCE: ${{ vars.DRIVE_ARCHIVE_SINCE }}
+          # Optional: the id of an existing "IOCL Challan" folder (full-drive token).
+          DRIVE_ARCHIVE_FOLDER_ID: ${{ vars.DRIVE_ARCHIVE_FOLDER_ID }}
         run: |
           set -o pipefail
           python -m agent.run 2>&1 | tee run.log

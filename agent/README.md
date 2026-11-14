@@ -146,6 +146,52 @@ regex line if the wording differs. A parse miss never drops an alert — it queu
 a `review` row carrying the raw text (also in the run-log artifact), so tuning is
 low-risk and iterative.
 
+## IOCL Challan — invoice PDFs in Google Drive
+
+Every IndianOil invoice PDF (our TT and transport TTs alike) from the HDFC
+mailbox is saved to Google Drive, filed by its **invoice date**:
+
+```
+IOCL Challan / 2026 / 11 - November / 7013019147 - 12-11-2026 - OD23U8210.pdf
+```
+
+The **year and month folders are made automatically** inside "IOCL Challan" as
+invoices arrive. It runs with the payment agent (every ~20 min,
+`agent/drive_archive.py`). Each file is tagged with its invoice number, so a
+resent mail or a re-run never saves it twice. A mail counts as done only once
+its PDFs are in Drive. While Drive is unreachable (or the token is expired)
+nothing is lost: the job catches up, and Telegram says so at most once a day.
+Drive problems never fail the payments run.
+
+**One-time setup** (on the Mac, ~5 min):
+
+1. Google Cloud Console (the project your Gmail OAuth client is in) →
+   **APIs & Services → Library → Google Drive API → Enable**.
+2. Mint the token, signing in as the Google account whose Drive should hold
+   the folder:
+   - **The job makes its own "IOCL Challan" folder** in My Drive (recommended;
+     it can then see *only* the files it creates, nothing else in your Drive):
+
+         python3 mint_drive_token.py --credentials credentials.json --out gdrive_upload_token.json
+
+   - **Or fill an "IOCL Challan" folder you've already made** (needs full
+     Drive access):
+
+         python3 mint_drive_token.py --existing-folder --credentials credentials.json --out gdrive_upload_token.json
+
+     It finds the folder at the top of My Drive. If yours is inside another
+     folder, also add the repo variable `DRIVE_ARCHIVE_FOLDER_ID` = the folder's
+     id (the last part of its link, `…/folders/<id>`).
+3. GitHub → repo **Settings → Secrets and variables → Actions**:
+   - **Secret** `GDRIVE_UPLOAD_TOKEN` = the printed JSON. Then delete
+     `gdrive_upload_token.json`.
+   - Optional **variable** `DRIVE_ARCHIVE_SINCE` = e.g. `2026-04-01` to also
+     save every older invoice since that date (otherwise it starts with the last
+     10 days). It back-fills 60 mails per run, oldest first.
+
+Invoices added in the payments app from a PDF or typed in (no mail) aren't
+saved by this job.
+
 ## Daily use — the app (no terminal)
 
 The easiest daily path is the **[`/payments/`](../payments/) web app** (a PWA,
