@@ -1,28 +1,26 @@
 """IOCL Challan — every IndianOil invoice PDF (all trucks) saved to Google Drive.
 
 Each run, the IOCL invoice mails (the same mailbox and sender as credit.py /
-decant.py) are read and every invoice PDF is filed by its INVOICE date:
+decant.py) are read and every invoice PDF is filed by its INVOICE date, named by
+its invoice number, the same way as the challans already in the folder:
 
-    IOCL Challan / 2026 / 11 - November / 7013019147.pdf
+    My Drive / Vriddhi Fuels / OLD Data / IOCL Challan / 2026 / November 2026 / 7013019147.pdf
 
-The year and month folders are always made inside "IOCL Challan" as needed.
-Which "IOCL Challan" depends on the token (mint_drive_token.py):
+* The "IOCL Challan" folder is found by its path (``DRIVE_ARCHIVE_PATH``, the
+  path above by default) or its id (``DRIVE_ARCHIVE_FOLDER_ID``). It is never
+  created: if it can't be found (renamed, moved), the run says so and waits —
+  no stray second folder.
+* The year and month folders ("2026", "November 2026") are made inside it as
+  needed.
+* Never twice: an invoice already anywhere inside "IOCL Challan" is skipped —
+  one this job saved (a resent mail, a re-run; each file is tagged with its
+  invoice number) or a late challan downloaded and put in by hand, named by its
+  invoice number ("7013019147.pdf"), in any year / month folder or at the top.
+* Nothing lost: a mail counts as done only once all its PDFs are in Drive; a
+  failure leaves it (and the ones after it) for the next run.
 
-* full ``drive`` (mint_drive_token.py's default): it uses the "IOCL Challan"
-  folder already at the top of My Drive (making it if there's none) and sees
-  challans put in by hand. For a folder that isn't at the top of My Drive, set
-  the repo variable ``DRIVE_ARCHIVE_FOLDER_ID`` to its id (its link's
-  .../folders/<id>).
-* ``drive.file`` (minted with ``--narrow``): it sees and touches only what it
-  created itself — so it makes its own "IOCL Challan", and can't see challans
-  put in by hand (it would save those invoices too).
-
-Never twice: an invoice already in "IOCL Challan" is skipped — one this job
-saved (a resent mail, a re-run; each file is tagged with its invoice number), or
-a late challan downloaded and put in by hand, named by its invoice number
-("7013019147.pdf"), in any year / month folder or at the top. A mail
-counts as done only once all its PDFs are in Drive; a failure leaves it (and the
-ones after it) for the next run, so nothing is lost while Drive is unreachable.
+The token (mint_drive_token.py) has full Drive access (scope ``drive``): it is
+needed to use the existing folder and to see challans put in by hand.
 
 Best-effort like the rest of the agent: problems come back as error strings.
 Skipped quietly until the ``GDRIVE_UPLOAD_TOKEN`` secret is set.
@@ -43,11 +41,12 @@ TOKEN_ENV = "GDRIVE_UPLOAD_TOKEN"
 # Optional first-run back-fill start, "YYYY-MM-DD" (repo variable): archive
 # every invoice mail since then instead of the last LOOKBACK_DAYS.
 SINCE_ENV = "DRIVE_ARCHIVE_SINCE"
-# Optional: the "IOCL Challan" folder's id, when it isn't at the top of My Drive
-# (a full-drive token; with drive.file the job uses its own folder).
+# Where "IOCL Challan" is: its path from the top of My Drive (repo variable,
+# this one by default), or its id (repo variable; wins over the path).
+PATH_ENV = "DRIVE_ARCHIVE_PATH"
+ROOT_PATH = "Vriddhi Fuels/OLD Data/IOCL Challan"
 FOLDER_ID_ENV = "DRIVE_ARCHIVE_FOLDER_ID"
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]      # the default token's scope
-ROOT = "IOCL Challan"
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 FOLDER_MIME = "application/vnd.google-apps.folder"
 PROP = "iocl_invoice"            # appProperties key: the invoice's SAP entry number
 PER_RUN = 60                     # mails per run, oldest first (a back-fill goes on next run)
@@ -62,14 +61,15 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
 def place(invoice_date: str | None, mail_ms: int | None = None) -> tuple[str, str]:
     """(year folder, month folder) for an invoice date "dd/mm/yyyy" — e.g.
-    ("2026", "11 - November"). Without a readable date, the mail's date (IST)."""
+    ("2026", "November 2026"), as the folders in Drive are named. Without a
+    readable date, the mail's date (IST)."""
     m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", (invoice_date or "").strip())
     if m and 1 <= int(m.group(2)) <= 12:
         y, mo = int(m.group(3)), int(m.group(2))
     else:
         d = dt.datetime.fromtimestamp((mail_ms or 0) / 1000, IST)
         y, mo = d.year, d.month
-    return str(y), f"{mo:02d} - {MONTHS[mo - 1]}"
+    return str(y), f"{MONTHS[mo - 1]} {y}"
 
 
 def file_name(key: str, invoice_date: str | None = None, tt_no: str | None = None) -> str:
@@ -115,17 +115,38 @@ class Drive:
         self._folders: dict[tuple[str, str], str] = {}
         self._parents: dict[str, list[str]] = {}
 
-    def folder(self, name: str, parent: str = "root") -> str:
-        """The id of folder ``name`` under ``parent``, made if it isn't there."""
+    def find(self, name: str, parent: str = "root") -> str | None:
+        """The id of folder ``name`` under ``parent``, or None."""
         if (parent, name) in self._folders:
             return self._folders[(parent, name)]
         res = self.svc.files().list(
             q=f"name = '{_q(name)}' and mimeType = '{FOLDER_MIME}' and '{parent}' in parents and trashed = false",
             spaces="drive", fields="files(id)", pageSize=1).execute()
         found = res.get("files") or []
-        fid = found[0]["id"] if found else self.svc.files().create(
-            body={"name": name, "mimeType": FOLDER_MIME, "parents": [parent]}, fields="id").execute()["id"]
-        self._folders[(parent, name)] = fid
+        if found:
+            self._folders[(parent, name)] = found[0]["id"]
+            return found[0]["id"]
+        return None
+
+    def folder(self, name: str, parent: str) -> str:
+        """The id of folder ``name`` under ``parent``, made if it isn't there."""
+        fid = self.find(name, parent)
+        if fid is None:
+            fid = self.svc.files().create(
+                body={"name": name, "mimeType": FOLDER_MIME, "parents": [parent]}, fields="id").execute()["id"]
+            self._folders[(parent, name)] = fid
+        return fid
+
+    def path(self, path: str) -> str:
+        """The id of an existing folder by its path from the top of My Drive
+        ("Vriddhi Fuels/OLD Data/IOCL Challan"). Never creates: a missing part
+        raises, so a renamed or moved folder is reported, not re-made."""
+        fid = "root"
+        for part in [p for p in path.split("/") if p.strip()]:
+            nxt = self.find(part, fid) or self.find(part.strip(), fid)
+            if nxt is None:
+                raise FileNotFoundError(f'folder "{part}" not found in Google Drive (looking for "{path}")')
+            fid = nxt
         return fid
 
     def has(self, key: str, root: str | None = None) -> bool:
@@ -175,8 +196,7 @@ class Drive:
 
 def build_drive(token_json: str):
     """A Drive v3 service from the authorized-user JSON minted by
-    mint_drive_token.py (a revocable refresh token, with the scope it was
-    minted with: drive by default, or drive.file with --narrow)."""
+    mint_drive_token.py (a revocable refresh token, scope drive)."""
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
     info = json.loads(token_json)
@@ -184,15 +204,12 @@ def build_drive(token_json: str):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def archive(drive: Drive, invoices: list[dict], root_id: str | None = None) -> int:
-    """File each invoice into IOCL Challan / year / month, making the year and
-    month folders as needed. ``root_id``: an existing "IOCL Challan" folder to
-    use; else the one named so at the top of My Drive (made if missing).
-    Returns how many were uploaded (ones already there are skipped). Raises on
-    a Drive error."""
+def archive(drive: Drive, invoices: list[dict], root: str) -> int:
+    """File each invoice into IOCL Challan (folder id ``root``) / year / month,
+    making the year and month folders as needed. Returns how many were uploaded
+    (ones already there are skipped). Raises on a Drive error."""
     up = 0
     for inv in invoices:
-        root = root_id or drive.folder(ROOT)
         if drive.has(inv["key"], root):          # saved before, by this job or by hand
             continue
         year, month = place(inv["date"], inv.get("mail_ms"))
@@ -248,6 +265,8 @@ def run(seen: dict, *, drive=None, mail_conn=None, fetch=None, pdf_to_text=None)
             mail_conn = build_service(cred)
         if drive is None:
             drive = Drive(build_drive(token))
+        root = (os.environ.get(FOLDER_ID_ENV) or "").strip() or \
+            drive.path((os.environ.get(PATH_ENV) or "").strip() or ROOT_PATH)
         mails = fetch(mail_conn, DECANT["gmail_query"], after_ms, seen_ids,
                       max_results=PER_RUN, oldest=True)
     except Exception as exc:
@@ -259,7 +278,7 @@ def run(seen: dict, *, drive=None, mail_conn=None, fetch=None, pdf_to_text=None)
             invs = invoices_in_mail(mail, pdf_to_text)
             for inv in invs:
                 inv["mail_ms"] = mail.internal_ms
-            uploaded += archive(drive, invs, (os.environ.get(FOLDER_ID_ENV) or "").strip() or None)
+            uploaded += archive(drive, invs, root)
         except Exception as exc:
             # Leave this mail (and the later ones) for the next run, in order.
             return uploaded, [f"drive archive: {getattr(mail, 'msg_id', '?')}: {exc}"]

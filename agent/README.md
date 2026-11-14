@@ -149,52 +149,49 @@ low-risk and iterative.
 ## IOCL Challan — invoice PDFs in Google Drive
 
 Every IndianOil invoice PDF (our TT and transport TTs alike) from the HDFC
-mailbox is saved to Google Drive, named by its invoice number and filed by its
-**invoice date**:
+mailbox is saved into the firm's existing **IOCL Challan** folder. It's named by
+its invoice number and filed by its **invoice date**, the same way as the
+challans already there:
 
 ```
-IOCL Challan / 2026 / 11 - November / 7013019147.pdf
+My Drive / Vriddhi Fuels / OLD Data / IOCL Challan / 2026 / November 2026 / 7013019147.pdf
 ```
 
-- The **year and month folders are made automatically** inside "IOCL Challan"
-  as invoices arrive. It runs with the payment agent (every ~20 min,
-  `agent/drive_archive.py`).
-- **Never twice.** An invoice already in "IOCL Challan" is skipped. That covers
-  one this job saved (a resent mail, a re-run) and a **late challan you
-  downloaded and put in yourself**, named by its invoice number
-  (`7013019147.pdf`, or a browser's `7013019147 (1).pdf`), wherever it is
-  inside "IOCL Challan": the right month, another month, or the top. A file
-  with that number *outside* "IOCL Challan" doesn't count.
+- **Year and month folders** (`2026`, `November 2026`) are made automatically
+  inside "IOCL Challan" when a new month or year starts. The job runs with the
+  payment agent, every ~20 min (`agent/drive_archive.py`).
+- **"IOCL Challan" itself is never created.** It's found by its path. If it's
+  renamed or moved, the job reports it (Telegram, at most once a day) and waits,
+  without making a second folder. Point it at the new place with the repo
+  variable `DRIVE_ARCHIVE_PATH` (path from the top of My Drive), or
+  `DRIVE_ARCHIVE_FOLDER_ID` (the folder's id, the last part of its link).
+- **Never twice.** An invoice already anywhere inside "IOCL Challan" is skipped.
+  That covers one this job saved (a resent mail, a re-run) and a **late challan
+  you downloaded and put in yourself**, named by its invoice number
+  (`7013019147.pdf`, or a browser's `7013019147 (1).pdf`): in its month,
+  another month, or the top. A file with that number outside "IOCL Challan"
+  doesn't count.
 - **Nothing lost.** A mail counts as done only once its PDFs are in Drive. While
-  Drive is unreachable (or the token is expired) the job catches up later, and
-  Telegram says so at most once a day. Drive problems never fail the payments
-  run.
+  Drive is unreachable (or the token is expired) the job catches up later.
+  Drive problems never fail the payments run.
 
 **One-time setup** (on the Mac, ~5 min):
 
 1. Google Cloud Console (the project your Gmail OAuth client is in) →
    **APIs & Services → Library → Google Drive API → Enable**.
-2. Mint the token, signing in as the Google account whose Drive holds
-   "IOCL Challan":
+2. Mint the token, signing in as the Google account whose Drive holds the
+   folder (it asks for full Drive access, needed to use the existing folder
+   and see the challans you put in by hand):
 
        python3 mint_drive_token.py --credentials credentials.json --out gdrive_upload_token.json
 
-   This asks for full Drive access. It's needed to use your existing
-   "IOCL Challan" folder and to see the challans you put in by hand. The job
-   uses the "IOCL Challan" at the top of My Drive (and makes it if there's
-   none). If yours is inside another folder, also add the repo variable
-   `DRIVE_ARCHIVE_FOLDER_ID` = its id (the last part of its link,
-   `…/folders/<id>`).
+3. GitHub → repo **Settings → Secrets and variables → Actions → Secrets**:
+   `GDRIVE_UPLOAD_TOKEN` = the printed JSON. Then delete
+   `gdrive_upload_token.json`.
 
-   (`--narrow` gives the job access only to what it creates: its own
-   "IOCL Challan", and it can't see challans put in by hand.)
-3. GitHub → repo **Settings → Secrets and variables → Actions**:
-   - **Secret** `GDRIVE_UPLOAD_TOKEN` = the printed JSON. Then delete
-     `gdrive_upload_token.json`.
-   - Optional **variable** `DRIVE_ARCHIVE_SINCE` = e.g. `2026-04-01` to also
-     save every older invoice since that date (otherwise it starts with the last
-     10 days). It back-fills 60 mails per run, oldest first, and skips any you
-     already have.
+The challans already in the folder stay as they are. The job starts with the
+last 10 days of mail and skips everything already there. (Optional variable
+`DRIVE_ARCHIVE_SINCE=YYYY-MM-DD` goes further back, 60 mails per run.)
 
 Invoices added in the payments app from a PDF or typed in (no mail) aren't
 saved by this job.
