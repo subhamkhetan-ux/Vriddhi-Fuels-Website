@@ -24,13 +24,36 @@ class FakeDrive:
 
     def list(self, q, **kw):
         m = re.search(r"name = '(.*?)' and mimeType = '(.*?)' and '(.*?)' in parents", q)
+        n = re.search(r"name contains '(.*?)' and mimeType != '(.*?)'", q)
         if m:
             hit = [i for i in self.items if i["name"] == m.group(1) and i["mime"] == m.group(2)
                    and m.group(3) in i["parents"] and not i["trashed"]]
+        elif n:   # Drive matches a name by word prefix; invoice numbers start the name
+            hit = [i for i in self.items if any(w.startswith(n.group(1)) for w in re.split(r"[\s_.()-]+", i["name"]))
+                   and i["mime"] != n.group(2) and not i["trashed"]]
+            return _Exec({"files": [{"id": i["id"], "name": i["name"], "parents": i["parents"]} for i in hit]})
         else:
             key = re.search(r"value='(.*?)'", q).group(1)
             hit = [i for i in self.items if i["props"].get(DA.PROP) == key and not i["trashed"]]
         return _Exec({"files": [{"id": i["id"]} for i in hit[:1]]})
+
+    def get(self, fileId, fields=None):
+        item = next((i for i in self.items if i["id"] == fileId), None)
+        return _Exec({"parents": item["parents"] if item else []})
+
+    def put_by_hand(self, name, *path):
+        """A PDF someone put in Drive themselves, in folder path (made as needed)."""
+        parent = "root"
+        for folder in path:
+            got = next((i for i in self.items if i["name"] == folder and parent in i["parents"]
+                        and i["mime"] == DA.FOLDER_MIME), None)
+            if not got:
+                got = {"id": f"h{len(self.items)}", "name": folder, "parents": [parent], "mime": DA.FOLDER_MIME,
+                       "props": {}, "data": None, "trashed": False}
+                self.items.append(got)
+            parent = got["id"]
+        self.items.append({"id": f"h{len(self.items)}", "name": name, "parents": [parent], "mime": "application/pdf",
+                           "props": {}, "data": None, "trashed": False})
 
     def create(self, body, media_body=None, fields=None):
         if self.fail_on and body["name"] == self.fail_on:
@@ -86,8 +109,7 @@ def test_where_an_invoice_goes():
     assert DA.place("05/01/2027") == ("2027", "01 - January")
     ms = int(dt.datetime(2026, 11, 30, 20, 0, tzinfo=dt.timezone.utc).timestamp() * 1000)
     assert DA.place(None, ms) == ("2026", "12 - December")          # the mail's date, in IST
-    assert DA.file_name("7013019147", "12/11/2026", "OD23U8210") == "7013019147 - 12-11-2026 - OD23U8210.pdf"
-    assert DA.file_name("7013019147", None, None) == "7013019147.pdf"
+    assert DA.file_name("7013019147", "12/11/2026", "OD23U8210") == "7013019147.pdf"   # named by invoice no.
 
 
 def test_every_invoice_filed_by_its_date_once(monkeypatch):
@@ -98,8 +120,8 @@ def test_every_invoice_filed_by_its_date_once(monkeypatch):
     up, errs = DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher(mails, log), pdf_to_text=ptt)
     assert (up, errs) == (2, [])
     assert drive.pdf_paths() == [
-        "IOCL Challan/2026/08 - August/7010195291 - 26-08-2026 - OD23U8210.pdf",      # our TT
-        "IOCL Challan/2027/01 - January/7010199999 - 05-01-2027 - OD156815.pdf",      # a transport TT
+        "IOCL Challan/2026/08 - August/7010195291.pdf",      # our TT
+        "IOCL Challan/2027/01 - January/7010199999.pdf",      # a transport TT
     ]
     assert [i["props"] for i in drive.items if i["mime"] == "application/pdf"] == [
         {"iocl_invoice": "7010195291"}, {"iocl_invoice": "7010199999"}]
@@ -125,7 +147,7 @@ def test_a_drive_failure_leaves_the_mail_for_next_run():
     seen = {}
     m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
     m2 = Mail("m2", 2000, [b"transport"], ["7010199999.pdf"])
-    bad = FakeDrive(fail_on="7010199999 - 05-01-2027 - OD156815.pdf")
+    bad = FakeDrive(fail_on="7010199999.pdf")
     up, errs = DA.run(seen, drive=DA.Drive(bad), mail_conn=object(), fetch=fetcher([m1, m2]), pdf_to_text=ptt)
     assert up == 1 and errs and "Drive is down" in errs[0]
     assert seen[DA.SEEN_KEY]["high_water"] == NOW + 1000                 # m2 not marked done
@@ -181,7 +203,7 @@ def test_subfolders_go_inside_an_existing_iocl_challan_folder(monkeypatch):
     m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
     DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher([m1]), pdf_to_text=ptt)
     assert [i["name"] for i in drive.items if i["name"] == "IOCL Challan"] == ["IOCL Challan"]   # no second one
-    assert drive.pdf_paths() == ["IOCL Challan/2026/08 - August/7010195291 - 26-08-2026 - OD23U8210.pdf"]
+    assert drive.pdf_paths() == ["IOCL Challan/2026/08 - August/7010195291.pdf"]
 
 
 def test_or_inside_the_folder_whose_id_is_set(monkeypatch):
@@ -193,4 +215,37 @@ def test_or_inside_the_folder_whose_id_is_set(monkeypatch):
     monkeypatch.setenv(DA.FOLDER_ID_ENV, "deep")
     m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
     DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher([m1]), pdf_to_text=ptt)
-    assert drive.pdf_paths() == ["Accounts/IOCL Challan/2026/08 - August/7010195291 - 26-08-2026 - OD23U8210.pdf"]
+    assert drive.pdf_paths() == ["Accounts/IOCL Challan/2026/08 - August/7010195291.pdf"]
+
+
+
+# ---- a late challan downloaded and put in by hand is not saved again ----
+@pytest.mark.parametrize("name,path", [
+    ("7010195291.pdf", ("IOCL Challan", "2026", "08 - August")),       # where the job would put it
+    ("7010195291.pdf", ("IOCL Challan",)),                            # at the top of IOCL Challan
+    ("7010195291.pdf", ("IOCL Challan", "2026", "09 - September")),   # in another month
+    ("7010195291 (1).pdf", ("IOCL Challan", "2026", "08 - August")),  # a browser's "(1)" copy name
+])
+def test_a_challan_put_in_by_hand_is_skipped(name, path):
+    drive = FakeDrive()
+    drive.put_by_hand(name, *path)
+    m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
+    up, errs = DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher([m1]), pdf_to_text=ptt)
+    assert (up, errs) == (0, [])
+    assert [p for p in drive.pdf_paths() if p.endswith(".pdf")] == ["/".join(path + (name,))]
+
+
+def test_the_same_number_outside_iocl_challan_doesnt_count():
+    drive = FakeDrive()
+    drive.put_by_hand("7010195291.pdf", "Downloads")
+    m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
+    up, _ = DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher([m1]), pdf_to_text=ptt)
+    assert up == 1 and "IOCL Challan/2026/08 - August/7010195291.pdf" in drive.pdf_paths()
+
+
+def test_another_invoice_number_starting_the_same_doesnt_count():
+    drive = FakeDrive()
+    drive.put_by_hand("70101952910.pdf", "IOCL Challan")             # not the same number
+    m1 = Mail("m1", 1000, [b"own"], ["7010195291.pdf"])
+    up, _ = DA.run({}, drive=DA.Drive(drive), mail_conn=object(), fetch=fetcher([m1]), pdf_to_text=ptt)
+    assert up == 1

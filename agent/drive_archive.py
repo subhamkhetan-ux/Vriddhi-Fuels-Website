@@ -3,21 +3,24 @@
 Each run, the IOCL invoice mails (the same mailbox and sender as credit.py /
 decant.py) are read and every invoice PDF is filed by its INVOICE date:
 
-    IOCL Challan / 2026 / 11 - November / 7013019147 - 12-11-2026 - OD23U8210.pdf
+    IOCL Challan / 2026 / 11 - November / 7013019147.pdf
 
 The year and month folders are always made inside "IOCL Challan" as needed.
 Which "IOCL Challan" depends on the token (mint_drive_token.py):
 
-* ``drive.file`` (the default, narrowest): the agent sees and touches only what
-  it created itself — nothing else in the Drive — so it makes its own
-  "IOCL Challan" in My Drive.
-* full ``drive`` (minted with ``--existing-folder``): it finds the
-  "IOCL Challan" folder already in My Drive and fills that one. For a folder
-  that isn't at the top of My Drive, set the repo variable
-  ``DRIVE_ARCHIVE_FOLDER_ID`` to its id (from its link: .../folders/<id>).
+* full ``drive`` (mint_drive_token.py's default): it uses the "IOCL Challan"
+  folder already at the top of My Drive (making it if there's none) and sees
+  challans put in by hand. For a folder that isn't at the top of My Drive, set
+  the repo variable ``DRIVE_ARCHIVE_FOLDER_ID`` to its id (its link's
+  .../folders/<id>).
+* ``drive.file`` (minted with ``--narrow``): it sees and touches only what it
+  created itself — so it makes its own "IOCL Challan", and can't see challans
+  put in by hand (it would save those invoices too).
 
-Never twice: each file carries its invoice number (``appProperties``), and an
-invoice already in the archive — a resent mail, a re-run — is skipped. A mail
+Never twice: an invoice already in "IOCL Challan" is skipped — one this job
+saved (a resent mail, a re-run; each file is tagged with its invoice number), or
+a late challan downloaded and put in by hand, named by its invoice number
+("7013019147.pdf"), in any year / month folder or at the top. A mail
 counts as done only once all its PDFs are in Drive; a failure leaves it (and the
 ones after it) for the next run, so nothing is lost while Drive is unreachable.
 
@@ -40,7 +43,8 @@ TOKEN_ENV = "GDRIVE_UPLOAD_TOKEN"
 # Optional first-run back-fill start, "YYYY-MM-DD" (repo variable): archive
 # every invoice mail since then instead of the last LOOKBACK_DAYS.
 SINCE_ENV = "DRIVE_ARCHIVE_SINCE"
-# Optional: the existing "IOCL Challan" folder's id (needs a full-drive token).
+# Optional: the "IOCL Challan" folder's id, when it isn't at the top of My Drive
+# (a full-drive token; with drive.file the job uses its own folder).
 FOLDER_ID_ENV = "DRIVE_ARCHIVE_FOLDER_ID"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]      # the default token's scope
 ROOT = "IOCL Challan"
@@ -68,14 +72,10 @@ def place(invoice_date: str | None, mail_ms: int | None = None) -> tuple[str, st
     return str(y), f"{mo:02d} - {MONTHS[mo - 1]}"
 
 
-def file_name(key: str, invoice_date: str | None, tt_no: str | None) -> str:
-    """"7013019147 - 12-11-2026 - OD23U8210.pdf" (date and TT when known)."""
-    parts = [key]
-    if invoice_date:
-        parts.append(invoice_date.replace("/", "-"))
-    if tt_no:
-        parts.append(tt_no)
-    return re.sub(r'[\\/:*?"<>|]+', "-", " - ".join(parts)) + ".pdf"
+def file_name(key: str, invoice_date: str | None = None, tt_no: str | None = None) -> str:
+    """"7013019147.pdf" — the invoice number, the way a challan downloaded by
+    hand is named too (so the two can be told apart from nothing else)."""
+    return re.sub(r'[\\/:*?"<>|]+', "-", key) + ".pdf"
 
 
 def invoices_in_mail(mail, pdf_to_text) -> list[dict]:
@@ -113,6 +113,7 @@ class Drive:
     def __init__(self, service):
         self.svc = service
         self._folders: dict[tuple[str, str], str] = {}
+        self._parents: dict[str, list[str]] = {}
 
     def folder(self, name: str, parent: str = "root") -> str:
         """The id of folder ``name`` under ``parent``, made if it isn't there."""
@@ -127,12 +128,42 @@ class Drive:
         self._folders[(parent, name)] = fid
         return fid
 
-    def has(self, key: str) -> bool:
-        """Is this invoice in the archive already (anywhere, not in the bin)?"""
+    def has(self, key: str, root: str | None = None) -> bool:
+        """Is this invoice in the archive already (not in the bin)? Either a file
+        this job saved (tagged with the invoice number), or a PDF whose name
+        has the number — e.g. a late challan downloaded and put in by hand as
+        "7013019147.pdf" — anywhere inside the ``root`` "IOCL Challan" folder
+        (any year / month folder, or the top). A hand-put file is only visible
+        with a full-drive token (mint_drive_token.py's default)."""
         res = self.svc.files().list(
             q=f"appProperties has {{ key='{PROP}' and value='{_q(key)}' }} and trashed = false",
             spaces="drive", fields="files(id)", pageSize=1).execute()
-        return bool(res.get("files"))
+        if res.get("files"):
+            return True
+        if not root:
+            return False
+        res = self.svc.files().list(
+            q=f"name contains '{_q(key)}' and mimeType != '{FOLDER_MIME}' and trashed = false",
+            spaces="drive", fields="files(id,name,parents)", pageSize=50).execute()
+        alone = re.compile(rf"(?<!\d){re.escape(key)}(?!\d)")     # the number itself, not 70101952910
+        return any(alone.search(f.get("name") or "") and self._inside(f, root) for f in res.get("files") or [])
+
+    def _inside(self, f: dict, root: str, depth: int = 6) -> bool:
+        """Is file ``f`` somewhere under folder ``root`` (a few levels deep)?"""
+        parents = list(f.get("parents") or [])
+        for _ in range(depth):
+            if root in parents:
+                return True
+            if not parents:
+                return False
+            pid = parents[0]
+            if pid not in self._parents:
+                try:
+                    self._parents[pid] = self.svc.files().get(fileId=pid, fields="parents").execute().get("parents") or []
+                except Exception:
+                    self._parents[pid] = []
+            parents = list(self._parents[pid])
+        return False
 
     def upload(self, name: str, parent: str, data: bytes, key: str) -> str:
         from googleapiclient.http import MediaInMemoryUpload  # lazy: tests pass a double
@@ -144,8 +175,8 @@ class Drive:
 
 def build_drive(token_json: str):
     """A Drive v3 service from the authorized-user JSON minted by
-    mint_drive_token.py (a revocable refresh token; its own scope — drive.file,
-    or drive when minted for an existing folder)."""
+    mint_drive_token.py (a revocable refresh token, with the scope it was
+    minted with: drive by default, or drive.file with --narrow)."""
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
     info = json.loads(token_json)
@@ -161,10 +192,10 @@ def archive(drive: Drive, invoices: list[dict], root_id: str | None = None) -> i
     a Drive error."""
     up = 0
     for inv in invoices:
-        if drive.has(inv["key"]):
+        root = root_id or drive.folder(ROOT)
+        if drive.has(inv["key"], root):          # saved before, by this job or by hand
             continue
         year, month = place(inv["date"], inv.get("mail_ms"))
-        root = root_id or drive.folder(ROOT)
         parent = drive.folder(month, drive.folder(year, root))
         drive.upload(inv["name"], parent, inv["pdf"], inv["key"])
         up += 1

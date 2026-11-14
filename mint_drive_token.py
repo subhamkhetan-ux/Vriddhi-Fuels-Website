@@ -6,15 +6,16 @@ The payment agent saves every IndianOil invoice PDF to Google Drive, in
 token for the Google account whose Drive should hold the folder.
 
 Either way the agent makes the year and month folders inside "IOCL Challan" by
-itself. Which "IOCL Challan":
+itself, and skips an invoice that is already there.
 
-* default — scope ``drive.file``, the narrowest that can upload: the agent sees
-  and changes ONLY the folders and files it creates itself, nothing else in that
-  Drive. So it makes its own "IOCL Challan" folder in My Drive.
-* ``--existing-folder`` — scope ``drive`` (full Drive access): for an
-  "IOCL Challan" folder you've already made. The agent finds it at the top of
-  My Drive (or set the repo variable DRIVE_ARCHIVE_FOLDER_ID to its id, from its
-  link …/folders/<id>, if it's inside another folder) and fills that one.
+* default — scope ``drive`` (full Drive access): the agent uses your existing
+  "IOCL Challan" folder at the top of My Drive (or the one whose id is in the
+  repo variable DRIVE_ARCHIVE_FOLDER_ID, from its link …/folders/<id>), and it
+  sees challans you put in by hand ("7013019147.pdf") so it doesn't save those
+  invoices again.
+* ``--narrow`` — scope ``drive.file``, the narrowest that can upload: the agent
+  sees and changes ONLY what it creates itself — so it makes its own
+  "IOCL Challan", and can't see challans put in by hand.
 
 The result is an *authorized-user* JSON blob — a revocable refresh token, NOT a
 password. Paste it into the GitHub Actions secret ``GDRIVE_UPLOAD_TOKEN``.
@@ -28,8 +29,8 @@ Prerequisites (the same Google Cloud project / OAuth client as mint_token.py):
 
 Usage (sign in, in the browser it opens, as the account whose Drive gets the folder):
     python3 mint_drive_token.py --credentials credentials.json --out gdrive_upload_token.json
-or, to fill the "IOCL Challan" folder you already have:
-    python3 mint_drive_token.py --existing-folder --credentials credentials.json --out gdrive_upload_token.json
+or, with access to only what the agent creates (it then can't see challans put in by hand):
+    python3 mint_drive_token.py --narrow --credentials credentials.json --out gdrive_upload_token.json
 
 Then copy the printed blob into the GDRIVE_UPLOAD_TOKEN secret and delete the
 file (it's git-ignored). To revoke later: myaccount.google.com/permissions.
@@ -40,8 +41,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]          # only what the agent creates
-FULL_SCOPES = ["https://www.googleapis.com/auth/drive"]          # --existing-folder
+SCOPES = ["https://www.googleapis.com/auth/drive"]               # default: sees hand-put challans
+NARROW_SCOPES = ["https://www.googleapis.com/auth/drive.file"]   # --narrow: only what it creates
 
 
 def main(argv=None) -> int:
@@ -50,8 +51,8 @@ def main(argv=None) -> int:
                     help="OAuth client (Desktop app) file from Google Cloud Console")
     ap.add_argument("--out", default=None,
                     help="write the token JSON here as well as printing it")
-    ap.add_argument("--existing-folder", action="store_true",
-                    help="full Drive access, to fill an \"IOCL Challan\" folder you already made")
+    ap.add_argument("--narrow", action="store_true",
+                    help="access only to what the agent creates (can't see challans put in by hand)")
     ap.add_argument("--no-browser", action="store_true",
                     help="use console flow instead of a local browser server")
     args = ap.parse_args(argv)
@@ -64,7 +65,7 @@ def main(argv=None) -> int:
 
     try:
         flow = InstalledAppFlow.from_client_secrets_file(
-            args.credentials, FULL_SCOPES if args.existing_folder else SCOPES)
+            args.credentials, NARROW_SCOPES if args.narrow else SCOPES)
     except FileNotFoundError:
         print(f"Credentials file not found: {args.credentials}\n"
               "Download it from Google Cloud Console (OAuth client, Desktop app), "

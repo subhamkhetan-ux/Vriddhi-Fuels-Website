@@ -50,7 +50,7 @@ jobs:
           # variable, YYYY-MM-DD) back-fills from that date on the first runs.
           GDRIVE_UPLOAD_TOKEN: ${{ secrets.GDRIVE_UPLOAD_TOKEN }}
           DRIVE_ARCHIVE_SINCE: ${{ vars.DRIVE_ARCHIVE_SINCE }}
-          # Optional: the id of an existing "IOCL Challan" folder (full-drive token).
+          # Optional: the id of the "IOCL Challan" folder, if it isn't at the top of My Drive.
           DRIVE_ARCHIVE_FOLDER_ID: ${{ vars.DRIVE_ARCHIVE_FOLDER_ID }}
         run: |
           set -o pipefail
