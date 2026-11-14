@@ -14,7 +14,7 @@ import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, 
 import { extractMaster, readWorkbook } from './master.js';
 import { poKey, poListChanges } from './po.js';
 import {
-  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromElement, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
+  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromElements, pdfFromSvgs, pdfText, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
   statementFontCss as letterFontCss, useNarrowFont, zipBlob,
 } from './render.js';
 import {
@@ -394,6 +394,41 @@ async function registerAll(force = false) {
   return state.reg.all;
 }
 
+// Paper pages drawn off the screen at full size, as printed (no highlights or
+// marks) -> a PDF Blob, a page each. pages: HTML strings, or .paper elements to copy.
+async function papersPdf(pages) {
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-30000px;top:0;';
+  for (const pg of pages) {
+    let paper;
+    if (typeof pg === 'string') {
+      const d = document.createElement('div');
+      d.innerHTML = pg;
+      paper = d.querySelector('.paper');
+    } else {
+      paper = pg.cloneNode(true);
+      paper.style.transform = '';
+    }
+    paper.style.setProperty('--bw', '1px');
+    paper.classList.add('as-printed');
+    holder.append(paper);
+  }
+  document.body.append(holder);
+  try {
+    return await pdfFromElements([...holder.children]);
+  } finally {
+    holder.remove();
+  }
+}
+// "PDF ready": Print / Share… (the share sheet: Print, Save to Files, WhatsApp) or Save
+function pdfReadyBar(box, blob, name) {
+  const file = new File([blob], name, { type: 'application/pdf' });
+  box.innerHTML = `<div class="todo reg-pdf-ready"><span><b>PDF ready</b> · ${esc(name)}</span>
+    <span class="row-gap"><button class="btn small" data-pdf-share type="button">${cannotPrint() ? 'Print / Share…' : 'Share…'}</button><button class="btn ghost small" data-pdf-save type="button">Save</button></span></div>`;
+  box.querySelector('[data-pdf-share]').addEventListener('click', () => guard(() => shareOrSave([file], name)));
+  box.querySelector('[data-pdf-save]').addEventListener('click', () => download(file, name));
+}
+
 // A phone or tablet: window.print() does nothing in an iPhone / iPad
 // home-screen app (and printing a page is awkward on any phone)
 function cannotPrint() {
@@ -590,6 +625,13 @@ async function viewRegister(tab, month, keep = false) {
     ${tab === 'stock' && adj ? `<details class="card fold" id="reg-adjust"${reg.adjOpen ? ' open' : ''}>
       <summary><b>Testing adjustment &amp; actual shortage</b> <span class="muted">· ${esc(pm.product.short)} — Stock Register <span class="${gainClass(split.shortage)}">${gainLoss(split.shortage)}</span> · actual <span class="${gainClass(split.actual)}">${gainLoss(split.actual)}</span></span><span class="fold-hint">tap to ${reg.adjOpen ? 'close' : 'open'}</span></summary>
       ${adjustHtml(adj, pm, split, { prevMonth: monthBefore, nextMonth: monthAfter, locked: !reg.adjEdit })}</details>` : ''}
+    <section class="card" id="reg-month-pdfs">
+      <div class="row-between"><h2>Monthly PDFs</h2>
+        <select id="reg-pdf-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select></div>
+      <p class="muted small">A month's pages for all three products in one PDF — HSD, MS and XtraGreen, a page each, as printed. Any month the app has.</p>
+      <div class="row-gap"><button class="btn small" type="button" data-month-pdf="dsr">DSR — all products</button><button class="btn small" type="button" data-month-pdf="stock">Stock Register — all products</button></div>
+      <div id="reg-month-pdf-out"></div>
+    </section>
     <section class="card">
       <div class="row-between"><h2>This morning${latest ? ` <span class="muted">· ${esc(fmtDate(latest.date))}</span>` : ''}</h2>${importBox}</div>
       ${latest ? morningHtml(latest, shortages) : '<p class="muted">No dip stock yet — bring in the Stock Register or the DIP Chart.</p>'}
@@ -603,30 +645,36 @@ async function viewRegister(tab, month, keep = false) {
     const paper = document.querySelector('.paper-scroll .paper');
     if (!box || !paper) return;
     box.innerHTML = loadingHtml('Making the PDF…');
-    const clone = paper.cloneNode(true);                     // full size, as printed (no highlights or marks)
-    clone.style.transform = '';
-    clone.style.setProperty('--bw', '1px');
-    clone.classList.add('as-printed');
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-30000px;top:0;';
-    holder.append(clone);
-    document.body.append(holder);
     let blob;
     try {
-      blob = await pdfFromElement(clone);
+      blob = await papersPdf([paper]);
     } catch (err) {
       box.innerHTML = '';
       throw err;
-    } finally {
-      holder.remove();
     }
-    const name = `${tab === 'stock' ? 'Stock Register' : 'DSR'} ${pm.product.short} ${regMonth(m)}.pdf`;
-    const file = new File([blob], name, { type: 'application/pdf' });
-    box.innerHTML = `<div class="todo reg-pdf-ready"><span><b>PDF ready</b> · ${esc(name)}</span>
-      <span class="row-gap"><button class="btn small" id="reg-pdf-share" type="button">Print / Share…</button><button class="btn ghost small" id="reg-pdf-save" type="button">Save</button></span></div>`;
-    document.getElementById('reg-pdf-share').addEventListener('click', () => guard(() => shareOrSave([file], name)));
-    document.getElementById('reg-pdf-save').addEventListener('click', () => download(file, name));
+    pdfReadyBar(box, blob, `${tab === 'stock' ? 'Stock Register' : 'DSR'} ${pm.product.short} ${regMonth(m)}.pdf`);
   }));
+  // a month's DSR (or Stock Register) of every product, in one PDF
+  main().querySelectorAll('[data-month-pdf]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const out = document.getElementById('reg-month-pdf-out');
+    const mk = document.getElementById('reg-pdf-month').value;
+    const kind = b.dataset.monthPdf;
+    out.innerHTML = loadingHtml(`Making the ${kind === 'stock' ? 'Stock Register' : 'DSR'} of ${regMonth(mk)}…`);
+    const pages = REG_PRODUCTS.map((p) => {
+      const x = pmOf(mk, p.key);
+      return kind === 'stock'
+        ? stockTableHtml(x, { adj: all[`dsr:${mk}`] ? testingAdjust(all, p.key).get(mk) : null })
+        : dsrTableHtml(x, {});
+    });
+    let blob;
+    try {
+      blob = await papersPdf(pages);
+    } catch (err) {
+      out.innerHTML = '';
+      throw err;
+    }
+    pdfReadyBar(out, blob, `${kind === 'stock' ? 'Stock Register' : 'DSR'} ${regMonth(mk)}.pdf`);
+  })));
   const again = () => guard(() => viewRegister(tab, month, true));
   // the page fits the screen's width (a phone held upright sees all of it); − / + make it
   // smaller or bigger (then it scrolls), Fit goes back; pinching works as on any page
