@@ -47,6 +47,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
+import { qtyByRate, qtyByRateSheet } from './qty-rate.js';
 import { fitPaperToPage } from './paper-fit.js';
 import { handwritePage } from './handwrite.js';
 import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
@@ -1555,6 +1556,62 @@ function unitsHtml(acct) {
       </div>`).join('')}</div>`;
 }
 
+// A bulk customer's litres by billing price (Quantity by price): the period —
+// the whole account, a month or from–to — each product's total and its litres
+// at each price; one unit at a time for a unit-wise account; Download Excel.
+function paintQtyByRate(box, { code, name, sales, months, from: since, units }) {
+  const q = state.qtyView && state.qtyView.code === code ? state.qtyView : (state.qtyView = { code, period: '', from: '', to: '', unit: '*' });
+  const range = q.period === 'custom' ? { from: q.from || since, to: q.to || localToday() }
+    : q.period ? { from: `${q.period}-01`, to: monthEnd(`${q.period}-01`) } : { from: since, to: null };
+  const unitList = units ? units.filter((u) => u.unit).map((u) => u.unit) : [];
+  const res = qtyByRate(sales, { from: range.from, to: range.to, unit: q.unit === '*' ? undefined : q.unit });
+  const what = q.period === 'custom' ? `${fmtDate(range.from)} – ${fmtDate(range.to)}`
+    : q.period ? monthName(q.period) : `since ${fmtDate(since)}`;
+  const L = (n) => `${fmtLitres(n)} L`;                     // exact litres, not KL
+  const pct = (v) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
+  const span = (r) => (r.first === r.last ? fmtDate(r.first) : `${fmtDate(r.first)} – ${fmtDate(r.last)}`);
+  box.innerHTML = `<div class="row-between"><h3>Quantity by billing price <span class="muted">· ${esc(what)}</span></h3>
+      ${res.bills ? '<button class="btn ghost small" type="button" id="qty-xlsx">Download Excel</button>' : ''}</div>
+    <div class="share-row">
+      <label class="inline-label small">Period <select id="qty-period">
+        <option value="">The whole account (since ${esc(fmtDate(since))})</option>
+        ${months.map((m) => `<option value="${m.month}"${q.period === m.month ? ' selected' : ''}>${esc(m.title)}</option>`).join('')}
+        <option value="custom"${q.period === 'custom' ? ' selected' : ''}>From – to…</option></select></label>
+      ${q.period === 'custom' ? `<label class="inline-label small">From <input type="date" id="qty-from" value="${esc(range.from)}"></label>
+        <label class="inline-label small">To <input type="date" id="qty-to" value="${esc(range.to)}"></label>` : ''}
+    </div>
+    ${unitList.length ? `<div class="chips small-chips">${['*', ...unitList].map((u) => `<button class="chip${q.unit === u ? ' on' : ''}" type="button" data-qty-unit="${esc(u)}">${esc(u === '*' ? 'All units' : unitLabel(u))}</button>`).join('')}</div>` : ''}
+    ${res.bills ? `<div class="kpis">
+        <div class="kpi hero"><span class="lbl">Total quantity</span><span class="val">${esc(L(res.qty))}</span><span class="sub">${plural(res.bills, 'bill')} · ${esc(money(res.amount, { exact: true }))}</span></div>
+        ${res.products.map((p) => `<div class="kpi"><span class="lbl">${esc(PRODUCT_NAME[p.product] || p.product)}</span><span class="val">${esc(L(p.qty))}</span><span class="sub">avg ₹${p.avg.toFixed(2)}/L · ${plural(p.rates.length, 'price')}</span></div>`).join('')}
+      </div>
+      ${res.products.map((p) => `<h3 class="sub-h">${esc(PRODUCT_NAME[p.product] || p.product)} <span class="muted">· ${esc(L(p.qty))} at ${plural(p.rates.length, 'price')}</span></h3>
+        <div class="table-wrap"><table class="compact">
+          <thead><tr><th class="r">Billing price</th><th class="r">Litres</th><th class="r">Share</th><th class="r">Bills</th><th class="r">Amount</th><th>Billed</th></tr></thead>
+          <tbody>${p.rates.map((r) => `<tr><td class="r"><b>₹${r.rate.toFixed(2)}</b>/L</td><td class="r">${esc(L(r.qty))}</td>
+            <td class="r"><span class="mini-track qty-bar"><span class="mini" style="width:${Math.max(2, r.share * 100)}%"><i style="flex:1;background:${(SERIES[p.product] || {}).color || 'var(--accent)'}"></i></span></span> ${pct(r.share)}</td>
+            <td class="r">${r.bills}</td><td class="r">${esc(fmtMoney(r.amount))}</td><td class="nowrap small">${esc(span(r))}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><th class="r">Total</th><th class="r">${esc(L(p.qty))}</th><th class="r">100%</th><th class="r">${p.bills}</th><th class="r">${esc(fmtMoney(p.amount))}</th><th class="small muted">avg ₹${p.avg.toFixed(2)}/L</th></tr></tfoot>
+        </table></div>`).join('')}`
+    : `<p class="muted">No bills ${q.period ? 'in this period' : 'yet'}${q.unit !== '*' ? ` for ${esc(unitLabel(q.unit))}` : ''}.</p>`}`;
+  const again = () => paintQtyByRate(box, { code, name, sales, months, from: since, units });
+  box.querySelector('#qty-period').addEventListener('change', (e) => { q.period = e.target.value; again(); });
+  box.querySelector('#qty-from')?.addEventListener('change', (e) => { q.from = e.target.value; again(); });
+  box.querySelector('#qty-to')?.addEventListener('change', (e) => { q.to = e.target.value; again(); });
+  box.querySelectorAll('[data-qty-unit]').forEach((b) => b.addEventListener('click', () => { q.unit = b.dataset.qtyUnit; again(); }));
+  box.querySelector('#qty-xlsx')?.addEventListener('click', () => guard(async () => {
+    const XLSX = await loadSheetJS();
+    const title = `${name}${q.unit !== '*' ? ` ${unitLabel(q.unit)}` : ''} — litres by billing price`;
+    const ws = XLSX.utils.aoa_to_sheet(qtyByRateSheet(res, title));
+    ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 16 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'By price');
+    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      `${safeName(`${name}${q.unit !== '*' ? ` ${unitLabel(q.unit)}` : ''} Quantity by Price ${q.period === 'custom' ? `${range.from} to ${range.to}` : q.period ? monthName(q.period) : 'all'}`)}.xlsx`);
+  }));
+}
+
 async function viewBulkAccount(code) {
   const [data, pod] = await Promise.all([state.store.account(null, code, null, null), state.store.poData()]);
   const poById = new Map();
@@ -1593,10 +1650,12 @@ async function viewBulkAccount(code) {
         <button class="btn small" data-acct="share">${SHARE_ICON} Share ledger</button>
         <button class="btn ghost small" data-acct="card">${SHARE_ICON} Share outstanding</button>
         ${acct.companies ? '<button class="btn ghost small" data-acct="copdf">Company statements (PDFs)</button>' : ''}
+        <button class="btn ghost small" data-acct="qty" aria-expanded="${state.qtyOpen === code}">Quantity by price</button>
       </div>
       ${acct.units ? '<p class="small muted">Shares one set of pictures per unit — or switch to <b>Both units together</b> in the share sheet.</p>' : ''}
       ${acct.companies ? `<p class="small muted">A statement of account for each of the ${acct.companies.length} companies — its own bills, payments, running balance and pending bills: <b>Company-wise</b> in the share sheet, or <b>Company statements</b> for one PDF per company in a .zip.</p>` : ''}` : ''}
     </section>
+    ${view === 'statement' && state.qtyOpen === code ? `<section class="card" id="qty-card"></section>` : ''}
     ${view === 'statement' ? `${acct.units ? `<section class="card">${unitsHtml(acct)}</section>` : ''}
       ${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}
       <section class="card" id="pending-card">${pendingHtml(acct, { group: res.kind === 'group' })}</section>
@@ -1623,6 +1682,15 @@ async function viewBulkAccount(code) {
       render();
       window.scrollTo(0, y);
     });
+    main().querySelector('[data-acct="qty"]').addEventListener('click', () => {
+      state.qtyOpen = state.qtyOpen === code ? null : code;
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+      if (state.qtyOpen) document.getElementById('qty-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    const qtyCard = main().querySelector('#qty-card');
+    if (qtyCard) paintQtyByRate(qtyCard, { code, name, sales: data.sales, months: [...st.months].reverse(), from: st.from, units: acct.units });
     main().querySelector('[data-acct="share"]').addEventListener('click', () => {
       sharePictures(`${coSt ? coSt.name : name} — ledger`, ledgerOptions(acct, name, asOn, main().querySelector('#share-range').value, coSt));
     });

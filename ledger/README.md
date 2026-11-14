@@ -392,6 +392,13 @@ months and **Bulk vs Retail vs Cash**. Collections are compared with the
 credit sales. Diesel stays as billed (bulk supplies don't all go through the
 pumps).
 
+**Quantity by price** (a bulk customer's account → *Quantity by price*): the
+litres billed over a period — the whole account, a month, or from–to — each
+product's total and how much went at each billing price (₹/L, highest first:
+litres, share, bills, amount, the dates billed), with the average price; a
+unit-wise account (SMC) one unit at a time or all; **Download Excel**
+(`js/qty-rate.js`).
+
 **Loans tab** (Loans & EMI, as in the [fleet app](../fleet/)): the loans on
 the firm's vehicles — our own tanker trucks and cars in the firm's name — from
 the banks' **repayment schedules**. **Add EMI schedules (PDF)** (several at
@@ -649,6 +656,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/demo-workbook.js` | The demo's Tanker Billing workbook (made-up data; made by `tools/demo_workbook.mjs`) |
 | `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), the quotation's letterhead, logo for the ledger |
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
+| `js/qty-rate.js` | A bulk customer's litres by billing price (Quantity by price) |
 | `js/modes.js` | Payments by mode: modes matched however typed, split payments, Cash / XtraPower first |
 | `../fleet/js/loans.js` | Loans & EMI (shared with the fleet app): reading the banks' schedules, a loan from its terms, paid and left as of today |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
