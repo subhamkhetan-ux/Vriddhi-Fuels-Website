@@ -553,6 +553,19 @@ export function registerAlerts(all, limit = GAIN_LIMIT) {
   }), limit)).filter(Boolean);
 }
 
+// ---- the month's PDFs, once it's over --------------------------------------
+// months: the months kept (any order); today: 'YYYY-MM-DD'; done: {month:
+// {dsr: true, stock: true}} (the PDFs made) -> the latest month that's over
+// and still lacks one of its two PDFs: {month, missing: ['dsr' | 'stock']}, or null
+export function monthPdfsDue(months, today, done = {}) {
+  const now = String(today || '').slice(0, 7);
+  const over = [...new Set(months || [])].filter((m) => m < now).sort().reverse();
+  if (!over.length) return null;
+  const m = over[0];
+  const missing = ['dsr', 'stock'].filter((k) => !(done[m] && done[m][k]));
+  return missing.length ? { month: m, missing } : null;
+}
+
 // a register doc's day ('YYYY-MM-DD') when it last has any figure — for "updated until"
 export function lastDay(pm) {
   const r = [...pm.rows].reverse().find((x) => x.sale != null || x.meters);

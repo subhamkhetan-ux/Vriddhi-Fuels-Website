@@ -47,7 +47,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
-import { actualShortage, latestDays, latestMorning, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
+import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
 import { adjustHtml, alertText, dsrTableHtml, gainClass, gainLoss, litres as regLitres, monthLabel as regMonth, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
 import { memoryStore, supabaseStore } from './store.js';
@@ -429,6 +429,17 @@ function pdfReadyBar(box, blob, name) {
   box.querySelector('[data-pdf-save]').addEventListener('click', () => download(file, name));
 }
 
+// Which months' PDFs have been made (this device): {month: {dsr, stock}}
+const PDFS_KEY = 'vf_register_pdfs_v1';
+function pdfsMade() {
+  try { return JSON.parse(localStorage.getItem(PDFS_KEY) || '{}') || {}; } catch { return {}; }
+}
+function markPdfMade(month, kind) {
+  const all = pdfsMade();
+  all[month] = { ...(all[month] || {}), [kind]: true };
+  try { localStorage.setItem(PDFS_KEY, JSON.stringify(all)); } catch { /* private mode: the card just keeps reminding */ }
+}
+
 // A phone or tablet: window.print() does nothing in an iPhone / iPad
 // home-screen app (and printing a page is awkward on any phone)
 function cannotPrint() {
@@ -597,9 +608,12 @@ async function viewRegister(tab, month, keep = false) {
   const missing = tab === 'stock' ? (hasStock ? '' : `<p class="warn-text small">The Stock Register for ${esc(regMonth(m))} isn't here: the actual tank stock comes from the DIP Chart's readings instead (marked *).</p>`)
     : (hasDsr ? '' : `<p class="warn-text small">The E-DSR for ${esc(regMonth(m))} isn't here, so there are no meter readings or sales.</p>`);
   const flagged = pm.rows.filter((r) => (tab === 'stock' ? r.actualAlt != null : r.differs != null));
+  // a month that's over and whose PDFs haven't been made yet: the card flashes
+  const pdfDue = monthPdfsDue(months, today, pdfsMade());
   const unknownDips = pm.product.tanks === 2 && pm.rows.some((r) => r.stock != null && r.dips[0] == null);
   setMain(`
     ${tabs}
+    ${pdfDue ? `<button class="todo warn reg-due-link" type="button" id="reg-due-go"><b>${esc(regMonth(pdfDue.month))} is over</b> — download its monthly PDFs ↓</button>` : ''}
     <section class="card reg-paper-card">
       <div class="row-between"><div class="chips" role="group" aria-label="Product">${REG_PRODUCTS.map((p) => `<button class="chip${p.key === key ? ' on' : ''}" data-reg-product="${p.key}">${esc(p.short)}</button>`).join('')}</div>
         <span class="row-gap">${months.length > 1 ? `<select id="reg-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select>` : ''}
@@ -625,9 +639,10 @@ async function viewRegister(tab, month, keep = false) {
     ${tab === 'stock' && adj ? `<details class="card fold" id="reg-adjust"${reg.adjOpen ? ' open' : ''}>
       <summary><b>Testing adjustment &amp; actual shortage</b> <span class="muted">· ${esc(pm.product.short)} — Stock Register <span class="${gainClass(split.shortage)}">${gainLoss(split.shortage)}</span> · actual <span class="${gainClass(split.actual)}">${gainLoss(split.actual)}</span></span><span class="fold-hint">tap to ${reg.adjOpen ? 'close' : 'open'}</span></summary>
       ${adjustHtml(adj, pm, split, { prevMonth: monthBefore, nextMonth: monthAfter, locked: !reg.adjEdit })}</details>` : ''}
-    <section class="card" id="reg-month-pdfs">
+    <section class="card${pdfDue ? ' flash' : ''}" id="reg-month-pdfs">
       <div class="row-between"><h2>Monthly PDFs</h2>
-        <select id="reg-pdf-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === m ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select></div>
+        <select id="reg-pdf-month" aria-label="Month">${months.map((x) => `<option value="${x}"${x === (pdfDue ? pdfDue.month : m) ? ' selected' : ''}>${esc(regMonth(x))}</option>`).join('')}</select></div>
+      ${pdfDue ? `<p class="warn-text small" id="reg-pdf-due"><b>${esc(regMonth(pdfDue.month))} is over</b> — download its ${pdfDue.missing.length === 2 ? 'DSR and Stock Register' : pdfDue.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF${pdfDue.missing.length === 2 ? 's' : ''} to keep.</p>` : ''}
       <p class="muted small">A month's pages for all three products in one PDF — HSD, MS and XtraGreen, a page each, as printed. Any month the app has.</p>
       <div class="row-gap"><button class="btn small" type="button" data-month-pdf="dsr">DSR — all products</button><button class="btn small" type="button" data-month-pdf="stock">Stock Register — all products</button></div>
       <div id="reg-month-pdf-out"></div>
@@ -674,7 +689,19 @@ async function viewRegister(tab, month, keep = false) {
       throw err;
     }
     pdfReadyBar(out, blob, `${kind === 'stock' ? 'Stock Register' : 'DSR'} ${regMonth(mk)}.pdf`);
+    // made: the reminder for this month stops once both are
+    markPdfMade(mk, kind);
+    const due = monthPdfsDue(months, localToday(), pdfsMade());
+    if (!due || due.month !== mk) {
+      document.getElementById('reg-month-pdfs')?.classList.remove('flash');
+      document.getElementById('reg-pdf-due')?.remove();
+      document.getElementById('reg-due-go')?.remove();
+    } else {
+      const note = document.getElementById('reg-pdf-due');
+      if (note) note.innerHTML = `<b>${esc(regMonth(mk))} is over</b> — download its ${due.missing[0] === 'dsr' ? 'DSR' : 'Stock Register'} PDF too.`;
+    }
   })));
+  document.getElementById('reg-due-go')?.addEventListener('click', () => document.getElementById('reg-month-pdfs')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   const again = () => guard(() => viewRegister(tab, month, true));
   // the page fits the screen's width (a phone held upright sees all of it); − / + make it
   // smaller or bigger (then it scrolls), Fit goes back; pinching works as on any page

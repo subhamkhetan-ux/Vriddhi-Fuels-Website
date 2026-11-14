@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  actualShortage, dipOf, GAIN_LIMIT, latestDays, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
+  actualShortage, dipOf, GAIN_LIMIT, latestDays, monthPdfsDue, litresOf, latestMorning, monthFromTitle, mornings, morningOf, productMonth, pumpSales, readDipChart, readDsr, readStock, registerKind,
   registerAlerts, shortageAlert, testingAdjust,
 } from '../../ledger/js/register.js';
 import { demoRegister } from '../../ledger/js/register-demo.js';
@@ -307,4 +307,16 @@ test('register: a warning when the books gained more than 40 L in the month', ()
   // books close 4500, 8000, 7500 against tanks 4600, 8100, 7600: a gain of 100 L
   assert.deepEqual(registerAlerts(all).map((a) => [a.key, a.gain, a.day]), [['MS', 100, 3]]);
   assert.deepEqual(registerAlerts({}), []);
+});
+
+test('register: once a month is over, its two PDFs are asked for until made', () => {
+  const months = ['2026-11', '2026-10', '2026-12'];
+  assert.deepEqual(monthPdfsDue(months, '2026-11-30'), { month: '2026-10', missing: ['dsr', 'stock'] });   // October is over
+  assert.deepEqual(monthPdfsDue(['2026-11'], '2026-11-30'), null);                // the month isn't over yet
+  assert.deepEqual(monthPdfsDue(['2026-11'], '2026-12-01'), { month: '2026-11', missing: ['dsr', 'stock'] });
+  assert.deepEqual(monthPdfsDue(['2026-11'], '2026-12-03', { '2026-11': { dsr: true } }), { month: '2026-11', missing: ['stock'] });
+  assert.equal(monthPdfsDue(['2026-11'], '2026-12-03', { '2026-11': { dsr: true, stock: true } }), null);
+  // only the latest month that's over (December's new data doesn't count yet)
+  assert.deepEqual(monthPdfsDue(months, '2026-12-02'), { month: '2026-11', missing: ['dsr', 'stock'] });
+  assert.equal(monthPdfsDue([], '2026-12-02'), null);
 });
