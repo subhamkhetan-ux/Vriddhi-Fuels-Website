@@ -47,6 +47,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { modeSummary } from './modes.js';
+import { fitPaperToPage } from './paper-fit.js';
 import { actualShortage, latestDays, latestMorning, monthPdfsDue, mornings, PRODUCTS as REG_PRODUCTS, productMonth, pumpSales, readDipChart, readDsr, readStock, registerAlerts, registerKind, shortageAlert, testingAdjust } from './register.js';
 import { adjustHtml, alertText, dsrTableHtml, gainClass, gainLoss, litres as regLitres, monthComplete as regMonthComplete, monthLabel as regMonth, monthPagesHtml, morningHtml, stockTableHtml } from './register-view.js';
 import { loanFromTerms, loanStatus, loansSummary, ordinal, parseSchedule, vehFromText } from '../../fleet/js/loans.js';
@@ -414,6 +415,8 @@ async function papersPdf(pages) {
     holder.append(paper);
   }
   document.body.append(holder);
+  // each page shaped like the A4 sheet (landscape, less the margins), so it fills it
+  for (const paper of holder.children) fitPaperToPage(paper, 0, 0, (595.28 - 32) / (841.89 - 32));
   try {
     return await pdfFromElements([...holder.children]);
   } finally {

@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { accessToken, drive } from './drive.mjs';
+import { fitPaperToPage } from '../js/paper-fit.js';
 import { monthComplete, monthLabel, monthPagesHtml } from '../js/register-view.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -111,23 +112,19 @@ export async function renderPdf(pages, chromium) {
     const page = await browser.newPage({ viewport: { width: 1062, height: 733 } });
     await page.emulateMedia({ media: 'print' });
     await page.setContent(documentHtml(css, pages), { waitUntil: 'networkidle' });
-    await page.evaluate(async () => {
-      await document.fonts.ready;
-      const W = 1050;                                         // a little inside the page, to be safe
-      const H = 720;
+    await page.evaluate(() => document.fonts.ready);
+    // each page fills the sheet: as wide as it, rows as tall as it takes
+    await page.evaluate(`(() => {
+      const fit = ${fitPaperToPage.toString()};
       for (const p of document.querySelectorAll('.paper')) {
-        p.style.zoom = '1';
-        let z = Math.min(1, W / p.offsetWidth, H / p.offsetHeight);
-        // the lines widen as the page shrinks: shrink until it really fits
-        for (let i = 0; i < 12; i++) {
-          p.style.zoom = String(z);
-          p.style.setProperty('--bw', `${Math.max(1, 0.9 / z).toFixed(2)}px`);
-          const r = p.getBoundingClientRect();
-          if (r.width <= W + 0.5 && r.height <= H + 0.5) break;
-          z *= Math.min(W / r.width, H / r.height, 0.99);
-        }
+        const z = fit(p, 1052, 724);
+        p.style.zoom = String(z);
+        p.style.setProperty('--bw', Math.max(1, 0.9 / z).toFixed(2) + 'px');
+        // the wider lines took a little room: shrink just enough to stay on the sheet
+        const r = p.getBoundingClientRect();
+        if (r.width > 1052 || r.height > 724) p.style.zoom = String(z * Math.min(1052 / r.width, 724 / r.height));
       }
-    });
+    })()`);
     return await page.pdf({ format: 'A4', landscape: true, printBackground: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } });
   } finally {
     await browser.close();

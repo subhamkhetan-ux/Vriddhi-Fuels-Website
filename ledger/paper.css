@@ -19,7 +19,10 @@
 .paper-head .month u { font: 700 19px/1 "Kalam", "Segoe Print", cursive; color: #c8102e; letter-spacing: .06em; text-decoration-thickness: 1px; text-underline-offset: 4px; margin-left: 2px; }
 /* --bw: a line's width — set from the page's zoom so a line never gets thinner than a screen pixel (and vanishes) */
 table.paper-t { border-collapse: collapse; width: auto; font: 13px/1.15 Arial, "Helvetica Neue", sans-serif; color: #111; border: calc(var(--bw, 1px) * 2) solid #111; background: transparent; }
-table.paper-t th, table.paper-t td { border: var(--bw, 1px) solid #222; padding: 3px 6px; height: calc(22px + var(--bw, 1px)); text-align: left; vertical-align: middle; }
+table.paper-t th, table.paper-t td { border: var(--bw, 1px) solid #222; padding: 3px 6px; height: var(--rowh, calc(22px + var(--bw, 1px))); text-align: left; vertical-align: middle; }
+/* printed to fill a sheet (paper-fit.js): rows sized by --rowh, less padding at the sides */
+.paper.fit-page table.paper-t th, .paper.fit-page table.paper-t td { padding-left: 3px; padding-right: 3px; padding-top: 0; padding-bottom: 0; }
+.paper.fit-page table.paper-t thead th.v { padding: 2px 1px; }
 table.paper-t thead th { font: 700 11.5px/1.15 Arial, sans-serif; color: #000; text-transform: uppercase; letter-spacing: 0; text-align: center; white-space: nowrap; background: transparent; }
 table.paper-t thead th.v { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9.5px; padding: 4px 2px; min-width: 22px; }
 table.paper-t thead th.small { font-size: 8px; }
