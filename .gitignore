@@ -23,7 +23,6 @@ Master Ledger.xlsm
 credentials.json
 token_*.json
 gdrive_token.json
-gdrive_upload_token.json
 *.oauth.json
 
 # Standalone consignment-note app — local config + running serial counter.

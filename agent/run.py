@@ -405,25 +405,6 @@ def main() -> int:
         print(f"Decant (not a payments error): FAILED: {exc}")
         traceback.print_exc()
 
-    # IOCL Challan: every invoice PDF saved to Google Drive by invoice date
-    # (IOCL Challan / year / month). Isolated like decant — never fails this
-    # run; a failure leaves the mails for the next run, and Telegram hears of
-    # it at most once a day.
-    try:
-        from . import drive_archive
-        da_up, da_errors = drive_archive.run(seen)
-        if da_up:
-            print(f"Drive archive: saved {da_up} invoice PDF(s) to IOCL Challan.")
-        for msg in da_errors:
-            print(f"Drive archive (not a payments error): {msg}")
-        if da_errors and drive_archive.should_alert(seen):
-            notify("IOCL Challan (Google Drive) — invoice PDFs not saved yet; "
-                   "they'll be saved once this is fixed:\n" + "\n".join(da_errors))
-        state_store.save_seen(seen)
-    except Exception as exc:  # last-resort guard
-        print(f"Drive archive (not a payments error): FAILED: {exc}")
-        traceback.print_exc()
-
     if errors:
         notify("Vriddhi payment agent errors:\n" + "\n".join(errors))
         return 1

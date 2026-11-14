@@ -234,15 +234,12 @@ def fetch_alerts(conn, query: str, after_ms: int | None,
 
 
 def fetch_invoice_mails(conn, query: str, after_ms: int | None,
-                        seen_ids: set[str], max_results: int = 25,
-                        oldest: bool = False) -> list[InvoiceMail]:
+                        seen_ids: set[str], max_results: int = 25) -> list[InvoiceMail]:
     """IOC invoice mails (with their PDF attachments) newer than ``after_ms`` and
-    not already seen, oldest first. ``max_results`` caps how many are downloaded:
-    the newest ones, or with ``oldest`` the oldest ones (a back-fill that goes
-    on from there next run)."""
+    not already seen, oldest first."""
     uids = _search_uids(conn, _with_after(query, after_ms))
     if max_results:
-        uids = uids[:max_results] if oldest else uids[-max_results:]
+        uids = uids[-max_results:]
     mails: list[InvoiceMail] = []
     for uid in uids:
         info, raw = _fetch_raw(conn, uid)

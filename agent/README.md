@@ -146,56 +146,6 @@ regex line if the wording differs. A parse miss never drops an alert — it queu
 a `review` row carrying the raw text (also in the run-log artifact), so tuning is
 low-risk and iterative.
 
-## IOCL Challan — invoice PDFs in Google Drive
-
-Every IndianOil invoice PDF (our TT and transport TTs alike) from the HDFC
-mailbox is saved into the firm's existing **IOCL Challan** folder. It's named by
-its invoice number and filed by its **invoice date**, the same way as the
-challans already there:
-
-```
-My Drive / Vriddhi Fuels / OLD Data / IOCL Challan / 2026 / November 2026 / 7013019147.pdf
-```
-
-- **Year and month folders** (`2026`, `November 2026`) are made automatically
-  inside "IOCL Challan" when a new month or year starts. The job runs with the
-  payment agent, every ~20 min (`agent/drive_archive.py`).
-- **"IOCL Challan" itself is never created.** It's found by its path. If it's
-  renamed or moved, the job reports it (Telegram, at most once a day) and waits,
-  without making a second folder. Point it at the new place with the repo
-  variable `DRIVE_ARCHIVE_PATH` (path from the top of My Drive), or
-  `DRIVE_ARCHIVE_FOLDER_ID` (the folder's id, the last part of its link).
-- **Never twice.** An invoice already anywhere inside "IOCL Challan" is skipped.
-  That covers one this job saved (a resent mail, a re-run) and a **late challan
-  you downloaded and put in yourself**, named by its invoice number
-  (`7013019147.pdf`, or a browser's `7013019147 (1).pdf`): in its month,
-  another month, or the top. A file with that number outside "IOCL Challan"
-  doesn't count.
-- **Nothing lost.** A mail counts as done only once its PDFs are in Drive. While
-  Drive is unreachable (or the token is expired) the job catches up later.
-  Drive problems never fail the payments run.
-
-**One-time setup** (on the Mac, ~5 min):
-
-1. Google Cloud Console (the project your Gmail OAuth client is in) →
-   **APIs & Services → Library → Google Drive API → Enable**.
-2. Mint the token, signing in as the Google account whose Drive holds the
-   folder (it asks for full Drive access, needed to use the existing folder
-   and see the challans you put in by hand):
-
-       python3 mint_drive_token.py --credentials credentials.json --out gdrive_upload_token.json
-
-3. GitHub → repo **Settings → Secrets and variables → Actions → Secrets**:
-   `GDRIVE_UPLOAD_TOKEN` = the printed JSON. Then delete
-   `gdrive_upload_token.json`.
-
-The challans already in the folder stay as they are. The job starts with the
-last 10 days of mail and skips everything already there. (Optional variable
-`DRIVE_ARCHIVE_SINCE=YYYY-MM-DD` goes further back, 60 mails per run.)
-
-Invoices added in the payments app from a PDF or typed in (no mail) aren't
-saved by this job.
-
 ## Daily use — the app (no terminal)
 
 The easiest daily path is the **[`/payments/`](../payments/) web app** (a PWA,
