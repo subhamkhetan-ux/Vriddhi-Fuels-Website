@@ -5,8 +5,10 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
+const FOLDER_ID = '1wcWIymyJ11TkA3Hl6Cegn-ktKmNPQKZs';          // subhamkhetan@gmail.com's IOCL Challan
 const SRC = fs.readFileSync(new URL('../../apps_script/iocl_challan.gs', import.meta.url), 'utf8');
 const HOUR = 3600000;
+const CH = 'Vriddhi Fuels/OLD Data/IOCL Challan';
 
 class Folder {
   constructor(name, parent = null) { this.name = name; this.parent = parent; this.folders = []; this.files = []; this.trashed = false; }
@@ -36,7 +38,11 @@ function world({ dates = {}, threads = [], now = Date.parse('2026-11-14T10:00:00
       createLabel: (n) => (labels[n] = { name: n }),
       search: (q, start, max) => { searches.push(q); return threads.filter((t) => !t.labelled).slice(0, max); },
     },
-    DriveApp: { getRootFolder: () => drive, getFolderById: (id) => drive.at(id) },
+    // the script runs in the mail account; "IOCL Challan" is shared to it by id
+    DriveApp: {
+      getRootFolder: () => drive,
+      getFolderById: (id) => { if (id !== FOLDER_ID || !drive.at(CH)) throw new Error('No item with the given ID could be found'); return drive.at(CH); },
+    },
     UrlFetchApp: {
       fetch: (url) => {
         const no = /invoice_no=eq\.(\d+)/.exec(url)[1];
@@ -61,7 +67,6 @@ const mail = (sent, ...names) => ({
   getAttachments: () => names.map((n) => ({ getName: () => n, getContentType: () => 'application/pdf', copyBlob: () => ({ name: n, data: 'pdf', setName(x) { this.name = x; return this; } }) })),
 });
 const thread = (...msgs) => ({ labelled: false, getMessages: () => msgs, addLabel() { this.labelled = true; } });
-const CH = 'Vriddhi Fuels/OLD Data/IOCL Challan';
 
 test('files each invoice by its invoice date, named by its number; labels the mail', () => {
   const t1 = thread(mail('2026-11-13T10:00:00Z', '7013019147.pdf'));              // our TT
@@ -113,11 +118,24 @@ test('waits for the invoice date while the mail is fresh, then files by the mail
   assert.ok(later.drive.at(CH).list().includes('2026/November 2026/7013099999.pdf') && t.labelled);
 });
 
-test('a missing IOCL Challan folder stops the run (Google emails the failure); nothing is made', () => {
+test('the folder is the one with the configured id (shared to the mail account)', () => {
+  assert.equal(vm.runInContext('CONFIG.FOLDER_ID', world().ctx), FOLDER_ID);
+});
+
+test('a missing / unshared IOCL Challan folder stops the run (Google emails the failure); nothing is made', () => {
   const w = world({ threads: [thread(mail('2026-11-13T10:00:00Z', '7013019147.pdf'))] });
   w.drive.at('Vriddhi Fuels/OLD Data').folders = w.drive.at('Vriddhi Fuels/OLD Data').folders.filter((f) => f.name !== 'IOCL Challan');
-  assert.throws(() => w.run(), /Folder "IOCL Challan" not found/);
+  assert.throws(() => w.run(), /No item with the given ID/);
   assert.ok(!w.drive.list().some((f) => f.includes('7013019147')));
+});
+
+test('with no id, the folder is found by its path — and a missing one is reported, not made', () => {
+  const w = world({ threads: [thread(mail('2026-11-13T10:00:00Z', '7013019147.pdf'))], dates: { 7013019147: '12/11/2026' } });
+  vm.runInContext("CONFIG.FOLDER_ID = ''", w.ctx);
+  assert.equal(w.run().saved, 1);
+  assert.ok(w.drive.at(CH).list().includes('2026/November 2026/7013019147.pdf'));
+  w.drive.at('Vriddhi Fuels/OLD Data').folders = w.drive.at('Vriddhi Fuels/OLD Data').folders.filter((f) => f.name !== 'IOCL Challan');
+  assert.throws(() => w.run(), /Folder "IOCL Challan" not found/);
 });
 
 test('install makes the trigger and runs once', () => {

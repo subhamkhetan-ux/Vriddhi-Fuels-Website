@@ -17,8 +17,9 @@ every 30 minutes on its own servers.
 What it does:
 - **All trucks**: our TT and transport TTs alike.
 - **Year and month folders** (`2027`, `January 2027`) are made inside
-  "IOCL Challan" as needed. **"IOCL Challan" itself is never created.** If it's
-  moved or renamed, the run stops and Google emails you.
+  "IOCL Challan" as needed. **"IOCL Challan" itself is never created.** It's
+  found by its id, so moving or renaming it is fine. If it's deleted or
+  un-shared, the run stops and Google emails you.
 - **Never twice.** An invoice already anywhere inside "IOCL Challan" is skipped.
   That includes a late challan you downloaded and put in yourself, named by its
   invoice number (`7013019147.pdf`, or `7013019147 (1).pdf`), in any month
@@ -32,19 +33,16 @@ What it does:
 
 ## Setup (once, ~5 minutes, on any computer)
 
-Do this signed in as the **Gmail account that receives the IOCL invoice mails**
-(the HDFC alerts mailbox).
+The IOCL invoice mails come to **sunilkhetan1976@gmail.com**, so the script runs
+there. The "IOCL Challan" folder is in **subhamkhetan@gmail.com**'s Drive and is
+shared with sunilkhetan1976@gmail.com as **Editor**. The script finds it by its id,
+which is already filled in (`FOLDER_ID`).
 
-1. Go to **script.google.com → New project**. Name it *IOCL Challan*.
+1. Signed in as **sunilkhetan1976@gmail.com**, go to **script.google.com →
+   New project**. Name it *IOCL Challan*.
 2. Delete what's in the editor, paste the whole of
    [`iocl_challan.gs`](./iocl_challan.gs), and save (⌘S).
-3. **If that Gmail account is not the one whose Drive has
-   "IOCL Challan"** (subhamkhetan@gmail.com):
-   - In Drive, **share** the "IOCL Challan" folder with the mail account as
-     **Editor**.
-   - Put the folder's id in `FOLDER_ID` near the top of the script: the last
-     part of the folder's link, `drive.google.com/drive/folders/<id>`.
-4. In the toolbar's function list pick **`install`** and press **Run**.
+3. In the toolbar's function list pick **`install`** and press **Run**.
    Google asks for permission (Gmail, Drive, and connecting to the invoice
    list).
    - It warns *"Google hasn't verified this app"*. That's your own script, so
@@ -56,12 +54,17 @@ Do this signed in as the **Gmail account that receives the IOCL invoice mails**
 That's all. To stop it: the clock icon (**Triggers**) on the left → delete the
 trigger.
 
+The PDFs the script adds are owned by sunilkhetan1976@gmail.com (they use a
+little of its Drive space, ~100 KB each). They sit in subhamkhetan@gmail.com's
+folder like any other file. If the folder is ever un-shared, the run fails and
+Google emails sunilkhetan1976@gmail.com.
+
 ## Settings (top of the script)
 
 | Setting | Default | What |
 |---|---|---|
-| `FOLDER_PATH` | `Vriddhi Fuels/OLD Data/IOCL Challan` | where the folder is, from the top of My Drive |
-| `FOLDER_ID` | *(empty)* | the folder's id instead; needed when the script runs in another account |
+| `FOLDER_ID` | `1wcWIymyJ11TkA3Hl6Cegn-ktKmNPQKZs` | the "IOCL Challan" folder (subhamkhetan@gmail.com's, shared to the mail account) |
+| `FOLDER_PATH` | `Vriddhi Fuels/OLD Data/IOCL Challan` | used instead when `FOLDER_ID` is empty: the path from the top of the script account's My Drive |
 | `START` | `2026/11/01` | the oldest mails looked at. The folder already has everything before this; set it earlier to back-fill (50 mails a run) |
 | `WAIT_HOURS` | `6` | how long a mail waits for its invoice date before it's filed by the mail's date |
 

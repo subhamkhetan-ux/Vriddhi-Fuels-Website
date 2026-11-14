@@ -24,12 +24,14 @@
  */
 
 const CONFIG = {
-  // Where "IOCL Challan" is, from the top of My Drive. Or put the folder's id in
-  // FOLDER_ID (the last part of its link, .../folders/<id>) — needed if this
-  // script runs in a different Google account than the one that owns the folder
-  // (share the folder with that account as Editor).
+  // The "IOCL Challan" folder. The script runs in sunilkhetan1976@gmail.com (the
+  // account that gets the IOCL invoice mails); the folder is in
+  // subhamkhetan@gmail.com's Drive (My Drive / Vriddhi Fuels / OLD Data /
+  // IOCL Challan), shared with it as Editor — so it's found by its id (the last
+  // part of its link, .../folders/<id>). With FOLDER_ID empty, FOLDER_PATH (from
+  // the top of the script account's My Drive) is used instead.
+  FOLDER_ID: '1wcWIymyJ11TkA3Hl6Cegn-ktKmNPQKZs',
   FOLDER_PATH: 'Vriddhi Fuels/OLD Data/IOCL Challan',
-  FOLDER_ID: '',
   // The IOCL invoice mails, and from when (the folder already has everything
   // before this).
   QUERY: 'from:B2BPRD@indianoil.in has:attachment filename:pdf',
