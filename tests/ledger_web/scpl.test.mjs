@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  bestGuess, classify, docText, indian, numStr, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplDocXml,
+  bestGuess, classify, indian, numStr, SCPL_TEMPLATE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange,
   scplFileName, scplPeriods, tableCells,
 } from '../../ledger/js/scpl.js';
 
@@ -77,52 +77,22 @@ test('file names as the macro files them', () => {
   assert.equal(scplFileName('2026-10-21', '2026-11-03'), 'SCPL Bill 21 Oct-3 Nov 2026');
 });
 
-test('scplBillSvg: a page per category, TOTAL in red on the last', () => {
+test('scplBillSvg: laid out as the template, a sheet per category, TOTAL and payment on the last', () => {
   const sales = [];
   for (let i = 0; i < 40; i++) sales.push(sale(i + 1, `2026-11-${String(1 + (i % 10)).padStart(2, '0')}`, String(100 + i), 'Transporting', 1000 + i));
   sales.push(sale(99, '2026-11-04', '500', 'Consumer', 250));
   const svgs = scplBillSvg(scplBill(sales, { from: '2026-11-01', to: '2026-11-10' }));
-  assert.equal(svgs.length, 3);                                     // 40 rows run on to a second page
-  assert.match(svgs[0], /Transporting/);
+  assert.equal(svgs.length, 3);                                     // 40 rows run on to a second sheet
+  for (const svg of svgs) {
+    for (const t of ['Bill To', 'Date:', '01-11-2026', '>To<', '10-11-2026', 'Product:', SCPL_TEMPLATE.name.replace('&', '&amp;'), 'GSTIN: 21AAICS8597H2ZV', 'For VRIDDHI FUELS', 'Signature of Customer']) assert.ok(svg.includes(t), t);
+  }
   assert.doesNotMatch(svgs[0], />TOTAL</);
+  assert.doesNotMatch(svgs[0], /Payment Details/);
   assert.match(svgs[1], />TOTAL</);
-  assert.match(svgs[1], /fill="#ff0000"/);
-  assert.match(svgs[2], /Consumer/);
-  assert.match(svgs[2], /01-11-2026/);
-  assert.match(svgs[2], /10-11-2026/);
-});
-
-// a small Word document shaped like the template: two dates (one split over
-// runs, as Word saves them), a table with a header and a TOTAL row, a text box
-const DOC = `<?xml version="1.0"?><w:document xmlns:w="w" xmlns:wp="wp"><w:body>
-<w:p><w:r><w:t>Bill for the period </w:t></w:r><w:r><w:t>01-10-</w:t></w:r><w:r><w:t>2026</w:t></w:r><w:r><w:t xml:space="preserve"> to 10-10-2026</w:t></w:r></w:p>
-<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>Date</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Bill No</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Vehicle</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Quantity</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Rate/Ltr</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Amount</w:t></w:r></w:p></w:tc></w:tr>
-<w:tr><w:tc><w:p><w:r><w:t>old</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr>
-<w:tr><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p><w:r><w:t>TOTAL</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr></w:tbl>
-<w:p><w:r><w:drawing><wp:anchor><wp:docPr id="3" name="Text Box 3"/></wp:anchor></w:drawing></w:r></w:p>
-<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`;
-
-test('scplDocXml fills the Word template as the macro does', () => {
-  const sales = [sale(1, '2026-11-03', '9', 'Transporting', 1500), sale(2, '2026-11-04', '10', 'Consumer', 300.25), sale(3, '2026-11-02', '8', 'Transporting', 100)];
-  const xml = scplDocXml(DOC, scplBill(sales, { from: '2026-11-01', to: '2026-11-10' }));
-  const text = docText(xml);
-  assert.match(text, /Bill for the period 01-11-2026 to 10-11-2026/);
-  assert.doesNotMatch(text, /old|10-10-2026/);
-  // both pages: the body copied after a page break, one table each
-  assert.equal((xml.match(/<w:tbl>/g) || []).length, 2);
-  assert.equal((xml.match(/<w:br w:type="page"\/>/g) || []).length, 1);
-  const [t1, t2] = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g);
-  assert.equal((t1.match(/<w:tr>/g) || []).length, 4);                 // header, 2 bills, TOTAL
-  assert.match(docText(t1), /02\/11\/268Transporting10090\.509,050/);
-  assert.match(docText(t1), /TOTAL1600\.00₹1,44,800$/);
-  assert.match(docText(t2), /Consumer300\.25/);
-  assert.match(t1, /w:color w:val="FF0000"/);
-  assert.match(t1, /<w:sz w:val="28"\/>/);
-  // the sectPr stays last, and the copied text box got its own id
-  assert.ok(xml.indexOf('<w:sectPr') > xml.lastIndexOf('</w:tbl>'));
-  assert.deepEqual([...xml.matchAll(/<wp:docPr id="(\d+)"/g)].map((m) => m[1]), ['3', '1003']);
-  // one category only: no second page
-  const one = scplDocXml(DOC, scplBill([sales[2]], { from: '2026-11-01', to: '2026-11-10' }));
-  assert.equal((one.match(/<w:tbl>/g) || []).length, 1);
-  assert.equal((one.match(/w:type="page"/g) || []).length, 0);
+  assert.match(svgs[1], /fill="#FF0000"/);
+  assert.match(svgs[1], /Payment Details:/);
+  assert.match(svgs[1], /IFSC Code – HDFC0000763/);
+  assert.match(svgs[2], />Consumer</);
+  // one short period: one sheet each
+  assert.equal(scplBillSvg(scplBill(sales.slice(0, 10), { from: '2026-11-01', to: '2026-11-10' })).length, 1);
 });

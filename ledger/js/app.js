@@ -10,7 +10,7 @@ import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
-import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplDocXml, scplFileName, scplPeriods } from './scpl.js';
+import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplPeriods } from './scpl.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
@@ -2965,7 +2965,7 @@ async function viewStatements() {
     </section>
     <section class="card">
       <h2>SCPL bill — every 10 days</h2>
-      <p class="muted">Same as <b>SCPL_GenerateBills</b>: Steels &amp; Carriers' HSD bills for 1–10, 11–20 or 21–end, Transporting on page 1 and Consumer on page 2 (by the bill's Vehicle label), with a red TOTAL — as a PDF, or filled into your Word template.</p>
+      <p class="muted">Same as <b>SCPL_GenerateBills</b>: Steels &amp; Carriers' HSD bills for 1–10, 11–20 or 21–end, Transporting on page 1 and Consumer on page 2 (by the bill's Vehicle label), with a red TOTAL — one PDF, laid out as your Word template.</p>
       <p><a class="btn" href="#/scpl">Make the SCPL bill</a></p>
     </section>
     <section class="card">
@@ -2997,17 +2997,13 @@ async function viewStatements() {
 
 // ---- the SCPL bill (modSCPLBilling.SCPL_GenerateBills) ----
 // Steels & Carriers' HSD bills for a 10-day period: page 1 Transporting,
-// page 2 Consumer, by the bill's Vehicle label. The PDF is drawn here on the
-// letterhead with the stamp; Download Word fills the Word template
-// (Steels & Carriers.docx, uploaded once) as the macro does.
+// page 2 Consumer, by the bill's Vehicle label — one PDF, laid out as the
+// macro's Word template (Steels & Carriers.docx).
 async function viewScpl() {
   const today = localToday();
   const S = state.scpl || (state.scpl = { ...scplDefaultRange(today), period: 'auto', customer: '', picked: {} });
   const periods = scplPeriods(today);
-  const extra = (k) => state.store.setting(k).catch(() => null);
-  const [sales, tpl, lhCn, lhPi, stLetter, stPi, stCn] = await Promise.all([state.store.salesRange(S.from, S.to),
-    state.store.setting('scpl_template').catch(() => undefined), extra('cn_letterhead'), extra('pi_letterhead'),
-    extra('letter_stamp'), extra('pi_stamp'), extra('cn_stamp')]);
+  const sales = await state.store.salesRange(S.from, S.to);
   const names = scplCustomers(sales);
   if (!names.some((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase())) names.unshift(SCPL_CUSTOMER);
   const customer = S.customer || (names.find((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase() && sales.some((x) => x.customer && x.customer.trim().toLowerCase() === n.toLowerCase())) ? SCPL_CUSTOMER : names.find((n) => n.toLowerCase() !== SCPL_CUSTOMER.toLowerCase()) || SCPL_CUSTOMER);
@@ -3041,10 +3037,8 @@ async function viewScpl() {
       <p class="actions"><button class="btn" id="scpl-pdf"${ready ? '' : ' disabled'}>Download PDF</button>
         <button class="btn ghost" id="scpl-share"${ready ? '' : ' disabled'}>Share</button>
         ${cannotPrint() ? '' : `<button class="btn ghost" id="scpl-print"${ready ? '' : ' disabled'}>Print</button>`}
-        <button class="btn ghost" id="scpl-docx"${ready && tpl ? '' : ' disabled'}>Download Word</button></p>
-      <p class="muted small">${esc(name)}.pdf · ${tpl === undefined ? 'Word needs the database updated: run <b>supabase/ledger-schema.sql</b> again.'
-    : tpl ? `Word template: <b>${esc(tpl.name)}</b>` : 'Download Word: upload your <b>Steels &amp; Carriers.docx</b> template once.'}
-        ${tpl !== undefined ? `<label class="file"><input type="file" id="scpl-tpl" accept=".docx"><span class="btn ghost small">${tpl ? 'Change template' : 'Upload template'}</span></label>` : ''}</p>
+</p>
+      <p class="muted small">${esc(name)}.pdf — laid out as your <b>Steels &amp; Carriers.docx</b>: the letterhead, Bill To and Date From To, Product: HSD, the table, the payment details, the stamp above “For VRIDDHI FUELS · Signature of Customer”.</p>
     </section>
     <section class="scpl-pages" id="scpl-pages">${ready ? loadingHtml('Drawing the bill…') : ''}</section>`);
   const form = document.getElementById('scpl-form');
@@ -3073,43 +3067,20 @@ async function viewScpl() {
     guard(viewScpl);
   }));
   document.getElementById('scpl-unpick')?.addEventListener('click', (e) => { e.preventDefault(); S.picked = {}; guard(viewScpl); });
-  document.getElementById('scpl-tpl')?.addEventListener('change', (e) => guard(async () => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 2000000) throw new Error('That template is too big — keep it under 2 MB.');
-    const JSZip = await loadJSZip();
-    const zip = await JSZip.loadAsync(await file.arrayBuffer()).catch(() => null);
-    const xml = zip && zip.file('word/document.xml') ? await zip.file('word/document.xml').async('string') : '';
-    if (!/<w:tbl\b/.test(xml)) throw new Error('That isn\'t the bill template: it has no table for the bills.');
-    const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
-    await state.store.setSetting('scpl_template', { data_url: dataUrl, name: file.name });
-    toast('Template saved');
-    await viewScpl();
-  }));
   if (!ready) return;
-  // the pages: the letterhead and stamp the Quotes tab uses
-  const lh = lhCn || lhPi;
-  const stamp = stLetter || stPi || stCn;
+  // the pages: the template's letterhead and stamp (the app's own copies)
   const fontCss = await letterFontCss().catch(() => '');
-  const shown = scplBillSvg(bill, { images: { letterhead: lh ? blobUrlOf(lh.data_url) : QUOTE_ASSETS.pi, stamp: stamp ? blobUrlOf(stamp.data_url) : IMAGES.stamp }, fontCss });
+  const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss });
   const box = document.getElementById('scpl-pages');
   box.innerHTML = shown.map((svg) => `<div class="doc-page">${svg}</div>`).join('');
   const pdfBlob = async () => {
-    const images = { letterhead: lh ? lh.data_url : await toDataUrl(QUOTE_ASSETS.pi), stamp: stamp ? stamp.data_url : await toDataUrl(IMAGES.stamp) };
+    const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
     return pdfFromSvgs(scplBillSvg(bill, { images, fontCss }), SCPL_PAGE, { scale: 3 });
   };
   const run = (id, fn) => { const b = document.getElementById(id); b?.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
   run('scpl-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
   run('scpl-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
   run('scpl-print', async () => printPages(shown, A4));
-  run('scpl-docx', async () => {
-    const JSZip = await loadJSZip();
-    const bytes = Uint8Array.from(atob(tpl.data_url.split(',')[1]), (c) => c.charCodeAt(0));
-    const zip = await JSZip.loadAsync(bytes);
-    zip.file('word/document.xml', scplDocXml(await zip.file('word/document.xml').async('string'), bill));
-    download(await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), `${name}.docx`);
-    toast(`Saved ${name}.docx`);
-  });
 }
 
 // The Web Share API needs the files ready before the click, so the pictures
@@ -4875,7 +4846,7 @@ async function viewPriceLetter(d) {
   document.getElementById('letter-page').innerHTML = letterSvg(text, { images: { letterhead: lh ? blobUrlOf(lh.data_url) : QUOTE_ASSETS.pi, stamp: stamp ? blobUrlOf(stamp.data_url) : IMAGES.stamp }, measure, fontCss });
   const name = `${P.short} Price Letter ${from === to ? dmyDash(from) : `${dmyDash(from)} to ${dmyDash(to)}`}`;
   const pdfBlob = async () => {
-    const images = { letterhead: lh ? lh.data_url : await toDataUrl(QUOTE_ASSETS.pi), stamp: stamp ? stamp.data_url : await toDataUrl(IMAGES.stamp) };
+    const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
     return pdfFromSvgs([letterSvg(text, { images, measure, fontCss })], LETTER_PAGE, { scale: 3 });
   };
   const run = (id, fn) => { const b = document.getElementById(id); b.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };

@@ -8,9 +8,8 @@
 //     set before the bill is made (the macro stops on them too)
 //   - each page: Date (dd/mm/yy), Bill No., the category, Quantity, Rate/Ltr,
 //     Amount; sorted by date then bill no.; a red, bold TOTAL row
-// Pure: no DOM, no network. scplBillSvg() draws the pages (A4, points);
-// scplDocXml() fills the Word template (Steels & Carriers.docx) the way the
-// macro does.
+// Pure: no DOM, no network. scplBillSvg() draws the pages (A4, points) as
+// the Word template (Steels & Carriers.docx) lays them out.
 
 export const SCPL_CUSTOMER = 'Steels and Carriers Private Limited';
 export const CATS = ['Transporting', 'Consumer'];
@@ -156,7 +155,7 @@ export function indian(n) {
 export const numStr = (v) => (Number.isInteger(v) ? String(v) : String(round2(v)));
 export const ddmmyy = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
 export const ddmmyyyy = (d) => `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
-// a page's rows as the Word table's cells (the TOTAL row last)
+// a page's rows as the table's cells (the TOTAL row last)
 export function tableCells(page) {
   return {
     rows: page.rows.map((r) => [ddmmyy(r.date), String(r.bill_no ?? ''), page.cat, numStr(r.qty), r.rate.toFixed(2), indian(r.amount)]),
@@ -174,199 +173,103 @@ export function scplFileName(from, to) {
   return `SCPL Bill ${d(from)} ${mon(from)}${from.slice(0, 4) !== to.slice(0, 4) ? ` ${from.slice(0, 4)}` : ''}-${d(to)} ${mon(to)} ${to.slice(0, 4)}`;
 }
 
-// ---- the pages (A4, points) ------------------------------------------------------
-// One page per category (a long period runs on to more pages; the TOTAL on
-// the last). images: {letterhead, stamp} as URLs; measure(text, {b, s}) ->
-// width in points.
+// ---- the pages (A4, points), laid out as the Word template --------------------
+// "Steels & Carriers.docx": A4, 0.5" margins, Times New Roman; the letterhead
+// across the top; "Bill To" and the customer on the left, "Date: <from> To
+// <to>" and "Product: HSD" on the right (headings in orange C45911); the
+// table; the payment details; the stamp pinned just above the footer line
+// "For VRIDDHI FUELS ... Signature of Customer" (as PinStamps puts it).
+// The template's bill-to and payment details:
+export const SCPL_TEMPLATE = {
+  name: 'Steels & Carriers PVT LTD',
+  address: ['Rourkela, Sundargarh.'],
+  gstin: '21AAICS8597H2ZV',
+  product: 'HSD',
+  payment: ['Account No. – 59217010101010', 'IFSC Code – HDFC0000763', 'Branch Name – HDFC BANK LTD, JHARSUGUDA', 'Name on account – Vriddhi Fuels'],
+};
 export const SCPL_PAGE = { width: 595.3, height: 841.9 };
 const FONT = "'Times New Roman', Tinos, Times, serif";
+const ORANGE = '#C45911';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const ROW = 18;
-export function scplBillSvg(bill, { images = {}, fontCss = '', billDate = '' } = {}) {
+const X = 72;                                                // the text's left edge (margin + first-line indent)
+const XR = 360;                                              // the right-hand block (Date:, Product:)
+const COLS = [60, 50, 90, 63, 55, 91];                        // the table's columns (the template's, the date a little wider so it doesn't wrap)
+const HEAD_H = 17.75;
+const ROW_H = 16;
+const TABLE_TOP = 280;
+const FOOT_Y = 825;                                          // the footer's baseline
+const STAMP = { x: 75, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
+const PAY_H = 2 * 13.8 + 18.4 + 4 * 16.1 + 8;                // two empty lines, the heading, four lines
+
+export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
   const P = SCPL_PAGE;
-  const M = 40;
-  const W = P.width - 2 * M;
-  const cols = [0.15, 0.15, 0.2, 0.15, 0.14, 0.21].map((f) => f * W);
-  const heads = ['Date', 'Bill No.', 'Vehicle', 'Quantity', 'Rate/Ltr', 'Amount'];
-  const align = ['start', 'start', 'start', 'middle', 'middle', 'end'];
-  const headH = images.letterhead ? W * (303 / 979) + 20 : 120;
-  const firstTop = headH + 128;
-  const bottom = P.height - 150;                               // room for the stamp
+  const isScpl = norm(bill.customer) === norm(SCPL_CUSTOMER);
+  const to = isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD', payment: SCPL_TEMPLATE.payment };
+  const aligns = ['start', 'start', 'start', 'middle', 'middle', 'end'];
+  const lastBottom = STAMP.y - 8 - PAY_H;                    // the last sheet: room for the payment details
+  const fullBottom = STAMP.y - 12;
   const svgs = [];
   for (const page of bill.pages) {
     const cells = tableCells(page);
-    // rows per sheet: the first has the heading, the ones after only the
-    // letterhead; the TOTAL row goes on the last
-    const contTop = headH + 40;
+    // rows per sheet; the TOTAL and the payment details on the last
+    const capLast = Math.floor((lastBottom - TABLE_TOP - HEAD_H) / ROW_H) - 1;
+    const capFull = Math.floor((fullBottom - TABLE_TOP - HEAD_H) / ROW_H);
     const chunks = [];
     let left = cells.rows.length;
     let i = 0;
-    while (left > 0 || !chunks.length) {
-      const cap = Math.max(2, Math.floor((bottom - (chunks.length ? contTop : firstTop) - ROW) / ROW));
-      const take = left <= cap - 1 ? left : Math.min(cap, left - 1);
+    while (left > capLast) {
+      const take = Math.min(capFull, left - 1);
       chunks.push(cells.rows.slice(i, i + take));
       i += take;
       left -= take;
-      if (!left) break;
     }
+    chunks.push(cells.rows.slice(i));
     chunks.forEach((chunk, ci) => {
       const last = ci === chunks.length - 1;
       let out = '';
-      let y = 20;
-      if (images.letterhead) out += `<image href="${esc(images.letterhead)}" x="${M}" y="${y}" width="${W}" height="${(W * (303 / 979)).toFixed(1)}" preserveAspectRatio="xMidYMid meet"/>`;
-      y = headH;
-      if (ci) {
-        out += `<text x="${M}" y="${y + 6}" font-size="12">${esc(bill.customer)} · ${esc(ddmmyyyy(bill.from))} to ${esc(ddmmyyyy(bill.to))} · <tspan font-weight="bold">${esc(page.cat)}</tspan> (continued, page ${ci + 1} of ${chunks.length})</text>`;
-      } else {
-      out += `<text x="${P.width / 2}" y="${y + 6}" text-anchor="middle" font-size="17" font-weight="bold" text-decoration="underline">BILL</text>`;
-      if (billDate) out += `<text x="${P.width - M}" y="${y + 6}" text-anchor="end" font-size="12">Date: ${esc(ddmmyyyy(billDate))}</text>`;
-      out += `<text x="${M}" y="${y + 34}" font-size="13">To,</text>`;
-      out += `<text x="${M}" y="${y + 52}" font-size="13" font-weight="bold">${esc(bill.customer)}</text>`;
-      out += `<text x="${M}" y="${y + 80}" font-size="13">HSD supplied from <tspan font-weight="bold">${esc(ddmmyyyy(bill.from))}</tspan> to <tspan font-weight="bold">${esc(ddmmyyyy(bill.to))}</tspan> — <tspan font-weight="bold">${esc(page.cat)}</tspan>${chunks.length > 1 ? ` (page 1 of ${chunks.length})` : ''}</text>`;
-      }
-      y = (ci ? contTop : firstTop) - 12;
-      const rowSvg = (vals, { head = false, total = false } = {}) => {
-        let cx = M;
-        let s = '';
+      if (images.letterhead) out += `<image href="${esc(images.letterhead)}" x="0" y="0" width="${P.width}" height="${(P.width * 303 / 979).toFixed(1)}" preserveAspectRatio="xMidYMin meet"/>`;
+      // Bill To / Date … To …
+      out += `<text x="${X}" y="189" font-size="16" font-weight="bold" fill="${ORANGE}">Bill To</text>`;
+      out += `<text x="${XR}" y="189" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Date:</tspan><tspan x="${XR + 46}">${esc(ddmmyyyy(bill.from))}</tspan></text>`;
+      out += `<text x="${X}" y="206" font-size="14" font-weight="bold">${esc(to.name)}</text>`;
+      out += `<text x="${XR + 46 + 38}" y="206" font-size="16" font-weight="bold" text-anchor="middle">To</text>`;
+      let ly = 223;
+      to.address.forEach((a, k) => { out += `<text x="${X}" y="${ly + k * 17}" font-size="14">${esc(a)}</text>`; });
+      out += `<text x="${XR + 46}" y="223" font-size="16" font-weight="bold">${esc(ddmmyyyy(bill.to))}</text>`;
+      ly += Math.max(1, to.address.length) * 17;
+      if (to.gstin) out += `<text x="${X}" y="${ly}" font-size="14" font-style="italic">GSTIN: ${esc(to.gstin)}</text>`;
+      out += `<text x="${XR}" y="262" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Product:</tspan> ${esc(to.product)}</text>`;
+      if (chunks.length > 1) out += `<text x="${X + COLS.reduce((a, b) => a + b, 0)}" y="${TABLE_TOP - 6}" font-size="10" text-anchor="end" fill="#555">${esc(page.cat)} · sheet ${ci + 1} of ${chunks.length}</text>`;
+      // the table
+      let y = TABLE_TOP;
+      const row = (vals, h, { head = false, total = false } = {}) => {
+        let cx = X;
+        let r = '';
         vals.forEach((v, k) => {
-          s += `<rect x="${cx.toFixed(1)}" y="${y.toFixed(1)}" width="${cols[k].toFixed(1)}" height="${ROW}" fill="${head ? '#f2f2f2' : 'none'}" stroke="#000" stroke-width="0.7"/>`;
-          const a = head ? 'middle' : align[k];
-          const tx = a === 'start' ? cx + 5 : a === 'end' ? cx + cols[k] - 5 : cx + cols[k] / 2;
-          s += `<text x="${tx.toFixed(1)}" y="${(y + ROW - 6).toFixed(1)}" font-size="${total ? 14 : 12}"${head || total ? ' font-weight="bold"' : ''}${total ? ' fill="#ff0000"' : ''}${a !== 'start' ? ` text-anchor="${a}"` : ''}>${esc(v)}</text>`;
-          cx += cols[k];
+          r += `<rect x="${cx}" y="${y.toFixed(2)}" width="${COLS[k]}" height="${h}" fill="none" stroke="#000" stroke-width="0.5"/>`;
+          const a = head ? 'middle' : total ? (k === 5 ? 'end' : 'middle') : aligns[k];
+          const tx = a === 'start' ? cx + 5.4 : a === 'end' ? cx + COLS[k] - 5.4 : cx + COLS[k] / 2;
+          if (v !== '') r += `<text x="${tx.toFixed(1)}" y="${(y + h - 4).toFixed(2)}" font-size="${total ? 14 : 12}"${head || total ? ' font-weight="bold"' : ''}${total ? ' fill="#FF0000"' : ''}${a !== 'start' ? ` text-anchor="${a}"` : ''}>${esc(v)}</text>`;
+          cx += COLS[k];
         });
-        y += ROW;
-        return s;
+        y += h;
+        return r;
       };
-      out += rowSvg(heads, { head: true });
-      for (const r of chunk) out += rowSvg(r);
+      out += row(['Date', 'Bill No', 'Vehicle', 'Quantity', 'Rate/Ltr', 'Amount'], HEAD_H, { head: true });
+      for (const r of chunk) out += row(r, ROW_H);
       if (last) {
-        const t = cells.total;
-        // TOTAL spans the first three cells, as it reads on the sheet
-        let s = '';
-        const span = cols[0] + cols[1] + cols[2];
-        s += `<rect x="${M}" y="${y.toFixed(1)}" width="${span.toFixed(1)}" height="${ROW + 4}" fill="none" stroke="#000" stroke-width="0.7"/>`;
-        s += `<text x="${(M + span / 2).toFixed(1)}" y="${(y + ROW - 3).toFixed(1)}" font-size="14" font-weight="bold" fill="#ff0000" text-anchor="middle">TOTAL</text>`;
-        let cx = M + span;
-        [t[3], t[4], t[5]].forEach((v, k) => {
-          const w = cols[k + 3];
-          s += `<rect x="${cx.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${ROW + 4}" fill="none" stroke="#000" stroke-width="0.7"/>`;
-          if (v) s += `<text x="${(k === 2 ? cx + w - 5 : cx + w / 2).toFixed(1)}" y="${(y + ROW - 3).toFixed(1)}" font-size="14" font-weight="bold" fill="#ff0000" text-anchor="${k === 2 ? 'end' : 'middle'}">${esc(v)}</text>`;
-          cx += w;
-        });
-        out += s;
-        y += ROW + 4;
+        out += row(cells.total, ROW_H + 2, { total: true });
+        // Payment Details
+        let py = y + 2 * 13.8 + 16;
+        out += `<text x="${X}" y="${py.toFixed(1)}" font-size="16" font-weight="bold">Payment Details:</text>`;
+        to.payment.forEach((l) => { py += 16.1; out += `<text x="${X}" y="${py.toFixed(1)}" font-size="14">${esc(l)}</text>`; });
       }
-      // the stamp and signature, just above the foot (as the macro pins it)
-      const sy = P.height - 132;
-      out += `<text x="${P.width - M}" y="${sy}" text-anchor="end" font-size="13" font-weight="bold">For Vriddhi Fuels</text>`;
-      if (images.stamp) out += `<image href="${esc(images.stamp)}" x="${P.width - M - 150}" y="${sy + 6}" width="150" height="60" preserveAspectRatio="xMaxYMid meet"/>`;
-      out += `<text x="${P.width - M}" y="${sy + 86}" text-anchor="end" font-size="13" font-weight="bold">Authorised Signatory</text>`;
+      // the stamp, pinned above the footer; the footer
+      if (images.stamp) out += `<image href="${esc(images.stamp)}" x="${STAMP.x}" y="${STAMP.y}" width="${STAMP.w}" height="${STAMP.h}" preserveAspectRatio="xMidYMid meet"/>`;
+      out += `<text x="${X}" y="${FOOT_Y}" font-size="16">For VRIDDHI FUELS</text>`;
+      out += `<text x="${XR}" y="${FOOT_Y}" font-size="16" font-style="italic">Signature of Customer</text>`;
       svgs.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${P.width} ${P.height}" width="${P.width}" height="${P.height}" font-family="${FONT}">${fontCss ? `<style>${fontCss}</style>` : ''}<rect width="100%" height="100%" fill="#fff"/>${out}</svg>`);
     });
   }
   return svgs;
-}
-
-// ---- the Word template (Steels & Carriers.docx) ----------------------------------
-// document.xml filled as the macro fills it:
-//   SetBillToDates — the first date (d-m-yyyy) becomes From, the next To
-//   DuplicateBody  — with both categories, the page copied after a page break
-//   FillTable      — each page's first table: header and last (TOTAL) row kept,
-//                    a row per bill in Times New Roman 12, TOTAL red, bold, 14
-const xmlEsc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-// a piece of document.xml as plain text
-export const docText = (x) => unx((x.match(/<w:t(?:\s[^>]*)?>[^<]*<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, '')).join(''));
-
-// The first dates (d-m-yyyy) in the paragraphs' text become values[0],
-// values[1], … — even when Word has split a date over several runs: each
-// character remembers its run, and a replaced date goes into the run where
-// it started.
-const T_RE = /(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g;
-const unx = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
-function replaceDates(xml, values) {
-  const left = [...values];
-  return xml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (p) => {
-    if (!left.length) return p;
-    const runs = [...p.matchAll(T_RE)].map((m) => unx(m[2]));
-    if (!runs.length) return p;
-    let text = runs.join('');
-    let owner = runs.flatMap((t, i) => Array.from(t, () => i));
-    let from = 0;
-    let changed = false;
-    const re = /\d{1,2}-\d{1,2}-\d{4}/g;
-    while (left.length) {
-      re.lastIndex = from;
-      const m = re.exec(text);
-      if (!m) break;
-      const v = left.shift();
-      const run = owner[m.index];
-      text = text.slice(0, m.index) + v + text.slice(m.index + m[0].length);
-      owner = [...owner.slice(0, m.index), ...Array.from(v, () => run), ...owner.slice(m.index + m[0].length)];
-      from = m.index + v.length;
-      changed = true;
-    }
-    if (!changed) return p;
-    const out = runs.map(() => '');
-    Array.from(text).forEach((ch, i) => { out[owner[i]] += ch; });
-    let k = 0;
-    return p.replace(T_RE, (_m, a, _b, c) => `${a.includes('xml:space') ? a : a.replace('<w:t', '<w:t xml:space="preserve"')}${xmlEsc(out[k++])}${c}`);
-  });
-}
-
-// a cell's text, in the macro's font, size, colour and alignment
-function cellXml(tc, text, { align = 'left', bold = false, size = 12, red = false } = {}) {
-  const open = tc.match(/^<w:tc\b[^>]*>/)[0];
-  const tcPr = (tc.match(/<w:tcPr\b[\s\S]*?<\/w:tcPr>/) || [''])[0];
-  const firstP = tc.match(/<w:p\b[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/);
-  let pPr = firstP ? (firstP[0].match(/<w:pPr\b[\s\S]*?<\/w:pPr>/) || [''])[0] : '';
-  const jc = `<w:jc w:val="${align === 'center' ? 'center' : align === 'right' ? 'right' : 'left'}"/>`;
-  if (!pPr) pPr = `<w:pPr>${jc}</w:pPr>`;
-  else if (/<w:jc\b[^>]*\/>/.test(pPr)) pPr = pPr.replace(/<w:jc\b[^>]*\/>/, jc);
-  else pPr = pPr.replace(/<w:rPr\b|<\/w:pPr>/, (x) => `${jc}${x}`);
-  const rPr = `<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? '<w:b/><w:bCs/>' : '<w:b w:val="0"/><w:bCs w:val="0"/>'}<w:i w:val="0"/><w:color w:val="${red ? 'FF0000' : '000000'}"/><w:sz w:val="${size * 2}"/><w:szCs w:val="${size * 2}"/><w:u w:val="none"/></w:rPr>`;
-  return `${open}${tcPr}<w:p>${pPr}${text ? `<w:r>${rPr}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>` : ''}</w:p></w:tc>`;
-}
-function rowXml(tr, values, opts) {
-  let i = 0;
-  return tr.replace(/<w:tc\b[\s\S]*?<\/w:tc>/g, (tc) => {
-    const k = i++;
-    if (k >= values.length || values[k] === null) return tc;
-    return cellXml(tc, values[k], { ...opts, ...(opts.aligns ? { align: opts.aligns[k] } : {}) });
-  });
-}
-function fillTableXml(tbl, page) {
-  const rows = tbl.match(/<w:tr\b[\s\S]*?<\/w:tr>/g) || [];
-  if (rows.length < 2) throw new Error('The template\'s table needs a header row and a TOTAL row.');
-  const head = rows[0];
-  const tot = rows[rows.length - 1];
-  const sample = rows.length > 2 ? rows[1] : tot;
-  const cells = tableCells(page);
-  const aligns = ['left', 'left', 'left', 'center', 'center', 'right'];
-  const data = cells.rows.map((v) => rowXml(sample, v, { aligns, size: 12 }));
-  const total = rowXml(tot, [null, null, 'TOTAL', cells.total[3], '', cells.total[5]],
-    { aligns: ['left', 'left', 'center', 'center', 'center', 'right'], bold: true, size: 14, red: true });
-  const start = tbl.indexOf(rows[0]);
-  const end = tbl.lastIndexOf(tot) + tot.length;
-  return tbl.slice(0, start) + head + data.join('') + total + tbl.slice(end);
-}
-
-export function scplDocXml(xml, bill) {
-  if (!bill.pages.length) throw new Error('No bills to put in the template.');
-  let doc = replaceDates(xml, [ddmmyyyy(bill.from), ddmmyyyy(bill.to)]);
-  const bodyStart = doc.indexOf('<w:body>') + '<w:body>'.length;
-  const sect = doc.lastIndexOf('<w:sectPr');
-  const bodyEnd = doc.lastIndexOf('</w:body>');
-  const cut = sect > bodyStart ? sect : bodyEnd;
-  let content = doc.slice(bodyStart, cut);
-  if (!/<w:tbl\b/.test(content)) throw new Error('The template has no table for the bills.');
-  const fillFirst = (c, page) => c.replace(/<w:tbl\b[\s\S]*?<\/w:tbl>/, (t) => fillTableXml(t, page));
-  let out = fillFirst(content, bill.pages[0]);
-  if (bill.pages[1]) {
-    // the copy's pictures and text boxes need their own ids
-    let n = 0;
-    const copy = fillFirst(content, bill.pages[1]).replace(/(<wp:docPr\b[^>]*\bid=")(\d+)"/g, (_m, a, id) => `${a}${Number(id) + 1000 + (n++)}"`);
-    out += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>${copy}`;
-  }
-  return doc.slice(0, bodyStart) + out + doc.slice(cut);
 }
