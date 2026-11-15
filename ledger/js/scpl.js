@@ -163,14 +163,14 @@ export function tableCells(page) {
   };
 }
 
-// the file name: "SCPL Bill 1-10 Nov 2026" (as the macro files it), or
-// "SCPL Bill 21 Oct-10 Nov 2026" across months
+// the file name, as the macro files it: "SCPL Bill 1-10 Nov", or
+// "SCPL Bill 21 Oct-3 Nov" across months
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export function scplFileName(from, to) {
   const d = (x) => Number(x.slice(8, 10));
   const mon = (x) => MON[Number(x.slice(5, 7)) - 1];
-  if (from.slice(0, 7) === to.slice(0, 7)) return `SCPL Bill ${d(from)}-${d(to)} ${mon(to)} ${to.slice(0, 4)}`;
-  return `SCPL Bill ${d(from)} ${mon(from)}${from.slice(0, 4) !== to.slice(0, 4) ? ` ${from.slice(0, 4)}` : ''}-${d(to)} ${mon(to)} ${to.slice(0, 4)}`;
+  if (from.slice(0, 7) === to.slice(0, 7)) return `SCPL Bill ${d(from)}-${d(to)} ${mon(to)}`;
+  return `SCPL Bill ${d(from)} ${mon(from)}-${d(to)} ${mon(to)}`;
 }
 
 // ---- the pages (A4, points), laid out as the Word template --------------------
@@ -188,17 +188,33 @@ export const SCPL_TEMPLATE = {
   payment: ['Account No. – 59217010101010', 'IFSC Code – HDFC0000763', 'Branch Name – HDFC BANK LTD, JHARSUGUDA', 'Name on account – Vriddhi Fuels'],
 };
 export const SCPL_PAGE = { width: 595.3, height: 841.9 };
-const FONT = "'Times New Roman', Tinos, Times, serif";
+// the bill's font: the real Times New Roman (cut down to the characters a bill
+// uses: assets/fonts/times*-bill.woff2), embedded in each page so every phone
+// draws it the same; its ₹ — which Times New Roman lacks (Word falls back to
+// another font too) — from Noto Serif
+const FONT = "'Bill Times', 'Bill Rupee', 'Times New Roman', Tinos, Times, serif";
+export const SCPL_FONTS = {
+  regular: 'assets/fonts/times-bill.woff2', bold: 'assets/fonts/timesbd-bill.woff2',
+  italic: 'assets/fonts/timesi-bill.woff2', rupee: 'assets/fonts/rupee-noto-serif.woff2',
+};
+// urls: the same keys as data: URLs -> @font-face CSS for the pages
+export function scplFontCss(urls = {}) {
+  const face = (family, url, weight, style, range = '') => (url
+    ? `@font-face { font-family: '${family}'; src: url(${url}) format('woff2'); font-weight: ${weight}; font-style: ${style};${range ? ` unicode-range: ${range};` : ''} }`
+    : '');
+  return [face('Bill Times', urls.regular, 400, 'normal'), face('Bill Times', urls.bold, 700, 'normal'),
+    face('Bill Times', urls.italic, 400, 'italic'), face('Bill Rupee', urls.rupee, '100 900', 'normal', 'U+20B9')].filter(Boolean).join('\n');
+}
 const ORANGE = '#C45911';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const X = 72;                                                // the text's left edge (margin + first-line indent)
 const XR = 360;                                              // the right-hand block (Date:, Product:)
-const COLS = [60, 50, 90, 63, 55, 91];                        // the table's columns (the template's, the date a little wider so it doesn't wrap)
-const HEAD_H = 17.75;
-const ROW_H = 16;
-const TABLE_TOP = 280;
-const FOOT_Y = 825;                                          // the footer's baseline
-const STAMP = { x: 75, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
+const COLS = [53.5, 49.65, 95.3, 63.3, 55.45, 91.7];          // the template's columns (twips / 20)
+const HEAD_H = 18.5;
+const ROW_H = 16.1;
+const TABLE_TOP = 281.5;
+const FOOT_Y = 826;                                          // the footer's baseline
+const STAMP = { x: 76, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
 const PAY_H = 2 * 13.8 + 18.4 + 4 * 16.1 + 8;                // two empty lines, the heading, four lines
 
 export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
@@ -229,14 +245,14 @@ export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
       let out = '';
       if (images.letterhead) out += `<image href="${esc(images.letterhead)}" x="0" y="0" width="${P.width}" height="${(P.width * 303 / 979).toFixed(1)}" preserveAspectRatio="xMidYMin meet"/>`;
       // Bill To / Date … To …
-      out += `<text x="${X}" y="189" font-size="16" font-weight="bold" fill="${ORANGE}">Bill To</text>`;
-      out += `<text x="${XR}" y="189" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Date:</tspan><tspan x="${XR + 46}">${esc(ddmmyyyy(bill.from))}</tspan></text>`;
-      out += `<text x="${X}" y="206" font-size="14" font-weight="bold">${esc(to.name)}</text>`;
-      out += `<text x="${XR + 46 + 38}" y="206" font-size="16" font-weight="bold" text-anchor="middle">To</text>`;
-      let ly = 223;
+      out += `<text x="${X}" y="190.5" font-size="16" font-weight="bold" fill="${ORANGE}">Bill To</text>`;
+      out += `<text x="${XR}" y="190.5" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Date:</tspan><tspan x="${XR + 45}">${esc(ddmmyyyy(bill.from))}</tspan></text>`;
+      out += `<text x="${X}" y="209" font-size="14" font-weight="bold">${esc(to.name)}</text>`;
+      out += `<text x="${XR + 76}" y="209" font-size="16" font-weight="bold" text-anchor="middle">To</text>`;
+      let ly = 227;
       to.address.forEach((a, k) => { out += `<text x="${X}" y="${ly + k * 17}" font-size="14">${esc(a)}</text>`; });
-      out += `<text x="${XR + 46}" y="223" font-size="16" font-weight="bold">${esc(ddmmyyyy(bill.to))}</text>`;
-      ly += Math.max(1, to.address.length) * 17;
+      out += `<text x="${XR + 47.5}" y="227" font-size="16" font-weight="bold">${esc(ddmmyyyy(bill.to))}</text>`;
+      ly += Math.max(1, to.address.length) * 17 - 0.5;
       if (to.gstin) out += `<text x="${X}" y="${ly}" font-size="14" font-style="italic">GSTIN: ${esc(to.gstin)}</text>`;
       out += `<text x="${XR}" y="262" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Product:</tspan> ${esc(to.product)}</text>`;
       if (chunks.length > 1) out += `<text x="${X + COLS.reduce((a, b) => a + b, 0)}" y="${TABLE_TOP - 6}" font-size="10" text-anchor="end" fill="#555">${esc(page.cat)} · sheet ${ci + 1} of ${chunks.length}</text>`;
@@ -249,7 +265,7 @@ export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
           r += `<rect x="${cx}" y="${y.toFixed(2)}" width="${COLS[k]}" height="${h}" fill="none" stroke="#000" stroke-width="0.5"/>`;
           const a = head ? 'middle' : total ? (k === 5 ? 'end' : 'middle') : aligns[k];
           const tx = a === 'start' ? cx + 5.4 : a === 'end' ? cx + COLS[k] - 5.4 : cx + COLS[k] / 2;
-          if (v !== '') r += `<text x="${tx.toFixed(1)}" y="${(y + h - 4).toFixed(2)}" font-size="${total ? 14 : 12}"${head || total ? ' font-weight="bold"' : ''}${total ? ' fill="#FF0000"' : ''}${a !== 'start' ? ` text-anchor="${a}"` : ''}>${esc(v)}</text>`;
+          if (v !== '') r += `<text x="${tx.toFixed(1)}" y="${(y + h - 3.2).toFixed(2)}" font-size="${total ? 14 : 12}"${head || total ? ' font-weight="bold"' : ''}${total ? ' fill="#FF0000"' : ''}${a !== 'start' ? ` text-anchor="${a}"` : ''}>${esc(v)}</text>`;
           cx += COLS[k];
         });
         y += h;
@@ -260,7 +276,7 @@ export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
       if (last) {
         out += row(cells.total, ROW_H + 2, { total: true });
         // Payment Details
-        let py = y + 2 * 13.8 + 16;
+        let py = y + 51.5;
         out += `<text x="${X}" y="${py.toFixed(1)}" font-size="16" font-weight="bold">Payment Details:</text>`;
         to.payment.forEach((l) => { py += 16.1; out += `<text x="${X}" y="${py.toFixed(1)}" font-size="14">${esc(l)}</text>`; });
       }

@@ -73,8 +73,8 @@ test('the macro formats: Indian amounts with paise, quantities, rates', () => {
 });
 
 test('file names as the macro files them', () => {
-  assert.equal(scplFileName('2026-11-01', '2026-11-10'), 'SCPL Bill 1-10 Nov 2026');
-  assert.equal(scplFileName('2026-10-21', '2026-11-03'), 'SCPL Bill 21 Oct-3 Nov 2026');
+  assert.equal(scplFileName('2026-11-01', '2026-11-10'), 'SCPL Bill 1-10 Nov');
+  assert.equal(scplFileName('2026-10-21', '2026-11-03'), 'SCPL Bill 21 Oct-3 Nov');
 });
 
 test('scplBillSvg: laid out as the template, a sheet per category, TOTAL and payment on the last', () => {

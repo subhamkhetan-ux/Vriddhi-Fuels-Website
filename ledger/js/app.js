@@ -10,7 +10,7 @@ import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
-import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplPeriods } from './scpl.js';
+import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods } from './scpl.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
@@ -2999,6 +2999,16 @@ async function viewStatements() {
 // Steels & Carriers' HSD bills for a 10-day period: page 1 Transporting,
 // page 2 Consumer, by the bill's Vehicle label — one PDF, laid out as the
 // macro's Word template (Steels & Carriers.docx).
+// the bill's Times New Roman (and its ₹), as data: URLs: a page drawn into a
+// picture can't fetch anything itself
+let scplFontsPromise = null;
+function scplFonts() {
+  if (!scplFontsPromise) {
+    scplFontsPromise = Promise.all(Object.entries(SCPL_FONTS).map(async ([k, url]) => [k, await toDataUrl(url).catch(() => '')]))
+      .then((pairs) => scplFontCss(Object.fromEntries(pairs)));
+  }
+  return scplFontsPromise;
+}
 async function viewScpl() {
   const today = localToday();
   const S = state.scpl || (state.scpl = { ...scplDefaultRange(today), period: 'auto', customer: '', picked: {} });
@@ -3069,7 +3079,7 @@ async function viewScpl() {
   document.getElementById('scpl-unpick')?.addEventListener('click', (e) => { e.preventDefault(); S.picked = {}; guard(viewScpl); });
   if (!ready) return;
   // the pages: the template's letterhead and stamp (the app's own copies)
-  const fontCss = await letterFontCss().catch(() => '');
+  const fontCss = await scplFonts();
   const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss });
   const box = document.getElementById('scpl-pages');
   box.innerHTML = shown.map((svg) => `<div class="doc-page">${svg}</div>`).join('');
