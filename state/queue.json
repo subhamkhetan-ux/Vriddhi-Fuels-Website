@@ -8125,7 +8125,9 @@
         "amount_hint": "A.K.V. Logistics"
       },
       "queued_at": "2026-11-15T05:15:20.885473+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-15T06:00:24.352579+00:00"
     },
     {
       "entry_id": "6ee08481a320dfe0",
@@ -8154,7 +8156,9 @@
         "amount_hint": "A.K.V. Logistics"
       },
       "queued_at": "2026-11-15T05:15:20.902726+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-15T06:00:24.352579+00:00"
     }
   ]
 }
