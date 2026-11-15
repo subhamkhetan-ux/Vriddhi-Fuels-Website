@@ -36,7 +36,14 @@ function world({ dates = {}, threads = [], now = Date.parse('2026-11-14T10:00:00
     GmailApp: {
       getUserLabelByName: (n) => labels[n] || null,
       createLabel: (n) => (labels[n] = { name: n }),
-      search: (q, start, max) => { searches.push(q); return threads.filter((t) => !t.labelled).slice(0, max); },
+      // "label:x" lists that label's mails; otherwise mails with no label yet
+      search: (q, start, max) => {
+        searches.push(q);
+        const only = /^label:(\S+)$/.exec(q);
+        const hit = only ? threads.filter((t) => [...t.labels].some((l) => l.toLowerCase().replace(/\s+/g, '-') === only[1]))
+          : threads.filter((t) => !t.labels.size);
+        return hit.slice(start, start + max);
+      },
     },
     // the script runs in the mail account; "IOCL Challan" is shared to it by id
     DriveApp: {
@@ -67,7 +74,14 @@ const mail = (sent, ...names) => ({
   getDate: () => new Date(sent),
   getAttachments: () => names.map((n) => ({ getName: () => n, getContentType: () => 'application/pdf', copyBlob: () => ({ name: n, data: 'pdf', setName(x) { this.name = x; return this; } }) })),
 });
-const thread = (...msgs) => ({ labelled: false, getMessages: () => msgs, addLabel() { this.labelled = true; } });
+const thread = (...msgs) => ({
+  labels: new Set(),
+  get labelled() { return this.labels.size > 0; },
+  getMessages: () => msgs,
+  addLabel(l) { this.labels.add(l.name); },
+  removeLabel(l) { this.labels.delete(l.name); },
+});
+const SAVED = 'IOCL Challan saved', SKIPPED = 'IOCL Challan skipped';
 
 test('files each invoice by its invoice date, named by its number; labels the mail', () => {
   const t1 = thread(mail('2026-11-13T10:00:00Z', '7013019147.pdf'));              // our TT
@@ -78,8 +92,9 @@ test('files each invoice by its invoice date, named by its number; labels the ma
   assert.ok(files.includes('2026/November 2026/7013019147.pdf'));
   assert.ok(files.includes('2026/October 2026/7012920176.pdf'));                // by the invoice date, not the mail's
   assert.ok(!files.some((f) => /statement/.test(f)));
-  assert.ok(t1.labelled && t2.labelled);
-  assert.match(w.searches[0], /from:B2BPRD@indianoil\.in has:attachment filename:pdf after:2026\/11\/01 -label:iocl-challan-saved/);
+  assert.deepEqual([...t1.labels], [SAVED]);
+  assert.deepEqual([...t2.labels], [SAVED]);
+  assert.match(w.searches[0], /from:B2BPRD@indianoil\.in has:attachment filename:pdf after:2026\/11\/01 -label:iocl-challan-saved -label:iocl-challan-skipped/);
 });
 
 test('an invoice already in IOCL Challan (any folder, a hand-put copy) is skipped', () => {
@@ -126,7 +141,7 @@ test('IOCL credit notes (not on the invoice list) are left out, not saved', () =
   const w = world({ threads: [t] });                                              // 13 days old, never listed
   assert.deepEqual(w.run(), { saved: 0, skipped: 0, waiting: 0, notFuel: 2 });
   assert.ok(!w.drive.at(CH).list().some((f) => /701262682[01]/.test(f)));
-  assert.ok(t.labelled);                                                          // not looked at again
+  assert.deepEqual([...t.labels], [SKIPPED]);                                     // checked; nothing in Drive
 });
 
 test('an invoice list that cannot be reached means wait — never left out for that', () => {
@@ -159,4 +174,33 @@ test('with no id, the folder is found by its path — and a missing one is repor
 test('install makes the trigger and runs once', () => {
   const w = world({ threads: [thread(mail('2026-11-13T10:00:00Z', '7013019147.pdf'))], dates: { 7013019147: '12/11/2026' } });
   assert.equal(vm.runInContext('install()', w.ctx).saved, 1);
+});
+
+// IOCL's payment acknowledgement (15 Nov 2026): same sender, a PDF named
+// "PDF ATTCHMNT.PDF" — no invoice number. Checked, nothing saved: "skipped".
+test('a payment acknowledgement is labelled skipped, not saved', () => {
+  const t = thread(mail('2026-11-15T06:54:00Z', 'PDF ATTCHMNT.PDF'));
+  const w = world({ threads: [t] });
+  assert.deepEqual(w.run(), { saved: 0, skipped: 0, waiting: 0, notFuel: 0 });
+  assert.deepEqual([...t.labels], [SKIPPED]);
+});
+
+test('an invoice already in Drive (hand-put) is labelled saved', () => {
+  const t = thread(mail('2026-11-13T10:00:00Z', '7012019212.pdf'));               // October's, in the folder already
+  const w = world({ threads: [t] });
+  w.run();
+  assert.deepEqual([...t.labels], [SAVED]);
+});
+
+test('fixOldLabels moves mails with no invoice in Drive from saved to skipped', () => {
+  const ack = thread(mail('2026-11-15T06:54:00Z', 'PDF ATTCHMNT.PDF'));
+  const credit = thread(mail('2026-11-01T06:00:00Z', '7012626820.pdf', '7012626821.pdf'));   // deleted from Drive
+  const inv = thread(mail('2026-10-06T05:00:00Z', '7012019212.pdf'));                       // in Drive
+  for (const t of [ack, credit, inv]) t.labels.add(SAVED);                                  // as the earlier version left them
+  const w = world({ threads: [ack, credit, inv] });
+  assert.deepEqual({ ...vm.runInContext('fixOldLabels()', w.ctx) }, { moved: 2, kept: 1 });
+  assert.deepEqual([...ack.labels], [SKIPPED]);
+  assert.deepEqual([...credit.labels], [SKIPPED]);
+  assert.deepEqual([...inv.labels], [SAVED]);
+  assert.deepEqual(w.run(), { saved: 0, skipped: 0, waiting: 0, notFuel: 0 });           // none looked at again
 });
