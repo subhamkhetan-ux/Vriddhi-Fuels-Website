@@ -1169,13 +1169,14 @@ end $$;
 
 -- Settings you change in the app (not from the workbook): the stamps printed
 -- on fuel slips, statements, proforma invoices and quotations, and the company name on the fuel slips
--- ({name, fy}: kept across Master Ledger uploads, the bill's financial year
--- added when fy is set). Only these keys; a picture up to about 500 KB.
+-- ({name, fy}: kept across Master Ledger uploads, the bill's financial year added
+-- when fy is set), and the bank details on the poster by the dispensers
+-- (bank_details). Only these keys; a picture up to about 500 KB.
 create or replace function public.ledger_setting_set(p_key text, p_value jsonb)
 returns void language plpgsql set search_path = public as $$
 begin
   perform ledger_assert_member();
-  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp', 'mac_uploads') then
+  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp', 'mac_uploads', 'bank_details') then
     raise exception 'Unknown setting %.', p_key;
   end if;
   if length(coalesce(p_value::text, '')) > 700000 then raise exception 'That picture is too big (keep it under 500 KB).'; end if;
