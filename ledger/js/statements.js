@@ -105,6 +105,25 @@ export function shortNames(names) {
   });
 }
 
+// Module2 FileNameFor() (the monthly statements): the full name without a
+// leading "M/s", characters a file name can't hold turned into "-"; when two
+// customers would still get the same name, the second gets its sheet name
+// in brackets so one PDF never overwrites another.
+//   "M/s Balajee Enterprises" -> "Balajee Enterprises"
+export function fullNames(names, sheets = []) {
+  const used = new Set();
+  return names.map((name, i) => {
+    let nm = String(name ?? '').trim();
+    if (/^m\/s[ .]/i.test(nm)) nm = nm.slice(4).trim();
+    nm = nm.replace(/[/\\:*?"<>|]/g, '-').replace(/ {2,}/g, ' ');
+    const sheet = String(sheets[i] ?? '').trim();
+    if (!nm) nm = sheet || 'Customer';
+    if (used.has(nm.toLowerCase())) nm = `${nm} (${sheet || i + 1})`;
+    used.add(nm.toLowerCase());
+    return nm;
+  });
+}
+
 // ---- the ledger (A1:G of a customer sheet) ------------------------------------------
 
 // One row per date and fuel (volume and amount summed, price averaged), a
@@ -247,7 +266,9 @@ export function buildStatements({ kind, date, from, to, data, filter = '' }) {
     if (!qualifies) return false;
     return !f || String(c.name).toLowerCase().includes(f) || String(c.ledger || '').toLowerCase().includes(f);
   });
-  const short = shortNames(chosen.map((c) => c.name));
+  // the daily snapshot keeps Module1's first word; the monthly statements
+  // (and any period) Module2's full name
+  const short = kind === 'daily' ? shortNames(chosen.map((c) => c.name)) : fullNames(chosen.map((c) => c.name), chosen.map((c) => c.ledger));
   const label = kind === 'daily' ? ddmmyyyy(date, '-')
     : kind === 'monthly' ? monthLabel(from)
       : from === to ? ddmmyyyy(from, '-') : `${ddmmyyyy(from, '-')} to ${ddmmyyyy(to, '-')}`;

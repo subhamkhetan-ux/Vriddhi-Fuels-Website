@@ -10,6 +10,7 @@ import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods } from './scpl.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
@@ -35,7 +36,7 @@ import {
   bulkRows, cellText, COLUMN_HEAD, DEFAULT_BULK_WIDTHS, isNegative, xlDate, xlRupee,
 } from './account.js';
 import {
-  addDays, buildStatements, ddmmyy, defaultMonth, firstWord, indAuto, ledgerRows, monthEnd, monthLabel, monthStart, rupeeAuto,
+  addDays, buildStatements, ddmmyy, defaultMonth, fullNames, indAuto, ledgerRows, monthEnd, monthLabel, monthStart, rupeeAuto,
   shareBatches,
 } from './statements.js';
 import {
@@ -274,6 +275,7 @@ const ROUTES = [
   [/^#\/bills$/, () => viewBills()],
   [/^#\/quotes(?:\/(pi|log|cn|cnlog|letter|bank))?$/, (m) => viewQuotes(m[1] || '')],
   [/^#\/statements$/, () => viewStatements()],
+  [/^#\/scpl$/, () => viewScpl()],
   [/^#\/payments$/, () => viewPayments()],
   [/^#\/payments\/modes$/, () => viewPaymentModes()],
   [/^#\/loans$/, () => viewLoans()],
@@ -1842,7 +1844,7 @@ async function viewRetailAccount(key, month) {
     const svgOf = async () => ledgerSvg({
       title, subtitle: 'Ledger Account for Diesel', period, ...led, total: false, layout: c.layout,
     }, await statementImages());
-    const xlBase = `${firstWord(c.name)} Ledger ${monthLabel(from)}`;
+    const xlBase = `${fullNames([c.name], [c.ledger])[0]} Ledger ${monthLabel(from)}`;
     main().querySelector('[data-xl="share"]').addEventListener('click', (e) => guard(async () => {
       e.target.disabled = true;
       try {
@@ -2962,6 +2964,11 @@ async function viewStatements() {
       <div id="custom-out"></div>
     </section>
     <section class="card">
+      <h2>SCPL bill — every 10 days</h2>
+      <p class="muted">Same as <b>SCPL_GenerateBills</b>: Steels &amp; Carriers' HSD bills for 1–10, 11–20 or 21–end, Transporting on page 1 and Consumer on page 2 (by the bill's Vehicle label), with a red TOTAL — one PDF, laid out as your Word template.</p>
+      <p><a class="btn" href="#/scpl">Make the SCPL bill</a></p>
+    </section>
+    <section class="card">
       <h2>Stamp on the statements</h2>
       ${stampRow(stamp, 'st-stamp-file', 'st-stamp-remove', 'statements')}
     </section>`);
@@ -2986,6 +2993,107 @@ async function viewStatements() {
     guard(() => preparePeriod('custom', { from, to, filter: e.target.filter.value.trim() }, 'custom-out'));
   });
   bindStamp('statement_stamp', 'st-stamp-file', 'st-stamp-remove', viewStatements);
+}
+
+// ---- the SCPL bill (modSCPLBilling.SCPL_GenerateBills) ----
+// Steels & Carriers' HSD bills for a 10-day period: page 1 Transporting,
+// page 2 Consumer, by the bill's Vehicle label — one PDF, laid out as the
+// macro's Word template (Steels & Carriers.docx).
+// the bill's Times New Roman (and its ₹), as data: URLs: a page drawn into a
+// picture can't fetch anything itself
+let scplFontsPromise = null;
+function scplFonts() {
+  if (!scplFontsPromise) {
+    scplFontsPromise = Promise.all(Object.entries(SCPL_FONTS).map(async ([k, url]) => [k, await toDataUrl(url).catch(() => '')]))
+      .then((pairs) => scplFontCss(Object.fromEntries(pairs)));
+  }
+  return scplFontsPromise;
+}
+async function viewScpl() {
+  const today = localToday();
+  const S = state.scpl || (state.scpl = { ...scplDefaultRange(today), period: 'auto', customer: '', picked: {} });
+  const periods = scplPeriods(today);
+  const [sales, savedBank] = await Promise.all([state.store.salesRange(S.from, S.to), state.store.setting('bank_details').catch(() => null)]);
+  // the payment details: the bank details saved under Quotes → Bank Details
+  const bank = cleanBank({ ...BANK_DEFAULT, ...(savedBank && savedBank.details ? savedBank.details : {}) });
+  const names = scplCustomers(sales);
+  if (!names.some((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase())) names.unshift(SCPL_CUSTOMER);
+  const customer = S.customer || (names.find((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase() && sales.some((x) => x.customer && x.customer.trim().toLowerCase() === n.toLowerCase())) ? SCPL_CUSTOMER : names.find((n) => n.toLowerCase() !== SCPL_CUSTOMER.toLowerCase()) || SCPL_CUSTOMER);
+  const bill = scplBill(sales, { customer, from: S.from, to: S.to, picked: S.picked });
+  const name = scplFileName(S.from, S.to);
+  const ready = bill.count && !bill.unread.length;
+  const periodKey = `${S.from}|${S.to}`;
+  const auto = periods.some((r) => `${r.from}|${r.to}` === periodKey);
+  const L = (n) => `${fmtLitres(n)} L`;
+  setMain(`
+    <section class="card">
+      <div class="row-between"><h2>SCPL bill</h2><a class="btn ghost small" href="#/statements">← Statements</a></div>
+      <p class="muted small">As the workbook's <b>SCPL_GenerateBills</b>: the customer's HSD bills in the period — <b>Transporting</b> on page 1, <b>Consumer</b> on page 2, by each bill's Vehicle label — sorted by date and bill no., with a red, bold TOTAL.</p>
+      <form class="row-form" id="scpl-form" autocomplete="off">
+        <label>Period <select name="period">
+          ${periods.map((r) => `<option value="${r.from}|${r.to}"${periodKey === `${r.from}|${r.to}` ? ' selected' : ''}>${esc(fmtDate(r.from))} – ${esc(fmtDate(r.to))}</option>`).join('')}
+          <option value="custom"${auto ? '' : ' selected'}>From – to…</option></select></label>
+        ${auto ? '' : `<label>From <input type="date" name="from" value="${S.from}"></label><label>To <input type="date" name="to" value="${S.to}"></label>`}
+        <label>Customer <select name="customer">${names.map((n) => `<option${n === customer ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      </form>
+      ${bill.count || bill.unread.length ? `<div class="kpis">
+        ${SCPL_CATS.map((c) => { const p = bill.pages.find((x) => x.cat === c); return `<div class="kpi${c === 'Transporting' ? ' hero' : ''}"><span class="lbl">${c}</span><span class="val">${p ? esc(rupees(p.amount)) : '—'}</span><span class="sub">${p ? `${plural(p.rows.length, 'bill')} · ${esc(L(p.qty))}` : 'no bills'}</span></div>`; }).join('')}
+      </div>` : `<p class="muted">No HSD bills for ${esc(customer)} from ${esc(fmtDate(S.from))} to ${esc(fmtDate(S.to))}.</p>`}
+      ${bill.guessed.length ? `<p class="muted small">Read as a near match (fix the label in Tally / the sheet when you can): ${bill.guessed.map((g) => `bill <b>${esc(g.bill_no)}</b> “${esc(g.label)}” → ${esc(g.cat)}`).join(', ')}.</p>` : ''}
+      ${bill.unread.length ? `<div class="warn-box"><p><b>${plural(bill.unread.length, 'bill')} with a Vehicle label that isn't Transporting or Consumer</b> — set each one (only for this bill; fix the label in Tally / the sheet too):</p>
+        <div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Bill</th><th>Label</th><th class="r">Litres</th><th>Put it in</th></tr></thead><tbody>
+        ${bill.unread.map((r) => `<tr><td>${esc(fmtDate(r.date))}</td><td>${esc(r.bill_no)}</td><td>${esc(r.label || '(blank)')}</td><td class="r">${esc(fmtLitres(r.qty))}</td>
+          <td><select data-pick="${r.id}"><option value="">Choose…</option>${SCPL_CATS.map((c) => `<option>${c}</option>`).join('')}<option value="skip">Leave out</option></select></td></tr>`).join('')}
+        </tbody></table></div></div>` : ''}
+      ${Object.keys(S.picked).length ? `<p class="muted small">${plural(Object.keys(S.picked).length, 'label')} set by hand${bill.skipped ? ` (${bill.skipped} left out)` : ''} · <a href="#" id="scpl-unpick">undo</a></p>` : ''}
+      <p class="actions"><button class="btn" id="scpl-pdf"${ready ? '' : ' disabled'}>Download PDF</button>
+        <button class="btn ghost" id="scpl-share"${ready ? '' : ' disabled'}>Share</button>
+        ${cannotPrint() ? '' : `<button class="btn ghost" id="scpl-print"${ready ? '' : ' disabled'}>Print</button>`}
+</p>
+      <p class="muted small">${esc(name)}.pdf — laid out as your <b>Steels &amp; Carriers.docx</b>: the letterhead, Bill To and Date From To, Product: HSD, the table, the payment details, the stamp above “For VRIDDHI FUELS · Signature of Customer”.
+        Payment details: <b>${esc(bank.bank)}</b> a/c ${esc(bank.account)} — from <a href="#/quotes/bank">Quotes → Bank Details</a>; change them there.</p>
+    </section>
+    <section class="scpl-pages" id="scpl-pages">${ready ? loadingHtml('Drawing the bill…') : ''}</section>`);
+  const form = document.getElementById('scpl-form');
+  form.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.name === 'period') {
+      if (t.value === 'custom') { S.period = 'custom'; } else { [S.from, S.to] = t.value.split('|'); }
+    } else if (t.name === 'from' || t.name === 'to') {
+      S[t.name] = t.value;
+      if (S.to < S.from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    } else if (t.name === 'customer') S.customer = t.value;
+    S.picked = {};
+    if (t.name === 'period' && t.value === 'custom') {
+      // show the date boxes for the period on screen
+      S.from = S.from || today; S.to = S.to || today;
+      const wrap = document.createElement('span');
+      wrap.innerHTML = `<label>From <input type="date" name="from" value="${S.from}"></label> <label>To <input type="date" name="to" value="${S.to}"></label>`;
+      t.closest('label').after(wrap);
+      return;
+    }
+    guard(viewScpl);
+  });
+  document.querySelectorAll('[data-pick]').forEach((sel) => sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    S.picked[sel.dataset.pick] = sel.value;
+    guard(viewScpl);
+  }));
+  document.getElementById('scpl-unpick')?.addEventListener('click', (e) => { e.preventDefault(); S.picked = {}; guard(viewScpl); });
+  if (!ready) return;
+  // the pages: the template's letterhead and stamp (the app's own copies)
+  const fontCss = await scplFonts();
+  const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss, bank });
+  const box = document.getElementById('scpl-pages');
+  box.innerHTML = shown.map((svg) => `<div class="doc-page">${svg}</div>`).join('');
+  const pdfBlob = async () => {
+    const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
+    return pdfFromSvgs(scplBillSvg(bill, { images, fontCss, bank }), SCPL_PAGE, { scale: 3 });
+  };
+  const run = (id, fn) => { const b = document.getElementById(id); b?.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
+  run('scpl-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
+  run('scpl-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
+  run('scpl-print', async () => printPages(shown, A4));
 }
 
 // The Web Share API needs the files ready before the click, so the pictures
@@ -4751,7 +4859,7 @@ async function viewPriceLetter(d) {
   document.getElementById('letter-page').innerHTML = letterSvg(text, { images: { letterhead: lh ? blobUrlOf(lh.data_url) : QUOTE_ASSETS.pi, stamp: stamp ? blobUrlOf(stamp.data_url) : IMAGES.stamp }, measure, fontCss });
   const name = `${P.short} Price Letter ${from === to ? dmyDash(from) : `${dmyDash(from)} to ${dmyDash(to)}`}`;
   const pdfBlob = async () => {
-    const images = { letterhead: lh ? lh.data_url : await toDataUrl(QUOTE_ASSETS.pi), stamp: stamp ? stamp.data_url : await toDataUrl(IMAGES.stamp) };
+    const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
     return pdfFromSvgs([letterSvg(text, { images, measure, fontCss })], LETTER_PAGE, { scale: 3 });
   };
   const run = (id, fn) => { const b = document.getElementById(id); b.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
