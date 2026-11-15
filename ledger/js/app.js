@@ -3013,7 +3013,9 @@ async function viewScpl() {
   const today = localToday();
   const S = state.scpl || (state.scpl = { ...scplDefaultRange(today), period: 'auto', customer: '', picked: {} });
   const periods = scplPeriods(today);
-  const sales = await state.store.salesRange(S.from, S.to);
+  const [sales, savedBank] = await Promise.all([state.store.salesRange(S.from, S.to), state.store.setting('bank_details').catch(() => null)]);
+  // the payment details: the bank details saved under Quotes → Bank Details
+  const bank = cleanBank({ ...BANK_DEFAULT, ...(savedBank && savedBank.details ? savedBank.details : {}) });
   const names = scplCustomers(sales);
   if (!names.some((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase())) names.unshift(SCPL_CUSTOMER);
   const customer = S.customer || (names.find((n) => n.toLowerCase() === SCPL_CUSTOMER.toLowerCase() && sales.some((x) => x.customer && x.customer.trim().toLowerCase() === n.toLowerCase())) ? SCPL_CUSTOMER : names.find((n) => n.toLowerCase() !== SCPL_CUSTOMER.toLowerCase()) || SCPL_CUSTOMER);
@@ -3048,7 +3050,8 @@ async function viewScpl() {
         <button class="btn ghost" id="scpl-share"${ready ? '' : ' disabled'}>Share</button>
         ${cannotPrint() ? '' : `<button class="btn ghost" id="scpl-print"${ready ? '' : ' disabled'}>Print</button>`}
 </p>
-      <p class="muted small">${esc(name)}.pdf — laid out as your <b>Steels &amp; Carriers.docx</b>: the letterhead, Bill To and Date From To, Product: HSD, the table, the payment details, the stamp above “For VRIDDHI FUELS · Signature of Customer”.</p>
+      <p class="muted small">${esc(name)}.pdf — laid out as your <b>Steels &amp; Carriers.docx</b>: the letterhead, Bill To and Date From To, Product: HSD, the table, the payment details, the stamp above “For VRIDDHI FUELS · Signature of Customer”.
+        Payment details: <b>${esc(bank.bank)}</b> a/c ${esc(bank.account)} — from <a href="#/quotes/bank">Quotes → Bank Details</a>; change them there.</p>
     </section>
     <section class="scpl-pages" id="scpl-pages">${ready ? loadingHtml('Drawing the bill…') : ''}</section>`);
   const form = document.getElementById('scpl-form');
@@ -3080,12 +3083,12 @@ async function viewScpl() {
   if (!ready) return;
   // the pages: the template's letterhead and stamp (the app's own copies)
   const fontCss = await scplFonts();
-  const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss });
+  const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss, bank });
   const box = document.getElementById('scpl-pages');
   box.innerHTML = shown.map((svg) => `<div class="doc-page">${svg}</div>`).join('');
   const pdfBlob = async () => {
     const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
-    return pdfFromSvgs(scplBillSvg(bill, { images, fontCss }), SCPL_PAGE, { scale: 3 });
+    return pdfFromSvgs(scplBillSvg(bill, { images, fontCss, bank }), SCPL_PAGE, { scale: 3 });
   };
   const run = (id, fn) => { const b = document.getElementById(id); b?.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
   run('scpl-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });

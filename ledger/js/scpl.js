@@ -179,14 +179,30 @@ export function scplFileName(from, to) {
 // <to>" and "Product: HSD" on the right (headings in orange C45911); the
 // table; the payment details; the stamp pinned just above the footer line
 // "For VRIDDHI FUELS ... Signature of Customer" (as PinStamps puts it).
-// The template's bill-to and payment details:
+// The template's bill-to; the payment details are the bank details saved in
+// the app (Quotes → Bank Details), in the template's four lines.
 export const SCPL_TEMPLATE = {
   name: 'Steels & Carriers PVT LTD',
   address: ['Rourkela, Sundargarh.'],
   gstin: '21AAICS8597H2ZV',
   product: 'HSD',
-  payment: ['Account No. – 59217010101010', 'IFSC Code – HDFC0000763', 'Branch Name – HDFC BANK LTD, JHARSUGUDA', 'Name on account – Vriddhi Fuels'],
 };
+// bank: {name, account, ifsc, bank, branch} (bank-board.js) -> the lines;
+// a line too long for the page goes on to a second, indented one
+export function scplPaymentLines(bank = {}) {
+  const lines = [
+    `Account No. – ${bank.account || ''}`,
+    `IFSC Code – ${bank.ifsc || ''}`,
+    `Branch Name – ${[bank.bank, bank.branch].filter(Boolean).join(', ')}`,
+    `Name on account – ${bank.name || ''}`,
+  ];
+  const MAX = 74;                                            // characters at 14 pt from the text's edge to the page's margin
+  return lines.flatMap((l) => {
+    if (l.length <= MAX) return [l];
+    const cut = l.lastIndexOf(' ', MAX);
+    return [l.slice(0, cut > 20 ? cut : MAX), `    ${l.slice(cut > 20 ? cut + 1 : MAX)}`];
+  });
+}
 export const SCPL_PAGE = { width: 595.3, height: 841.9 };
 // the bill's font: the real Times New Roman (cut down to the characters a bill
 // uses: assets/fonts/times*-bill.woff2), embedded in each page so every phone
@@ -215,12 +231,13 @@ const ROW_H = 16.1;
 const TABLE_TOP = 281.5;
 const FOOT_Y = 826;                                          // the footer's baseline
 const STAMP = { x: 76, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
-const PAY_H = 2 * 13.8 + 18.4 + 4 * 16.1 + 8;                // two empty lines, the heading, four lines
 
-export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
+export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {} } = {}) {
   const P = SCPL_PAGE;
   const isScpl = norm(bill.customer) === norm(SCPL_CUSTOMER);
-  const to = isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD', payment: SCPL_TEMPLATE.payment };
+  const to = isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD' };
+  const payment = scplPaymentLines(bank);
+  const PAY_H = 2 * 13.8 + 18.4 + payment.length * 16.1 + 8;  // two empty lines, the heading, the lines
   const aligns = ['start', 'start', 'start', 'middle', 'middle', 'end'];
   const lastBottom = STAMP.y - 8 - PAY_H;                    // the last sheet: room for the payment details
   const fullBottom = STAMP.y - 12;
@@ -278,7 +295,7 @@ export function scplBillSvg(bill, { images = {}, fontCss = '' } = {}) {
         // Payment Details
         let py = y + 51.5;
         out += `<text x="${X}" y="${py.toFixed(1)}" font-size="16" font-weight="bold">Payment Details:</text>`;
-        to.payment.forEach((l) => { py += 16.1; out += `<text x="${X}" y="${py.toFixed(1)}" font-size="14">${esc(l)}</text>`; });
+        payment.forEach((l) => { py += 16.1; out += `<text x="${X}" y="${py.toFixed(1)}" font-size="14">${esc(l)}</text>`; });
       }
       // the stamp, pinned above the footer; the footer
       if (images.stamp) out += `<image href="${esc(images.stamp)}" x="${STAMP.x}" y="${STAMP.y}" width="${STAMP.w}" height="${STAMP.h}" preserveAspectRatio="xMidYMid meet"/>`;

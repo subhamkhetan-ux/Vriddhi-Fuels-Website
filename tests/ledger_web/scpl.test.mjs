@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  bestGuess, classify, indian, numStr, SCPL_TEMPLATE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange,
+  bestGuess, classify, indian, numStr, SCPL_TEMPLATE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplPaymentLines,
   scplFileName, scplPeriods, tableCells,
 } from '../../ledger/js/scpl.js';
+import { BANK_DEFAULT, cleanBank } from '../../ledger/js/bank-board.js';
 
 const C = 'Steels and Carriers Private Limited';
 const sale = (id, date, bill, vehicle, qty, rate = 90.5, extra = {}) => ({
@@ -81,7 +82,7 @@ test('scplBillSvg: laid out as the template, a sheet per category, TOTAL and pay
   const sales = [];
   for (let i = 0; i < 40; i++) sales.push(sale(i + 1, `2026-11-${String(1 + (i % 10)).padStart(2, '0')}`, String(100 + i), 'Transporting', 1000 + i));
   sales.push(sale(99, '2026-11-04', '500', 'Consumer', 250));
-  const svgs = scplBillSvg(scplBill(sales, { from: '2026-11-01', to: '2026-11-10' }));
+  const svgs = scplBillSvg(scplBill(sales, { from: '2026-11-01', to: '2026-11-10' }), { bank: cleanBank(BANK_DEFAULT) });
   assert.equal(svgs.length, 3);                                     // 40 rows run on to a second sheet
   for (const svg of svgs) {
     for (const t of ['Bill To', 'Date:', '01-11-2026', '>To<', '10-11-2026', 'Product:', SCPL_TEMPLATE.name.replace('&', '&amp;'), 'GSTIN: 21AAICS8597H2ZV', 'For VRIDDHI FUELS', 'Signature of Customer']) assert.ok(svg.includes(t), t);
@@ -91,8 +92,25 @@ test('scplBillSvg: laid out as the template, a sheet per category, TOTAL and pay
   assert.match(svgs[1], />TOTAL</);
   assert.match(svgs[1], /fill="#FF0000"/);
   assert.match(svgs[1], /Payment Details:/);
-  assert.match(svgs[1], /IFSC Code – HDFC0000763/);
+  assert.match(svgs[1], /IFSC Code – ICIC0000468/);
+  assert.match(svgs[1], /Account No\. – 046805004716/);
+  assert.doesNotMatch(svgs[1], /HDFC/);
   assert.match(svgs[2], />Consumer</);
   // one short period: one sheet each
   assert.equal(scplBillSvg(scplBill(sales.slice(0, 10), { from: '2026-11-01', to: '2026-11-10' })).length, 1);
+});
+
+test('the payment details come from the saved bank details, a long branch on two lines', () => {
+  assert.deepEqual(scplPaymentLines(cleanBank(BANK_DEFAULT)), [
+    'Account No. – 046805004716',
+    'IFSC Code – ICIC0000468',
+    'Branch Name – ICICI BANK Ltd, Jharsuguda Main Branch, Kalimandir Road',
+    'Name on account – VRIDDHI FUELS',
+  ]);
+  const other = scplPaymentLines({ name: 'Vriddhi Fuels', account: '111122223333', ifsc: 'SBIN0001234', bank: 'SBI', branch: 'Jharsuguda' });
+  assert.deepEqual(other, ['Account No. – 111122223333', 'IFSC Code – SBIN0001234', 'Branch Name – SBI, Jharsuguda', 'Name on account – Vriddhi Fuels']);
+  const long = scplPaymentLines({ ...BANK_DEFAULT, branch: 'Jharsuguda Main Branch, Kalimandir Road, Near Old Bus Stand, Jharsuguda' });
+  assert.equal(long.length, 5);
+  assert.ok(long.every((l) => l.length <= 74));
+  assert.match(long[3], /^ {4}\S/);
 });
