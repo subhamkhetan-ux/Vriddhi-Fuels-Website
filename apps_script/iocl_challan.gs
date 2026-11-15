@@ -23,8 +23,12 @@
  *   still not on the list after WAIT_HOURS, it's taken as not a fuel invoice.
  *   (If the list can't be reached, the mail just waits — it's never skipped
  *   for that.)
- * - A saved mail gets the Gmail label "IOCL Challan saved", and is not looked at
- *   again. Remove the label to have it checked again.
+ * - Each mail, once checked, gets a Gmail label and is not looked at again:
+ *   "IOCL Challan saved" when its fuel invoice is in Drive (saved now, or there
+ *   already), "IOCL Challan skipped" when it has none (a payment acknowledgement,
+ *   a credit note, a statement…). Remove the label to have it checked again.
+ *   (Run fixOldLabels once to move mails labelled "saved" by an earlier version
+ *   that have no invoice in Drive onto "skipped".)
  * - If a run fails, Google emails you (the trigger's failure notice).
  */
 
@@ -41,7 +45,8 @@ const CONFIG = {
   // before this).
   QUERY: 'from:B2BPRD@indianoil.in has:attachment filename:pdf',
   START: '2026/11/01',
-  LABEL: 'IOCL Challan saved',
+  LABEL: 'IOCL Challan saved',          // its fuel invoice is in Drive
+  SKIP_LABEL: 'IOCL Challan skipped',   // checked: no fuel invoice in it
   // The invoice date: the decant app's list of invoices (filled by the payment
   // agent from each PDF). Its public key, as in decant/config.js.
   INVOICES_URL: 'https://rqxzbenyztapjrswveqv.supabase.co',
@@ -59,15 +64,14 @@ const INVOICE_NO = /(?<!\d)(70\d{8})(?!\d)/;
 function saveIoclChallans() {
   const root = challanFolder_();
   const have = invoicesIn_(root);
-  const label = GmailApp.getUserLabelByName(CONFIG.LABEL) || GmailApp.createLabel(CONFIG.LABEL);
-  // (Gmail search writes a label's spaces as dashes: label:iocl-challan-saved)
-  const query = `${CONFIG.QUERY} after:${CONFIG.START} -label:${CONFIG.LABEL.toLowerCase().replace(/\s+/g, '-')}`;
+  const label = label_(CONFIG.LABEL), skipLabel = label_(CONFIG.SKIP_LABEL);
+  const query = `${CONFIG.QUERY} after:${CONFIG.START} -label:${searchName_(CONFIG.LABEL)} -label:${searchName_(CONFIG.SKIP_LABEL)}`;
   const threads = GmailApp.search(query, 0, CONFIG.MAX_THREADS);
   const folders = {};
   let saved = 0, skipped = 0, waiting = 0, notFuel = 0;
 
   for (const thread of threads) {
-    let done = true;
+    let done = true, inDrive = false;      // inDrive: a fuel invoice of this mail is in IOCL Challan
     for (const msg of thread.getMessages()) {
       for (const att of msg.getAttachments()) {
         const name = att.getName() || '';
@@ -75,7 +79,7 @@ function saveIoclChallans() {
         const m = INVOICE_NO.exec(name);
         if (!m) continue;                                   // not an IOCL document number
         const no = m[1];
-        if (have.has(no)) { skipped++; continue; }          // already in IOCL Challan
+        if (have.has(no)) { skipped++; inDrive = true; continue; }   // already in IOCL Challan
         const date = invoiceDate_(no);
         if (date === undefined) { done = false; waiting++; continue; }   // list unreachable: next run
         if (date === null) {                                // not on the list (yet)
@@ -92,13 +96,47 @@ function saveIoclChallans() {
         folders[key].createFile(att.copyBlob().setName(`${no}.pdf`));
         have.add(no);
         saved++;
+        inDrive = true;
         console.log(`saved ${yyyy}/${month}/${no}.pdf`);
       }
     }
-    if (done) thread.addLabel(label);
+    if (done) thread.addLabel(inDrive ? label : skipLabel);
   }
   console.log(`IOCL Challan: ${saved} saved, ${skipped} already there, ${waiting} waiting for the invoice date, ${notFuel} not fuel invoices (left out).`);
   return { saved, skipped, waiting, notFuel };
+}
+
+
+/** Run once by hand (choose it in the toolbar, then Run): mails an earlier
+ *  version labelled "IOCL Challan saved" although no invoice of theirs is in
+ *  Drive (payment acknowledgements, credit notes) are moved to "IOCL Challan
+ *  skipped". Mails whose invoice is in Drive keep "saved". */
+function fixOldLabels() {
+  const have = invoicesIn_(challanFolder_());
+  const label = label_(CONFIG.LABEL), skipLabel = label_(CONFIG.SKIP_LABEL);
+  // all of them first: relabelling while paging through the search would shift it
+  const threads = [];
+  for (let start = 0; ; start += 100) {
+    const page = GmailApp.search(`label:${searchName_(CONFIG.LABEL)}`, start, 100);
+    threads.push(...page);
+    if (page.length < 100) break;
+  }
+  let moved = 0, kept = 0;
+  for (const thread of threads) {
+    const nos = [];
+    for (const msg of thread.getMessages()) {
+      for (const att of msg.getAttachments()) {
+        const m = INVOICE_NO.exec(att.getName() || '');
+        if (m) nos.push(m[1]);
+      }
+    }
+    if (nos.some((no) => have.has(no))) { kept++; continue; }
+    thread.removeLabel(label);
+    thread.addLabel(skipLabel);
+    moved++;
+  }
+  console.log(`Labels: ${moved} moved to "${CONFIG.SKIP_LABEL}", ${kept} kept "${CONFIG.LABEL}".`);
+  return { moved, kept };
 }
 
 
@@ -124,6 +162,16 @@ function challanFolder_() {
     f = it.next();
   }
   return f;
+}
+
+/** A Gmail label by name, made if it isn't there. */
+function label_(name) {
+  return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
+}
+
+/** A label as Gmail search writes it: spaces as dashes (label:iocl-challan-saved). */
+function searchName_(name) {
+  return name.toLowerCase().replace(/\s+/g, '-');
 }
 
 /** A sub-folder by name, made if it isn't there. */

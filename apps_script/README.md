@@ -33,8 +33,16 @@ What it does:
     not on the list after 24 hours, it's taken as not a fuel invoice.
   - **If the list can't be reached, the mail just waits.** It's never left out
     for that.
-- **Done mails get the Gmail label "IOCL Challan saved"** and aren't looked at
-  again. Remove the label from a mail to have it checked again.
+- **Each checked mail gets a Gmail label** and isn't looked at again:
+  - **IOCL Challan saved**: its fuel invoice is in Drive (saved by the script,
+    or already there).
+  - **IOCL Challan skipped**: it has no fuel invoice, e.g. a payment
+    acknowledgement ("PDF ATTCHMNT.PDF"), a credit note or a statement.
+
+  Remove the label from a mail to have it checked again. Mails an earlier
+  version labelled "saved" without an invoice in Drive can be moved to
+  "skipped" by running **`fixOldLabels`** once (pick it in the toolbar, then
+  Run).
 - **If a run fails**, Google emails you about it.
 
 ## Setup (once, ~5 minutes, on any computer)
