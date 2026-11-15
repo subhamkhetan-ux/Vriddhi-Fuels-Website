@@ -937,6 +937,10 @@ def test_credit_notes_and_their_log(pg):
     pg.ok(call("ledger_setting_set", "bank_details", {"details": {"account": "000111222333", "ifsc": "ABCD0123456"}}), **as_owner)
     assert pg.owner(call("ledger_setting_get", "bank_details"))["details"]["ifsc"] == "ABCD0123456"
     assert "Unknown setting" in pg.fails(call("ledger_setting_set", "bank_detail", {"x": 1}), **as_owner)
+    # the SCPL bill's Word template: bigger than a picture may be, up to about 2 MB
+    pg.ok(call("ledger_setting_set", "scpl_template", {"data_url": "data:application/zip;base64," + "A" * 1500000, "name": "Steels & Carriers.docx"}), **as_owner)
+    assert "too big" in pg.fails(call("ledger_setting_set", "scpl_template", {"data_url": "A" * 2900000}), **as_owner)
+    assert "too big" in pg.fails(call("ledger_setting_set", "letter_stamp", {"data_url": "A" * 800000}), **as_owner)
     pg.ok(call("ledger_cn_delete", 2), **as_owner)
     assert [r["cn_no"] for r in pg.owner(call("ledger_cn_list"))] == ["BNK/001"]
     assert "No credit note" in pg.fails(call("ledger_cn_delete", 2), **as_owner)

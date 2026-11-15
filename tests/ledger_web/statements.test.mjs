@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import {
   billRows, buildStatements, dailySummary, defaultMonth, firstWord, general, indAuto, ledgerRows, monthEnd,
-  monthLabel, rupeeAuto, shortNames,
+  fullNames, monthLabel, rupeeAuto, shortNames,
 } from '../../ledger/js/statements.js';
 import { billStatementSvgs, dailySummarySvg, ledgerSvg } from '../../ledger/js/statement-svg.js';
 
@@ -127,13 +127,13 @@ test('daily: anyone who bought that day (Other too), ledger month to date, that 
 
 test('monthly and custom: fuel buyers only, totals, filter, file labels', () => {
   const m = buildStatements({ kind: 'monthly', from: '2026-09-01', to: '2026-09-30', data: DATA() });
-  assert.deepEqual(m.customers.map((c) => c.ledgerFile), ['Keshav Ledger September-2026', 'Radhe Ledger September-2026']);
+  assert.deepEqual(m.customers.map((c) => c.ledgerFile), ['Keshav Minerals Ledger September-2026', 'Radhe Mining Ledger September-2026']);
   assert.equal(m.customers[1].ledger.title, 'Radhe Mining (Main)');
   assert.equal(m.customers[0].bills.rows.length, 2);
   assert.equal(m.customers[0].ledger.total, true);
   assert.deepEqual(m.summaries, []);
   const c = buildStatements({ kind: 'custom', from: '2026-09-20', to: '2026-09-25', data: DATA(), filter: 'RADHE' });
-  assert.deepEqual(c.customers.map((x) => x.billFile), ['Radhe Bill 20-09-2026 to 25-09-2026']);
+  assert.deepEqual(c.customers.map((x) => x.billFile), ['Radhe Mining Bill 20-09-2026 to 25-09-2026']);
   const span = buildStatements({ kind: 'custom', from: '2026-08-20', to: '2026-09-25', data: DATA() });
   assert.equal(span.customers[0].ledger.period, 'for 20/08/2026 to 25/09/2026');
 });
@@ -202,4 +202,10 @@ test('sharing goes in parts of up to 10 pictures, customers kept together', asyn
   assert.deepEqual(shareBatches([[f('a', 30e6), f('b', 30e6)]]).map((p) => p.length), [1, 1]);   // size limit
   assert.deepEqual(shareBatches(Array.from({ length: 3 }, () => [f('x'), f('y'), f('z')])).map((p) => p.length), [9]);
   assert.deepEqual(shareBatches(Array.from({ length: 4 }, () => [f('x'), f('y'), f('z')])).map((p) => p.length), [9, 3]);
+});
+
+test('fullNames: Module2 FileNameFor — the full name without M/s, a clash gets its sheet name', () => {
+  assert.deepEqual(fullNames(['M/s Balajee Enterprises', 'Shyam Metalics and Energy Ltd', 'M/s. A/B Traders', 'm/s  Two  Spaces'], ['Bal', 'SMEL', 'AB', 'TS']),
+    ['Balajee Enterprises', 'Shyam Metalics and Energy Ltd', 'A-B Traders', 'Two Spaces']);
+  assert.deepEqual(fullNames(['Same Co', 'Same Co', ''], ['S1', 'S2', 'Blank']), ['Same Co', 'Same Co (S2)', 'Blank']);
 });

@@ -81,6 +81,16 @@ export function demoSeed(today = new Date(), workbook = null) {
     if (i === 4) rows.push({ product: 'OTHER', bill_no: 'LUBE/017', sale_date: date, vehicle: '', qty: 1, rate: 450, amount: 450, customer: 'Sample Roadlines', item: 'Engine oil 1L' });
   }
   lastRows.push(sale('HSD', isoDay(today, -1), 'Fresh Traders', 150));
+  // a customer billed every 10 days, split by the Vehicle label (Statements →
+  // SCPL Bill): fixed numbers, so the rest of the demo stays as it was; one
+  // label with a typo and one the app can't read
+  for (let i = days; i >= 2; i--) {
+    const date = isoDay(today, -i);
+    const n = 3000 + (days - i) * 2;
+    const label = i === 9 ? 'Transportng' : i === 13 ? 'OD15K4471' : 'Transporting';
+    masterSales.push({ product: 'HSD', bill_no: String(n), sale_date: date, vehicle: label, qty: 1200 + (i % 4) * 150, rate: 89.7, amount: Math.round((1200 + (i % 4) * 150) * 89.7 * 100) / 100, customer: 'Demo Carriers Pvt Ltd' });
+    if (i % 3 === 0) masterSales.push({ product: 'HSD', bill_no: String(n + 1), sale_date: date, vehicle: 'Consumer', qty: 250 + (i % 5) * 20, rate: 89.7, amount: Math.round((250 + (i % 5) * 20) * 89.7 * 100) / 100, customer: 'Demo Carriers Pvt Ltd' });
+  }
   masterSales.forEach((s, i) => { s.seq = i + 2; });
 
   const payments = [];
@@ -117,6 +127,7 @@ export function demoSeed(today = new Date(), workbook = null) {
       { name: 'Crew Two Movers', bulk_group: 'Crew Group_Bulk' },
       { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.', layout: SHEET },
       { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.', layout: SHEET },
+      { name: 'Demo Carriers Pvt Ltd', ledger: 'Carriers', title: 'Demo Carriers Pvt Ltd', bill_address: 'Sample Yard.', layout: SHEET },
       { name: 'Advance Movers', ledger: 'Advance', title: 'Advance Movers', bill_address: 'Sample Road.', layout: SHEET },
     ],
     sales: masterSales,
