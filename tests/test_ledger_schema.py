@@ -933,6 +933,10 @@ def test_credit_notes_and_their_log(pg):
     # the stamps that can be changed in the app
     pg.ok(call("ledger_setting_set", "letter_stamp", {"data_url": "data:image/png;base64,CCCC", "name": "s.png"}), **as_owner)
     pg.ok(call("ledger_setting_set", "cn_stamp", {"data_url": "data:image/png;base64,DDDD", "name": "s.png"}), **as_owner)
+    # the bank details on the poster by the dispensers
+    pg.ok(call("ledger_setting_set", "bank_details", {"details": {"account": "000111222333", "ifsc": "ABCD0123456"}}), **as_owner)
+    assert pg.owner(call("ledger_setting_get", "bank_details"))["details"]["ifsc"] == "ABCD0123456"
+    assert "Unknown setting" in pg.fails(call("ledger_setting_set", "bank_detail", {"x": 1}), **as_owner)
     pg.ok(call("ledger_cn_delete", 2), **as_owner)
     assert [r["cn_no"] for r in pg.owner(call("ledger_cn_list"))] == ["BNK/001"]
     assert "No credit note" in pg.fails(call("ledger_cn_delete", 2), **as_owner)

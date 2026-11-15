@@ -10,6 +10,7 @@ import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { poKey, poListChanges } from './po.js';
@@ -271,7 +272,7 @@ const ROUTES = [
   [/^#\/customers$/, () => viewCustomers()],
   [/^#\/sales(?:\/(\d{4}-\d{2}-\d{2}))?$/, (m) => viewSales(m[1] || null)],
   [/^#\/bills$/, () => viewBills()],
-  [/^#\/quotes(?:\/(pi|log|cn|cnlog|letter))?$/, (m) => viewQuotes(m[1] || '')],
+  [/^#\/quotes(?:\/(pi|log|cn|cnlog|letter|bank))?$/, (m) => viewQuotes(m[1] || '')],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
   [/^#\/payments\/modes$/, () => viewPaymentModes()],
@@ -4183,7 +4184,7 @@ async function downloadSheets(sheets, fileName) {
 const QUOTE_ASSETS = { pi: 'assets/letterhead.png', quote: 'assets/quote-letterhead.png', cn: 'assets/letterhead.png' };
 const QUOTES_SCHEMA = 'The database needs an update for Quotes: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).';
 const QUOTE_TABS = [['', '#/quotes', 'Quotation'], ['pi', '#/quotes/pi', 'Proforma Invoice'], ['log', '#/quotes/log', 'PI Log'],
-  ['cn', '#/quotes/cn', 'Credit Note'], ['cnlog', '#/quotes/cnlog', 'CN Log'], ['letter', '#/quotes/letter', 'Price Letter']];
+  ['cn', '#/quotes/cn', 'Credit Note'], ['cnlog', '#/quotes/cnlog', 'CN Log'], ['letter', '#/quotes/letter', 'Price Letter'], ['bank', '#/quotes/bank', 'Bank Details']];
 const rs2 = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? '' : Number(v).toFixed(2));
 
 async function quotesCall(fn) {
@@ -4255,6 +4256,7 @@ async function viewQuotes(tab) {
   if (tab === 'log') return viewPiLog(d);
   if (tab === 'cnlog') return viewCnLog(d);
   if (tab === 'letter') return viewPriceLetter(d);
+  if (tab === 'bank') return viewBankBoard(d);
   return viewDoc(d, tab === 'pi' ? 'proforma' : tab === 'cn' ? 'creditnote' : 'quotation');
 }
 
@@ -4766,6 +4768,73 @@ async function viewPriceLetter(d) {
   run('letter-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
   run('letter-print', async () => printPages([document.getElementById('letter-page').innerHTML], A4));
 }
+// ---- Bank Details: the A4 poster by the dispensers ----
+// The details are kept in the settings (bank_details); what's typed shows on
+// the page at once and goes into the PDF, saved or not — Save keeps it for
+// next time (and for everyone using the app).
+async function viewBankBoard(d) {
+  let saved = await state.store.setting('bank_details').catch(() => undefined);   // undefined: the schema isn't re-run yet
+  const B = state.bankDraft || (state.bankDraft = { ...BANK_DEFAULT, ...(saved && saved.details ? saved.details : {}) });
+  const printable = !cannotPrint();
+  setMain(`${quotesHead(d, 'bank')}
+    <div class="doc-wrap">
+      <section class="card doc-form">
+        <h3>Bank Details</h3>
+        <p class="muted small">An A4 page to print and stick near the dispensers, so anyone can pay by NEFT / RTGS / IMPS. When the account changes, change the details here, <b>Save</b>, and download the PDF again.</p>
+        <form id="bank-form" autocomplete="off"><div class="two">
+          ${BANK_FIELDS.map(([k, label]) => `<label${k === 'note' || k === 'branch' ? ' class="wide"' : ''}>${esc(label)}${k === 'note' ? ' <span class="muted small">(optional)</span>' : ''}
+            <input name="${k}" value="${esc(B[k] ?? '')}"${k === 'account' ? ' inputmode="numeric"' : ''}${k === 'ifsc' ? ' autocapitalize="characters"' : ''}></label>`).join('')}
+        </div></form>
+        <p class="warn-text small" id="bank-problems"></p>
+        <p class="muted small" id="bank-status"></p>
+        <p class="actions"><button class="btn" id="bank-save">Save</button>
+          <button class="btn ghost" id="bank-pdf">Download PDF</button>
+          <button class="btn ghost" id="bank-share">Share</button>
+          ${printable ? '<button class="btn ghost" id="bank-print">Print</button>' : ''}
+          <button class="btn ghost" id="bank-undo" style="display:none">Undo changes</button></p>
+      </section>
+      <section class="doc-preview"><div class="doc-page" id="bank-page"></div></section>
+    </div>`);
+  bindTankerImport();
+  const $ = (id) => document.getElementById(id);
+  const page = $('bank-page');
+  const { images, fontCss } = await shareImages();
+  let det;
+  // what's typed: the page, what's wrong, saved or not
+  const refresh = () => {
+    det = cleanBank(B);
+    const problems = bankProblems(det);
+    const stored = saved && saved.details ? cleanBank(saved.details) : null;
+    const changed = !stored || BANK_FIELDS.some(([k]) => stored[k] !== det[k]);
+    page.innerHTML = bankBoardSvg(det, { images, fontCss });
+    $('bank-problems').innerHTML = problems.map(esc).join('<br>');
+    $('bank-status').innerHTML = saved === undefined ? 'Saving needs the database updated: run <b>supabase/ledger-schema.sql</b> once. The PDF works without it.'
+      : stored ? (changed ? '<span class="warn-text">Changed — not saved yet. Save to keep it for next time.</span>' : `Saved${saved.saved_at ? ` ${esc(new Date(saved.saved_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))}` : ''}${saved.by ? ` by ${esc(saved.by)}` : ''}.`)
+        : 'Not saved yet: these are the first details — check them and Save.';
+    $('bank-save').disabled = !changed || !!problems.length || saved === undefined;
+    ['bank-pdf', 'bank-share', 'bank-print'].forEach((id) => { if ($(id)) $(id).disabled = !!problems.length; });
+    $('bank-undo').style.display = stored && changed ? '' : 'none';
+  };
+  refresh();
+  $('bank-form').addEventListener('input', (e) => { if (e.target.name) { B[e.target.name] = e.target.value; refresh(); } });
+  const name = 'Bank Details';
+  const pdfBlob = () => pdfFromSvgs([bankBoardSvg(det, { images, fontCss })], A4, { scale: 3.2 });
+  const run = (id, fn) => { const b = $(id); b?.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { refresh(); } })); };
+  run('bank-save', async () => {
+    const value = { details: det, saved_at: new Date().toISOString(), by: state.me ? state.me.email : '' };
+    await state.store.setSetting('bank_details', value);
+    saved = value;
+    toast('Bank details saved');
+  });
+  run('bank-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
+  run('bank-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
+  run('bank-print', async () => printPages([page.innerHTML], A4));
+  run('bank-undo', async () => {
+    Object.assign(B, cleanBank(saved.details));
+    $('bank-form').querySelectorAll('input[name]').forEach((i) => { i.value = B[i.name] ?? ''; });
+  });
+}
+
 // a picture (data: URL) as PNG bytes
 async function pngBytes(dataUrl) {
   if (dataUrl.startsWith('data:image/png')) return Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
