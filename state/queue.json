@@ -8243,6 +8243,27 @@
       },
       "queued_at": "2026-11-16T13:45:26.220191+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "fd2559046092b804",
+      "gmail_msg_id": "1882031643168287877",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "16/11/2026",
+      "date_serial": 46342,
+      "amount": 40296.0,
+      "raw_payer": "INDIABUILD INFRA PRIVATE LIMITED",
+      "customer": "Indiabuild Infra Private Limited",
+      "candidates": [
+        "Indiabuild Infra Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-16T16:15:33.192738+00:00",
+      "status": "matched"
     }
   ]
 }
