@@ -8180,6 +8180,48 @@
       },
       "queued_at": "2026-11-16T03:15:34.214573+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "cd295fa80d74c230",
+      "gmail_msg_id": "1881999563565816484",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "16/11/26",
+      "date_serial": 46342,
+      "amount": 4000000.0,
+      "raw_payer": "DBL SIARMAL COALMINES P L",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-16T07:45:24.727861+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "2a5862f3295176f8",
+      "gmail_msg_id": "1881999954919285839",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "16/11/26",
+      "date_serial": 46342,
+      "amount": 596400.0,
+      "raw_payer": "MAA MEDHAPAT FIRM",
+      "customer": "Maa Medhapat Firm",
+      "candidates": [
+        "Maa Medhapat Firm"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-16T07:45:24.728164+00:00",
+      "status": "matched"
     }
   ]
 }
