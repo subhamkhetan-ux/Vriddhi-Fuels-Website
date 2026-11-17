@@ -36,6 +36,26 @@ export function supabaseStore(client) {
       if (error) throw new Error(error.message || String(error));
       return data;
     },
+    // SSFC's monthly statements as read (ssfcstmt.js compactStatement()), one file a month: ssfc/2026-09.json
+    ssfcList: async () => {
+      const { data, error } = await client.storage.from('fleet-uploads').list('ssfc', { limit: 200 });
+      if (error) throw new Error(error.message || String(error));
+      return (data || []).map((x) => (x.name.match(/^(\d{4}-\d{2})\.json$/) || [])[1]).filter(Boolean).sort();
+    },
+    ssfcGet: async (month) => {
+      const { data, error } = await client.storage.from('fleet-uploads').download(`ssfc/${month}.json`);
+      if (error) throw new Error(error.message || String(error));
+      return JSON.parse(await data.text());
+    },
+    ssfcSave: async (month, value) => {
+      const body = new Blob([JSON.stringify(value)], { type: 'application/json' });
+      const { error } = await client.storage.from('fleet-uploads').upload(`ssfc/${month}.json`, body, { upsert: true, contentType: 'application/json' });
+      if (error) throw new Error(error.message || String(error));
+    },
+    ssfcRemove: async (month) => {
+      const { error } = await client.storage.from('fleet-uploads').remove([`ssfc/${month}.json`]);
+      if (error) throw new Error(error.message || String(error));
+    },
   };
 }
 
@@ -51,6 +71,7 @@ export function memoryStore(seed = null, { email = 'demo@example.com', settings:
   };
   if (seed) add(seed.fileName || 'Demo Trip Register.xlsm', seed);
   let settings = { value: seedSettings || {} };
+  const ssfc = new Map();
   return {
     kind: 'memory',
     whoami: async () => ({ email, member: true }),
@@ -66,5 +87,9 @@ export function memoryStore(seed = null, { email = 'demo@example.com', settings:
       settings = { value: JSON.parse(JSON.stringify(value)), by_email: email, updated_at: new Date().toISOString() };
       return JSON.parse(JSON.stringify(settings));
     },
+    ssfcList: async () => [...ssfc.keys()].sort(),
+    ssfcGet: async (month) => JSON.parse(ssfc.get(month)),
+    ssfcSave: async (month, value) => { ssfc.set(month, JSON.stringify(value)); },
+    ssfcRemove: async (month) => { ssfc.delete(month); },
   };
 }

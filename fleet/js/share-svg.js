@@ -938,3 +938,83 @@ export function loansPagesSvg(L, { asOn = '', images = {}, fontCss = '', truckOf
     blocks, footNote: 'the banks\' EMI schedules',
   });
 }
+
+// ---- SSFC's monthly statement, checked (ssfcrecon.js reconcile()) ----------------------------
+// What SSFC owes or must explain first, each finding in full; then each vehicle and DEF.
+const LEVEL = { bad: ['SSFC OWES YOU / MUST EXPLAIN', C.bad], warn: ['DOESN\'T ADD UP / ASK FOR PROOF', C.warn], info: ['GOOD TO KNOW', C.muted] };
+function finding(x) {
+  const width = PAGE.width - 2 * 56 - 60 - 190;
+  const lines = wrap(x.text, width, 18, 500);
+  const h = 22 + lines.length * 26 + 12;
+  const col = LEVEL[x.level][1];
+  return block(h, (bx, y, w) => `${R(bx, y + 4, 6, h - 12, { rx: 3, fill: col })}
+${lines.map((l, i) => T(bx + 26, y + 28 + i * 26, l, { size: 18, weight: 500 })).join('')}
+${x.amount ? T(bx + w - 8, y + 28, rupees(x.amount), { size: 20, weight: 800, fill: col, anchor: 'end' }) : ''}`);
+}
+export function ssfcCheckPagesSvg(rep, { asOn = '', images = {}, fontCss = '', infos = false } = {}) {
+  const t = rep.totals;
+  const blocks = [];
+  for (const level of ['bad', 'warn', ...(infos ? ['info'] : [])]) {
+    const list = rep.issues.filter((x) => x.level === level);
+    if (!list.length) continue;
+    const at = sum(list, (x) => x.amount);
+    blocks.push(section(LEVEL[level][0], `${plural(list.length, 'finding')}${at && level === 'bad' ? ` · ${rupees(at)}` : ''}`, LEVEL[level][1]));
+    blocks.push(...list.map(finding));
+    blocks.push(gap(14));
+  }
+  if (!rep.issues.some((x) => x.level !== 'info')) blocks.push(note('Every trip, rate, diesel fill, deduction and bill checks out against the books.', C.good, 18));
+  blocks.push(section('Each vehicle', `${plural(t.trips, 'trip')} paid`));
+  blocks.push(...table(
+    [{ label: 'Vehicle', at: 18, max: 230 }, { label: 'Freight', at: -840, align: 'end' }, { label: 'Diesel', at: -650, align: 'end' }, { label: 'Cash office', at: -470, align: 'end' }, { label: 'Deductions', at: -280, align: 'end' }, { label: 'Net', at: -18, align: 'end' }],
+    rep.vehicles.map((v) => {
+      const n = rep.issues.filter((x) => x.veh === v.veh && x.level === 'bad').length;
+      return { tint: n ? C.bad : null, cells: [
+        { text: v.veh, weight: 800, sub: `${plural(v.trips, 'trip')}${v.regTrips !== v.trips ? ` · ${v.regTrips} in register` : ''}${n ? ` · ${n} to claim` : ''}`, subColor: n ? C.bad : C.muted },
+        rupees(v.freight), { text: rupees(v.diesel), sub: `${ind(v.litres)} L` }, rupees(v.cashOffice), rupees(v.dedTotal),
+        { text: rupees(v.net), weight: 800, sub: v.regTrips && Math.abs((v.net || 0) - v.regNet) > 100 ? `yours ${rupees(v.regNet)}` : '', subColor: C.warn },
+      ] };
+    }),
+    { total: ['All', rupees(t.freight), rupees(t.diesel), rupees(t.cashOffice), rupees(t.deductions), rupees(t.net)] },
+  ));
+  const dt = (rep.dieselTrips || []).filter((x) => x.status !== 'ok');
+  if (dt.length) {
+    const ST = { more: ['SSFC more', C.bad], less: ['Yours more', C.warn], moved: ['Next / last trip', C.warn], register: ['Correct P / Q', C.warn], litres: ['Litres differ', C.muted] };
+    blocks.push(gap(14));
+    blocks.push(section('Diesel, trip by trip', `${plural(dt.length, 'trip')} differ${dt.length === 1 ? 's' : ''}`));
+    blocks.push(...table(
+      [{ label: 'Trip', at: 18, max: 300 }, { label: 'SSFC charged', at: -720, align: 'end' }, { label: 'Yours', at: -440, align: 'end' }, { label: 'Difference', at: -200, align: 'end' }, { label: '', at: -18, align: 'end' }],
+      dt.map((x) => ({ tint: x.status === 'more' ? C.bad : null, cells: [
+        { text: `${shortVeh(x.veh)} ${x.trip}`, weight: 800, sub: `${dMon(x.loadDate)} · ${tonnes(x.loadWt)}` },
+        { text: rupees(x.ssfcRs), sub: `${ind(x.ssfcL)} L${x.cash ? ` + ${rupees(x.cash)} cash` : ''}` },
+        { text: rupees(x.useHsd ? x.hsdRs : x.regRs), sub: `${ind(x.useHsd ? x.hsdL : x.regL)} L · ${x.useHsd ? 'HSD Data' : 'register P / Q'}` },
+        { text: signedRupees(x.dRs), weight: 800, color: x.dRs > 0 && x.status !== 'moved' ? C.bad : C.ink },
+        { text: ST[x.status][0], weight: 700, color: ST[x.status][1] },
+      ] })),
+    ));
+  }
+  if (rep.def && rep.def.bills) {
+    blocks.push(gap(14));
+    blocks.push(section('DEF / AdBlue — SSFC\'s bills vs your Urea DEF sheet', `${rep.def.paired} of ${rep.def.bills} bills paired`));
+    blocks.push(...table(
+      [{ label: 'Vehicle', at: 18, max: 230 }, { label: 'SSFC charged', at: -700, align: 'end' }, { label: 'Your sheet', at: -460, align: 'end' }, { label: 'No refill of yours', at: -200, align: 'end' }, { label: 'Price diff.', at: -18, align: 'end' }],
+      rep.def.vehicles.map((v) => ({ tint: v.unmatched || v.priceDiff > 1 ? C.bad : null, cells: [
+        { text: v.veh, weight: 800 }, { text: rupees(v.ssfcRs), sub: plural(v.ssfcN, 'bill') }, { text: rupees(v.oursRs), sub: `${plural(v.oursN, 'refill')} · ${ind(v.oursL)} L` },
+        { text: v.unmatched ? rupees(v.unmatchedRs) : '—', weight: 800, color: v.unmatched ? C.bad : C.muted, sub: v.unmatched ? plural(v.unmatched, 'bill') : '' },
+        { text: Math.abs(v.priceDiff) > 1 ? signedRupees(v.priceDiff) : '—', weight: 800, color: v.priceDiff > 1 ? C.bad : C.muted },
+      ] })),
+    ));
+  }
+  blocks.push(note(`Checked against the Trip Register, HSD Data, Urea DEF, Rates and Ledger sheets${rep.stmt.pdf ? ' · from the PDF (no bill sheet in it)' : ''}.`));
+  return pagesSvg({
+    what: 'SSFC statement check', tag: 'SSFC CHECK', name: `SSFC statement · ${monthLong(rep.month)}`, asOn, images, fontCss,
+    sub: `${plural(t.trips, 'trip')} · ${plural(rep.vehicles.length, 'vehicle')} · ${plural(t.bad, 'thing')} to claim, ${plural(t.warn, 'to check', 'to check')}`,
+    hero: { label: t.atStake ? 'TO CLAIM FROM SSFC' : 'NOTHING TO CLAIM', amount: rupees(t.atStake), right: [['SSFC NET', rupees(t.net)], ['TRIPS PAID', String(t.trips)]] },
+    tiles: [
+      { label: 'Freight', value: rupees(t.freight), sub: 'weight × rate', color: C.s1 },
+      { label: 'Diesel', value: rupees(t.diesel), sub: 'SSFC\'s pumps + Vriddhi', color: C.s4 },
+      { label: 'Cash office', value: rupees(t.cashOffice), sub: 'cash given to drivers', color: C.s3 },
+      { label: 'Deductions', value: rupees(t.deductions), sub: 'fastag, maint., RTO…', color: C.s5 },
+    ],
+    blocks, footNote: `SSFC's ${monthLong(rep.month)} statement`,
+  });
+}
