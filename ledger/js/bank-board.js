@@ -44,7 +44,7 @@ export function bankProblems(d) {
 }
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const SANS = 'Plus Jakarta Sans, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Arial, sans-serif';
+const SANS = 'Sora, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Arial, sans-serif';
 const INK = '#111111';
 const MUTED = '#5c5550';
 const ORANGE = '#f4511e';

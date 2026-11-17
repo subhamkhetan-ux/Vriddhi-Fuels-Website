@@ -186,3 +186,15 @@ test('the tanks in the order of their fill points on the unloading platform: Tan
   // the valve box across the whole of C2 and C3, the back axle behind it
   assert.match(svg, /<rect x="117\.2" y="90" width="95\.7" height="11"/);
 });
+
+test('a redraw with only new figures is the same picture (kept on the page); a change in the decantation is not', () => {
+  const sig = (svg) => /data-sig="([^"]+)"/.exec(svg)?.[1];
+  const a = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
+  assert.ok(sig(a));
+  // later by the clock, and another tank's stock moved a little: the same picture
+  assert.equal(sig(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 700, { stock: { T4: reading(2580) } })), sig(a));
+  assert.notEqual(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 700), a);       // (its figures did change)
+  // a tank's stage, or the wide picture: drawn again
+  assert.notEqual(sig(draw({ T1: 'settling', T2: 'settling', T3: 'waiting' }, 645)), sig(a));
+  assert.notEqual(sig(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645, { wide: true })), sig(a));
+});
