@@ -77,8 +77,14 @@ also has its own address on port 8443. Pick the tanks (any of
 - **Automatic decantation** (`auto.py`, `decantation.py`): one setup, then
   nothing to do in the decant app. Pick the truck's invoice (from the decant
   app's list: this and last month's, with chambers still in the truck) and a
-  tank, or "Keep in truck", for each chamber. The page checks the plan as the
+  tank, or "Keep in truck", for each chamber: each invoice comes with the
+  app's suggestion (as much as fits; then the truck freed soonest, both tanks
+  decanting at once; then the bigger share into Tank 2 — 5+5+4+4+4 goes 12 KL
+  into Tank 2, 10 KL into Tank 3). The page checks the plan as the
   app does (room, product, a tank already being decanted). Press **Start**.
+  While it runs, the page says each tank's next step aloud (open the valve,
+  move the pipe, all in, stock after taken) in English or Hindi, as the decant
+  app's decanting screen does: **🔊 Voice on / 🔇 off** and **English / हिंदी**.
   Or from the decant app itself: plan the truck there as usual (Truck →
   Before → Plan: which chambers go into which tank, some held in the truck)
   and press **🤖 Start automatic decantation** on the Plan step. The server

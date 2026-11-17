@@ -701,7 +701,7 @@ function takers(s, p) {
 }
 
 // The tank picked for each chamber left ('' = later): your taps, else the
-// app's suggestion — as much as fits, in as few tanks as possible.
+// app's suggestion — as much as fits, the truck freed soonest (solvePlan).
 function picksFor(s, left) {
   if (moving.id !== s.id) moving = { id: s.id, pick: {} };
   const out = {};
@@ -709,7 +709,7 @@ function picksFor(s, left) {
     const cs = left.filter((c) => c.product === p);
     const ts = takers(s, p);
     if (cs.some((c) => !(c.no in moving.pick))) {
-      const { assign } = solvePlan({ chambers: cs, tanks: ts.filter((t) => Number.isFinite(t.room)), warnRoomL: state.settings.warnRoomL });
+      const { assign } = solvePlan({ chambers: cs, tanks: ts.filter((t) => Number.isFinite(t.room)), warnRoomL: state.settings.warnRoomL, settings: state.settings });
       for (const c of cs) if (!(c.no in moving.pick)) moving.pick[c.no] = assign[c.no] || '';
     }
     for (const c of cs) out[c.no] = ts.some((t) => t.id === moving.pick[c.no]) ? moving.pick[c.no] : '';
@@ -1353,7 +1353,7 @@ function replanProduct(s, prod, requests, prefer) {
   const chambers = s.data.chambers.filter((c) => c.product === prod && c.litres > 0 && !done.has(c.no));
   const ts = tanks().filter((t) => t.product === prod && !busy.has(t.id) && s.data.before[t.id])
     .map((t) => ({ id: t.id, room: roomOf(s.data.before[t.id], t) }));
-  const { assign, perTank } = solvePlan({ chambers, tanks: ts, requests, prefer, warnRoomL: state.settings.warnRoomL });
+  const { assign, perTank } = solvePlan({ chambers, tanks: ts, requests, prefer, warnRoomL: state.settings.warnRoomL, settings: state.settings });
   for (const p of s.data.plan) if (p.product === prod) p.tank = assign[p.no] ?? null;
   const t = ts.find((x) => x.id === prefer);
   if (t && Math.abs((perTank[t.id] || 0) - (requests[t.id] || 0)) > 0.5) {

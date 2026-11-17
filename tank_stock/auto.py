@@ -191,7 +191,7 @@ class AutoDecant:
             out.append({"invoice_no": inv["invoice_no"], "tt_no": inv.get("tt_no"), "date": inv.get("invoice_date"),
                         "time": inv.get("invoice_time"), "status": status,
                         "chambers": [{"no": c["no"], "product": c["product"], "litres": c["litres"]} for c in left],
-                        "plan": {p["no"]: p["tank"] for p in dz.suggest_plan(left, free, stock)}})
+                        "plan": {p["no"]: p["tank"] for p in dz.suggest_plan(left, free, stock, s)}})
         tanks = [{"id": t["id"], "no": t["no"], "product": t["product"], "capacity": t["capacity"],
                   "fillTo": t["fillTo"], "busy": t["id"] in busy,
                   "volume": (stock.get(t["id"]) or {}).get("volume"),

@@ -388,3 +388,24 @@ def test_a_draft_the_agent_runs_or_set_up_tank_by_tank_holds_its_tanks():
                                                      "auto": {"released": True}}}
     assert dz.busy_tanks([agent, stepwise, planning, handed]) == {"T2", "T3"}
     assert dz.busy_tanks([agent], except_id="A") == set()
+
+
+def test_the_plan_frees_the_truck_soonest_with_the_bigger_share_into_tank_2():
+    """suggest_plan follows the app's solvePlan (tests/decant_web/core.test.mjs)."""
+    hsd = [{"no": i + 1, "litres": kl * 1000, "product": "HSD"} for i, kl in enumerate([5, 5, 4, 4, 4])]
+    roomy = {"T2": {"volume": 20500 - 16553.2}, "T3": {"volume": 20500 - 15863.39}}
+    plan = dz.suggest_plan(hsd, SETTINGS["tanks"], roomy, SETTINGS)
+    assert {p["no"]: p["tank"] for p in plan} == {1: "T3", 2: "T3", 3: "T2", 4: "T2", 5: "T2"}   # 12 KL / 10 KL
+    t22 = [{"no": i + 1, "litres": l} for i, l in enumerate([4500, 4500, 4500, 4500, 4000])]
+    got = dz.solve_plan(t22, [{"id": "T2", "room": 16553.2}, {"id": "T3", "room": 15863.39}], SETTINGS)
+    assert sum(next(c["litres"] for c in t22 if c["no"] == n) for n, t in got.items() if t == "T2") == 13000
+    # as much as fits comes first: Tank 3 with 8,500 L of room takes 8 KL
+    short = dz.solve_plan(hsd, [{"id": "T2", "room": 16553.2}, {"id": "T3", "room": 8500}], SETTINGS)
+    assert [n for n, t in short.items() if t == "T3"] == [4, 5]
+    # the 26-Sep 12:14 stock: C2 into Tank 2 (5,526 L of room), C3-C4 into Tank 3, C5 held
+    sep = dz.solve_plan(hsd[1:], [{"id": "T2", "room": 5526.29}, {"id": "T3", "room": 10510.17}], SETTINGS)
+    assert sep == {2: "T2", 3: "T3", 4: "T3", 5: None}
+    # no reading: nothing suggested for that tank; MS from chamber 1 into Tank 1
+    mix = [{"no": 1, "litres": 5000, "product": "MS"}] + hsd[1:]
+    plan = dz.suggest_plan(mix, SETTINGS["tanks"], {"T1": {"volume": 9000}, "T3": {"volume": 9989.83}}, SETTINGS)
+    assert [(p["no"], p["tank"]) for p in plan] == [(1, "T1"), (2, "T3"), (3, "T3"), (4, None), (5, None)]

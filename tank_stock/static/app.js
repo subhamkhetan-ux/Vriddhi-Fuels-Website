@@ -749,6 +749,7 @@
     title.appendChild(el("strong", "", `${a.tt_no || ""} · invoice ${a.invoice_no || ""}`));
     const phase = { starting: "starting", running: "running", paused: "paused", finished: "finished ✓", cancelled: "cancelled", released: "handed over", failed: "didn't start" }[a.phase] || a.phase;
     title.appendChild(el("span", `stage ${a.phase === "finished" ? "read" : a.phase === "running" ? "decanting" : ""}`, phase));
+    if (run && ACTIVE.includes(a.phase)) voiceButtons(title);
     box.appendChild(title);
     const notes = [];
     if (a.phase === "starting") notes.push(`${a.step ? a.step[0].toUpperCase() + a.step.slice(1) : "Starting"}…`);
@@ -759,6 +760,7 @@
     if (a.error) notes.push(a.error);
     if (notes.length) box.appendChild(el("div", "note" + (a.error || a.cloud_error || a.stale || a.reconnect || a.frozen ? " err" : ""), notes.join(" ")));
     if (!run) { return actions(box, a, null); }
+    speakRun(a);
     if (!ACTIVE.includes(a.phase)) box.appendChild(ended(a));
     for (const q of run.questions || []) box.appendChild(question(q));
     const pic = ACTIVE.includes(a.phase) ? picture(run) : null;
@@ -784,6 +786,78 @@
   }
   let logOpen = false;
   const proofOpen = new Set();   // the tanks whose proof pictures are unfolded
+
+  // Spoken instructions while a decantation runs, as the decant app's
+  // decanting screen says them (decant/js/voice.js, loaded by picture.js): on
+  // this phone's own voice, English or Hindi (kept on this phone), each said
+  // once — the first time it shows — never again on a poll.
+  const voice = () => (window.tsVoice?.voiceAvailable() ? window.tsVoice : null);
+  function voiceButtons(head) {
+    const v = voice();
+    if (!v) return;
+    const acts = el("span", "acts");
+    const on = v.voiceOn();
+    const b = el("button", "up", on ? "🔊 Voice on" : "🔇 Voice off");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(on));
+    b.addEventListener("click", () => { v.setVoice(!on); renderAuto(); });
+    const hi = v.voiceLang() === "hi";
+    const lang = el("button", "up", hi ? "हिंदी" : "English");
+    lang.type = "button";
+    lang.title = "Voice language";
+    lang.addEventListener("click", () => { v.setVoiceLang(hi ? "en" : "hi"); renderAuto(); });
+    acts.append(b, lang);
+    head.appendChild(acts);
+  }
+  const sawRunning = new Set();  // runs seen going on this visit: their end is said
+  function speakRun(a) {
+    const v = voice();
+    const run = a.run;
+    if (!v || !run?.id) return;
+    const key = (what) => `${run.id}|${what}`;
+    if (!ACTIVE.includes(a.phase)) {
+      if (a.phase === "finished" && sawRunning.has(run.id)) {
+        v.sayOnce(key("finished"), { en: "Decantation finished and saved in the decant app.", hi: "डिकैंटेशन पूरा हुआ, डिकैंट ऐप में सेव हो गया।" });
+      }
+      return;
+    }
+    sawRunning.add(run.id);
+    for (const t of run.tanks || []) {
+      const g = tankSay(t);
+      if (g) v.sayOnce(key(`${t.tank}|${g[0]}`), g[1]);
+    }
+    for (const q of run.questions || []) {
+      const no = (run.tanks || []).find((t) => t.tank === q.tank)?.no || String(q.tank || "").replace("T", "");
+      v.sayOnce(key(`q|${q.tank}|${q.since}`), { en: `Tank ${no}. Please answer the question on the page.`, hi: `टैंक ${no}। पेज पर सवाल का जवाब दीजिए।` });
+    }
+  }
+  // A tank's instruction now: [what (its key), {en, hi}] | null (the decant app's tankGuide).
+  function tankSay(t) {
+    const n = t.no || String(t.tank || "").replace(/^T/, "");
+    const rows = t.chamberRows || [];
+    if (t.stage === "waiting") {
+      // its stock before is in and not being photographed (the server's "next" says so)
+      if (t.before == null || !/^Open the valve/.test(t.next || "")) return null;
+      const c = t.chambers[0];
+      return [`open|${c}|${t.beforeAt}`, { en: `Tank ${n}. Stock before taken. Open the valve of chamber ${c}.`,
+        hi: `टैंक ${n}। पहले का स्टॉक ले लिया गया है। चैंबर ${c} का वाल्व खोलिए।` }];
+    }
+    if (t.stage === "settling") return ["settling", { en: `Tank ${n}. All chambers in. Settling.`, hi: `टैंक ${n}। सारे चैंबर डल गए। अब स्टॉक को स्थिर होने दीजिए।` }];
+    if (t.stage === "read") return ["read", { en: `Tank ${n}. Stock after taken.`, hi: `टैंक ${n}। बाद का स्टॉक ले लिया गया है।` }];
+    if (t.stage !== "decanting") return null;
+    const on = rows.find((r) => r.state !== "in");
+    if (!on) return ["allin", { en: `Tank ${n}. All chambers in.`, hi: `टैंक ${n}। सारे चैंबर डल गए।` }];
+    if (on.state === "move") {
+      const was = rows.filter((r) => r.state === "in").at(-1)?.no;
+      return [`move|${on.no}`, { en: `Tank ${n}. Chamber ${was} done. Move the pipe to chamber ${on.no} and open its valve.`,
+        hi: `टैंक ${n}। चैंबर ${was} खाली हो गया। पाइप चैंबर ${on.no} पर लगाइए और उसका वाल्व खोलिए।` }];
+    }
+    if (on.state === "open") {
+      return [`notrising|${on.no}`, { en: `Tank ${n}. Open the valve of chamber ${on.no}. The stock is not rising yet.`,
+        hi: `टैंक ${n}। चैंबर ${on.no} का वाल्व खोलिए। स्टॉक अभी नहीं बढ़ रहा है।` }];
+    }
+    return null;   // a chamber going in: nothing to do
+  }
 
   // A decantation that has ended: what came of it, and when it leaves the page.
   function ended(a) {
