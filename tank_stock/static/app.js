@@ -934,7 +934,7 @@
     const lines = [];
     if (t.result) lines.push(`Variation ${t.result.variation > 0 ? "+" : ""}${fmt(t.result.variation, 2)} L (${t.result.band})`);
     if (t.stage === "settling" && t.settleLeft != null) {
-      lines.push(t.settleLeft > 0 ? `Settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `Settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L)`);
+      lines.push(t.settleLeft > 0 ? `Settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `Settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L; its stock after is taken once it moves under ${fmt(t.steadyWithin ?? 15, 0)} L)`);
     }
     if (lines.length) card.appendChild(el("div", "note", lines.join(" · ")));
     const probe = state?.live?.probes?.[t.no];

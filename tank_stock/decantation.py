@@ -63,7 +63,8 @@ MISREAD_L = 50             # ... give or take this
 FALL_L = 20                # a tank being decanted doesn't sell: a bigger fall needs a second reading
 SALE_L = 5                 # a waiting tank fell this much: it sold, so its stock before is read again
 BEFORE_EVERY = 60          # ... at most this often
-SETTLE_BAND_L = 5          # steady: within this for the settle time
+SETTLE_BAND_L = 15         # steady: within this for the settle time (a settling tank creeps a few
+                           # litres; under 15 L its stock after is taken once the settle time is over)
 SETTLE_BAND_PCT = 0.05     # ... or this much of the stock, if more
 SETTLE_MAX = 3             # not steady after this many settle times: read it anyway
 SALES_BACK_L = 15          # settling and fell this much: sales are back on
@@ -1390,6 +1391,7 @@ class Decantation:
                 row["settleLeft"] = max(0, round(settle - (now - (_ts(t["doneAt"]) or now))))
                 window = [x for when, x in st.get("history", []) if now - when <= settle]
                 row["spread"] = round2(max(window) - min(window)) if window else None
+                row["steadyWithin"] = round2(max(SETTLE_BAND_L, SETTLE_BAND_PCT / 100 * (last or 0)))
             out.append(row)
         planned = {p["no"] for p in d.get("plan") or [] if p.get("tank")}
         return {"id": self.s["id"], "invoice_no": self.s["invoice_no"], "tt_no": self.s.get("tt_no"),
