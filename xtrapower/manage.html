@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vriddhi Fuels">
-<meta name="theme-color" content="#F4511E">
+<meta name="theme-color" content="#BF3A0C">
 <title>Vriddhi Fuels · Station</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
@@ -22,10 +22,11 @@
     --glass-line: rgba(255,255,255,.14); --glass-line-soft: rgba(255,255,255,.08);
     --glass-blur: blur(22px) saturate(140%);
     --glass-shadow: 0 18px 40px -26px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.1) inset;
-    --ink: #F5F0EB; --muted: #B4ABA2; --faint: #8a8178;
+    --ink: #F5F0EB; --muted: #B4ABA2; --faint: #968D84;
     --accent: #FF7A1A; --accent-2: #F4511E; --accent-soft: #ff7a1a24;
     --good: #2FD08A; --good-bg: #2fd08a29; --warn: #FFB23E; --warn-bg: #ffb23e26; --bad: #FF6B5E; --bad-bg: #ff6b5e26;
-    --grad-cta: linear-gradient(135deg, #F4511E 0%, #FF8A2B 100%);
+    --grad-cta: linear-gradient(180deg,#cc430e,#b93c0b);
+    --ease-out: cubic-bezier(.23,1,.32,1); --ease-drawer: cubic-bezier(.32,.72,0,1);
     --display: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     --top: 108px;                    /* header + tabs, measured by manage.js */
@@ -50,16 +51,16 @@
   header {
     display: flex; align-items: center; gap: 10px;
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
-    background: linear-gradient(135deg, rgba(244,81,30,.85), rgba(255,122,26,.62));
+    background: linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96));
     backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
-    border-bottom: 1px solid rgba(255,255,255,.16); box-shadow: 0 10px 30px -14px rgba(244,81,30,.7);
+    border-bottom: 1px solid rgba(255,255,255,.16); box-shadow: 0 10px 30px -14px rgba(0,0,0,.55);
   }
   .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; color: #fff; }
-  .brand .logo { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; font-size: 18px;
-                 background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.35); flex: none; }
+  .brand .logo { width: 36px; height: 36px; border-radius: 11px; display: block; object-fit: cover; flex: none;
+                 background: #fff; border: 1px solid rgba(255,255,255,.5); box-shadow: 0 3px 10px -4px rgba(0,0,0,.45); }
   .brand b { font-family: var(--display); font-weight: 800; font-size: 17px; letter-spacing: .3px; display: block; line-height: 1.15;
-             text-shadow: 0 1px 2px rgba(120,30,0,.35); }
-  .brand small { font-size: 11.5px; opacity: .85; display: block; }
+}
+  .brand small { font-size: 12px; opacity: .95; display: block; }
   .pill { font-size: 11.5px; font-weight: 700; padding: 5px 10px; border-radius: 999px; white-space: nowrap; color: #fff;
           border: 1px solid rgba(255,255,255,.38); background: rgba(255,107,94,.3); display: inline-flex; align-items: center; gap: 6px; }
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ffd0cb; }
@@ -69,9 +70,15 @@
             backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
             border-bottom: 1px solid var(--glass-line-soft); }
   .tab { flex: 1; font: 700 14px/1 var(--display); color: var(--muted); background: transparent; border: 1px solid transparent;
-         padding: 11px 6px; border-radius: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+         padding: 11px 6px; min-height: 44px; border-radius: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+         transition: color .15s var(--ease-out), background-color .15s var(--ease-out), border-color .15s var(--ease-out); }
+  .tab { white-space: nowrap; }
+  @media (max-width: 400px) { .tab { font-size: 13px; gap: 5px; padding: 11px 4px; } .tab .ti { width: 16px; height: 16px; } }
+  .tab .ti { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .tab[aria-selected="true"] .ti { color: var(--accent); }
+  @media (hover: hover) and (pointer: fine) { .tab:not([aria-selected="true"]):hover { color: var(--ink); background: var(--glass); } }
   .tab[aria-selected="true"] { color: #fff; background: linear-gradient(150deg, rgba(255,122,26,.26), rgba(255,122,26,.07));
-                               border-color: rgba(255,122,26,.45); box-shadow: 0 4px 14px -8px rgba(255,122,26,.85); }
+                               border-color: rgba(255,122,26,.45); }
 
   /* ---- surfaces ---- */
   main { max-width: 760px; margin: 0 auto; padding: 14px 16px 48px; }
@@ -92,7 +99,7 @@
   .bal { margin-top: 12px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
   .bal .k { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
   .bal .v { font: 800 26px/1.15 var(--display); letter-spacing: .2px; font-variant-numeric: tabular-nums;
-            background: linear-gradient(135deg, #fff 30%, #ffc49a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+            color: var(--ink); }
   .bal .t { font-size: 12px; color: var(--faint); }
   .bal.none { font-size: 13px; color: var(--faint); }
   .err { margin-top: 10px; font-size: 13px; color: var(--bad); background: var(--bad-bg); border: 1px solid rgba(255,107,94,.35);
@@ -105,10 +112,11 @@
   button { font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; cursor: pointer;
            border-radius: 11px; padding: 10px 14px; min-height: 40px; color: var(--ink);
            border: 1px solid var(--glass-line); background: var(--glass-2); }
-  button:hover { border-color: var(--accent); }
+  @media (hover: hover) and (pointer: fine) { button:hover { border-color: var(--accent); } }
   button.primary { font-family: var(--display); font-weight: 800; border: none; color: #fff; background: var(--grad-cta);
-                   box-shadow: 0 12px 26px -10px rgba(244,81,30,.85), 0 1px 0 rgba(255,255,255,.25) inset; }
-  button.primary:active { transform: translateY(1px); }
+                   box-shadow: 0 12px 26px -12px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.2) inset; }
+  button { transition: border-color .15s var(--ease-out), background-color .15s var(--ease-out), transform .1s var(--ease-out); }
+  button:active:not(:disabled) { transform: scale(.97); }
   button.danger { color: var(--bad); border-color: rgba(255,107,94,.4); background: transparent; }
   button:disabled { opacity: .45; cursor: default; box-shadow: none; }
   label.field { display: block; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
@@ -117,7 +125,7 @@
     display: block; width: 100%; font: inherit; font-size: 16px; color: var(--ink);
     background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px;
   }
-  input:focus { outline: none; border-color: var(--accent); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .check { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: var(--ink); font-size: 14px; }
   .check input { width: 20px; height: 20px; accent-color: var(--accent); }
   .switch { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
@@ -139,8 +147,9 @@
   #toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 80;
            background: rgba(24,20,18,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
            border: 1px solid var(--glass-line); color: var(--ink); padding: 10px 16px; border-radius: 12px; font-size: 14px;
-           max-width: calc(100vw - 32px); opacity: 0; pointer-events: none; transition: opacity .2s; }
-  #toast.show { opacity: 1; }
+           max-width: calc(100vw - 32px); opacity: 0; pointer-events: none;
+           transition: opacity .2s var(--ease-out), transform .2s var(--ease-out); translate: 0 8px; }
+  #toast.show { opacity: 1; translate: 0 0; }
   #logBox { margin: 12px 0 0; padding: 10px; max-height: 50vh; overflow: auto; background: rgba(0,0,0,.4);
             border: 1px solid var(--line); border-radius: 11px; font: 12px/1.45 var(--mono); color: #d9d2cb;
             white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -148,24 +157,37 @@
   /* ---- the Tank stock and Pumps tabs: the tank stock service's pages, framed below the tabs ---- */
   #tsPane, #pmPane { position: fixed; left: 0; right: 0; top: var(--top); bottom: 0; }
   #tsFrame, #pmFrame { width: 100%; height: 100%; border: 0; display: block; background: transparent; }
-  #tsDown, #pmDown { max-width: 560px; margin: 24px auto; }
+  #tsDown, #pmDown { max-width: 560px; margin: 24px max(16px, calc((100% - 560px) / 2)); }
+
+  /* ---- keyboard focus, touch size, motion (design pass) ---- */
+  button:focus-visible, a:focus-visible, summary:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
+  @media (pointer: coarse) { button, .chip { min-height: 44px; } }
+  dialog[open] { animation: dlg-in .22s var(--ease-out); }
+  dialog[open]::backdrop { animation: dlg-fade .22s var(--ease-out); }
+  @keyframes dlg-in { from { opacity: 0; transform: scale(.97); } }
+  @keyframes dlg-fade { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important;
+      transition-property: opacity, color, background-color, border-color, box-shadow !important; scroll-behavior: auto !important; }
+  }
 </style>
 </head>
 <body>
 <div class="top" id="top">
   <header>
-    <div class="brand"><span class="logo" aria-hidden="true">⛽</span>
+    <div class="brand"><img class="logo" src="/icon-192.png" alt="" width="36" height="36">
       <div><b>Vriddhi Fuels</b><small id="where">Station monitor</small></div></div>
     <span id="monitor" class="pill">Checking…</span>
   </header>
-  <nav class="tabbar" role="tablist">
-    <button class="tab" role="tab" id="tabXp" data-tab="xp" aria-selected="true">⚡ XtraPower</button>
-    <button class="tab" role="tab" id="tabTs" data-tab="ts" aria-selected="false">🛢️ Tank stock</button>
-    <button class="tab" role="tab" id="tabPm" data-tab="pm" aria-selected="false">⛽ Pumps</button>
+  <nav class="tabbar" role="tablist" aria-label="Station">
+    <button class="tab" role="tab" id="tabXp" data-tab="xp" aria-selected="true" aria-controls="xpPane"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>XtraPower</button>
+    <button class="tab" role="tab" id="tabTs" data-tab="ts" aria-selected="false" aria-controls="tsPane" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Tank stock</button>
+    <button class="tab" role="tab" id="tabPm" data-tab="pm" aria-selected="false" aria-controls="pmPane" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16"/><path d="M3 21h13"/><path d="M7 7h5v4H7z"/><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>Pumps</button>
   </nav>
 </div>
 
-<main id="xpPane" role="tabpanel">
+<main id="xpPane" role="tabpanel" aria-labelledby="tabXp">
   <section id="app">
     <div class="stats">
       <div class="card stat"><div class="k">Accounts</div><div class="v" id="nAccounts">–</div></div>
@@ -218,7 +240,7 @@
   </section>
 </main>
 
-<div id="tsPane" role="tabpanel" hidden>
+<div id="tsPane" role="tabpanel" aria-labelledby="tabTs" hidden>
   <iframe id="tsFrame" title="Tank stock"></iframe>
   <div id="tsDown" class="card" hidden>
     <div class="name">Tank stock isn't available</div>
@@ -227,7 +249,7 @@
   </div>
 </div>
 
-<div id="pmPane" role="tabpanel" hidden>
+<div id="pmPane" role="tabpanel" aria-labelledby="tabPm" hidden>
   <iframe id="pmFrame" title="Pumps"></iframe>
   <div id="pmDown" class="card" hidden>
     <div class="name">Pumps aren't available</div>

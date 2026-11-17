@@ -55,7 +55,13 @@ test('one pipe per tank, on one chamber at a time — moved on as each empties',
   // Tank 2 has what C2 and a quarter of C3 gave: 10,755 + 5,000 + 1,000 L
   assert.equal(tankTop(svg, 'T2'), 167.1);
   assert.match(svg, /class="dt flowing" data-k="dT2"/);
-  assert.equal(count(svg, /class="drop"/g), 3);
+  // the fuel going in: one stream down to the surface (no drops), and the time it has left:
+  // C2 8:15 + the move 0:45 + C3 7:00 = 16:00, at 10:45 in 5:15 to go
+  assert.equal(count(svg, /class="drop"/g), 0);
+  assert.match(svg, /class="fill" data-k="flT2">/);
+  assert.match(svg, /data-k="fsT2"[^>]*y2="169"/);                     // nearly full: the stream is short
+  assert.match(svg, /data-k="feT2">decanting · 5:15</);
+  assert.match(svg, /class="hose-glint"[^>]*opacity="0\.6"/);
   assert.match(svg, /aria-label="OD23U8210: C1 into Tank 1 \(settling\); C2,3 into Tank 2 \(pipe on C3\); C4,5 into Tank 3 \(next\)"/);
   assert.match(svg, /data-anim="/);
 });
@@ -87,6 +93,8 @@ test('two tanks at once: two pipes; once every chamber should be empty the pipes
   for (const no of [2, 3, 4, 5]) assert.equal(glassTop(after, no), 63, `C${no} empty`);
   assert.equal(tankTop(after, 'T2'), 160.5);                           // at 19,755 L
   assert.match(after, /class="dt" data-k="dT2"/);
+  assert.match(after, /data-k="feT2">decanting</);                    // all out: no time left, not "moving pipe"
+  assert.match(after, /class="fill" data-k="flT2" display="none"/);    // and no stream
 });
 
 test('between two chambers the pipe is moved: no flow, both valves shut, the attendant on his way', () => {
@@ -94,6 +102,8 @@ test('between two chambers the pipe is moved: no flow, both valves shut, the att
   const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 515);
   assert.match(svg, /class="dp" data-k="pT2">\s*<path class="hose" d="M143\.1 103 /);   // still on C2's valve
   assert.match(svg, /class="dt" data-k="dT2"/);                        // nothing running into Tank 2
+  assert.match(svg, /data-k="feT2">moving pipe</);
+  assert.match(svg, /class="fill" data-k="flT2" display="none"/);
   assert.match(svg, /data-k="v2" transform="rotate\(-90 143\.1 101\)"/);   // C2 shut…
   assert.match(svg, /data-k="v3" transform="rotate\(-90 163\.1 101\)"/);     // …C3 not open yet
   assert.equal(glassTop(svg, 2), 63);
@@ -135,9 +145,10 @@ test('light on the phone: the pictures are moved by the ticker, and CSS only ani
     const props = [...body.matchAll(/([a-z-]+):/g)].map((m) => m[1]);
     assert.ok(props.every((p) => p === 'opacity' || p === 'transform'), `${name}: ${props.join(', ')}`);
   }
-  // the drops carry their offset for the ticker, not a CSS delay
+  // the fuel's stream, splash and hose pulses are moved by the ticker, not CSS
   const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
-  assert.equal(count(svg, /class="drop"[^>]*data-d="(0|350|700)"/g), 3);
+  assert.equal(count(svg, /class="stream-glint"/g), 1);
+  assert.equal(count(svg, /class="splash"/g), 1);
   assert.ok(!/animation-delay/.test(svg));
   // a tank settling on its own still ripples (slowly), so its picture is ticked
   assert.match(draw({ T1: 'settling', T2: 'waiting', T3: 'waiting' }, 0), /data-anim="/);

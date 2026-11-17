@@ -315,7 +315,10 @@
   }
   function show(t) {
     tab = t;
-    for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === t));
+    for (const b of document.querySelectorAll(".tab")) {
+      b.setAttribute("aria-selected", String(b.dataset.tab === t));
+      b.tabIndex = b.dataset.tab === t ? 0 : -1;
+    }
     $("xpPane").hidden = t !== "xp";
     $("tsPane").hidden = t !== "ts";
     $("pmPane").hidden = t !== "pm";
@@ -330,6 +333,17 @@
     window.scrollTo(0, 0);
   }
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => show(b.dataset.tab));
+  document.querySelector(".tabbar").addEventListener("keydown", (e) => {
+    const tabs = [...document.querySelectorAll(".tab")].filter((b) => !b.hidden);
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    const next = tabs[(to + tabs.length) % tabs.length];
+    show(next.dataset.tab);
+    next.focus();
+  });
   $("tsRetry").addEventListener("click", () => loadFramed("ts"));
   $("pmRetry").addEventListener("click", () => loadFramed("pm"));
   window.addEventListener("resize", measure);
