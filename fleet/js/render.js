@@ -85,7 +85,7 @@ export function download(blob, name) {
 
 // The app's font, Sora, as data: URLs (a picture made from an SVG can't fetch
 // anything). '' when offline: the phone's own sans-serif font.
-const SORA_CSS = 'https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=block';
+const SORA_CSS = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=block';
 let fontPromise = null;
 export function brandFontCss() {
   if (!fontPromise) {
@@ -132,7 +132,7 @@ export function hindiFontCss() {
 // The bulker drawing's look lives in the page's stylesheet (.bk-…); a picture
 // needs it inside. Its variables are given their dark-theme values (the
 // pictures are always dark).
-const VARS = { '--display': 'Sora, sans-serif', '--mono': '"IBM Plex Mono", ui-monospace, monospace', '--grid-zero': 'rgba(255,255,255,.28)' };
+const VARS = { '--display': 'Plus Jakarta Sans, sans-serif', '--mono': '"IBM Plex Mono", ui-monospace, monospace', '--grid-zero': 'rgba(255,255,255,.28)' };
 let bulkerCssText = null;
 export function bulkerCss() {
   if (bulkerCssText != null) return bulkerCssText;

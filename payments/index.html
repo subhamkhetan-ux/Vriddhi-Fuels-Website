@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="config.js"></script>
 <!-- the decant app's project: an invoice added from its PDF here goes there too -->
 <script src="../decant/config.js"></script>
@@ -32,8 +32,8 @@
   --warn:#FFB23E; --warn-bg:#ffb23e26;
   --bad:#FF6B5E; --bad-bg:#ff6b5e26;
   --grad-brand:linear-gradient(120deg,#F4511E 0%,#FF7A1A 52%,#FF9E42 100%);
-  --grad-cta:linear-gradient(180deg,#cc430e,#b93c0b);
-  --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+  --display:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box}
@@ -45,13 +45,13 @@ body{margin:0;color:var(--ink);overflow-x:clip;max-width:100%;
     radial-gradient(1000px 700px at 50% 116%, rgba(120,40,180,.11) 0%, rgba(120,40,180,0) 60%),
     var(--bg);
   background-attachment:fixed;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;
+  font-family:"Plus Jakarta Sans", -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;
   -webkit-font-smoothing:antialiased;padding-bottom:80px}
 header{position:sticky;top:0;z-index:20;
-  background:linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96));
+  background:linear-gradient(135deg,rgba(244,81,30,.85),rgba(255,122,26,.62));
   backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
   border-bottom:1px solid rgba(255,255,255,.16);
-  box-shadow:0 10px 30px -14px rgba(0,0,0,.42);
+  box-shadow:0 10px 30px -14px rgba(244,81,30,.7);
   padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px}
 header h1{font-family:var(--display);font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;flex:1;color:#fff;
   text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px}
@@ -149,7 +149,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--good)}
 .exportbar .sum b{color:var(--ink);font-size:15px;font-family:var(--display);font-variant-numeric:tabular-nums}
 .cta{font-family:var(--display);font-size:15px;font-weight:800;padding:12px 20px;border-radius:12px;border:none;
   background:var(--grad-cta);color:#fff;cursor:pointer;letter-spacing:.2px;
-  box-shadow:0 12px 26px -10px rgba(0,0,0,.42),0 1px 0 rgba(255,255,255,.25) inset}
+  box-shadow:0 12px 26px -10px rgba(244,81,30,.85),0 1px 0 rgba(255,255,255,.25) inset}
 .cta:active{transform:translateY(1px)}
 .cta:disabled{background:var(--panel2);color:var(--faint);cursor:default;box-shadow:none}
 details{margin-top:8px}
@@ -191,7 +191,7 @@ summary::-webkit-details-marker{display:none}
 .tab{flex:1;position:relative;background:transparent;border:1px solid transparent;color:var(--muted);
   font-size:14px;font-weight:700;padding:10px 6px;border-radius:11px;cursor:pointer;transition:color .15s,background .15s}
 .tab.active{color:#fff;background:linear-gradient(150deg,rgba(255,122,26,.24),rgba(255,122,26,.07));
-  border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(0,0,0,.42)}
+  border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(255,122,26,.8)}
 .tab:not(.active):hover{color:var(--ink)}
 .tabbadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 5px;border-radius:999px;
   background:var(--grad-cta);color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
@@ -390,6 +390,22 @@ a{color:var(--accent)}
   *,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;
     transition-property:opacity,color,background-color,border-color,box-shadow!important;scroll-behavior:auto!important}
 }
+
+/* the PDF sheet slides up from the edge it sits on */
+.pdfsheet{animation:vf-fade .22s ease-out}.pdfsheet>*{animation:vf-sheet .34s cubic-bezier(.32,.72,0,1)}
+@keyframes vf-fade{from{opacity:0}}@keyframes vf-sheet{from{transform:translateY(100%)}}
+/* ---- motion kit (design pass): the active tab's highlight glides, a screen's cards rise in, presses answer ---- */
+.vf-ink{position:absolute;left:0;top:0;z-index:0;pointer-events:none;box-sizing:border-box;opacity:0}
+.vf-ink.vf-go{transition:transform .42s cubic-bezier(.32,.72,0,1),width .42s cubic-bezier(.32,.72,0,1),height .42s cubic-bezier(.32,.72,0,1),opacity .2s}
+.vf-inked>:not(.vf-ink){position:relative;z-index:1}
+.vf-inked>[data-vf-on]{background:transparent!important;box-shadow:none!important;border-color:transparent!important}
+.vf-rise>*{animation:vf-rise .44s cubic-bezier(.23,1,.32,1) both}
+.vf-rise>:nth-child(2){animation-delay:.04s}.vf-rise>:nth-child(3){animation-delay:.08s}.vf-rise>:nth-child(4){animation-delay:.12s}
+.vf-rise>:nth-child(5){animation-delay:.16s}.vf-rise>:nth-child(6){animation-delay:.2s}.vf-rise>:nth-child(n+7){animation-delay:.24s}
+@keyframes vf-rise{from{opacity:0;transform:translateY(12px)}}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary){transition-property:transform,background-color,border-color,color,box-shadow,opacity;transition-duration:.14s}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary):active:not(:disabled){transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){.vf-ink.vf-go{transition:opacity .2s}.vf-rise>*{animation:none}}
 </style>
 </head>
 <body>
@@ -1820,6 +1836,65 @@ setInterval(()=>{ if(VIEW==="pay") renderAgent(); }, 60000);
 
 /* ---------- view switching (Payments | Consignment notes) ---------- */
 let VIEW = "pay";
+
+/* ---- motion kit (design pass) ---- */
+function vfCalm() { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+// a screen's cards rise in one after another (call when a screen is opened, not on refreshes)
+function vfRise(el) {
+  if (!el || vfCalm()) return;
+  el.classList.remove('vf-rise'); void el.offsetWidth; el.classList.add('vf-rise');
+  clearTimeout(el.vfRiseT); el.vfRiseT = setTimeout(() => el.classList.remove('vf-rise'), 1000);
+}
+// the active tab's highlight glides to the tab picked: one element under the tabs,
+// drawn like the active tab itself (read from it, so light/dark themes follow)
+function vfInk(bar, sel) {
+  if (!bar) return;
+  const on = [...bar.querySelectorAll(sel)].find((x) => x.offsetWidth);   // (the first one shown)
+  let ink = bar.querySelector(':scope > .vf-ink');
+  if (!on || !on.offsetWidth) { if (ink) ink.style.opacity = '0'; return; }
+  if (!ink) {
+    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+    ink = document.createElement('span'); ink.className = 'vf-ink'; ink.setAttribute('aria-hidden', 'true');
+    bar.prepend(ink); bar.classList.add('vf-inked');
+    if (window.ResizeObserver) new ResizeObserver(() => vfInk(bar, sel)).observe(bar);
+    // a theme switch (light/dark) repaints the highlight in the new look
+    (vfInk.bars = vfInk.bars || new Map()).set(bar, sel);
+    if (!vfInk.mo && window.MutationObserver) {
+      vfInk.mo = new MutationObserver(() => vfInk.bars.forEach((s, b) => { if (b.isConnected) vfInk(b, s); }));
+      for (const n of [document.documentElement, document.body]) vfInk.mo.observe(n, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    }
+  }
+  bar.querySelectorAll('[data-vf-on]').forEach((x) => { if (x !== on) x.removeAttribute('data-vf-on'); });
+  const was = on.style.transition;
+  on.style.transition = 'none';
+  on.removeAttribute('data-vf-on');
+  const cs = getComputedStyle(on);
+  Object.assign(ink.style, {
+    backgroundImage: cs.backgroundImage, backgroundColor: cs.backgroundColor, borderRadius: cs.borderRadius, boxShadow: cs.boxShadow,
+    border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
+    width: `${on.offsetWidth}px`, height: `${on.offsetHeight}px`, transform: `translate(${on.offsetLeft}px, ${on.offsetTop}px)`, opacity: '1',
+  });
+  on.setAttribute('data-vf-on', '');
+  void on.offsetWidth;
+  on.style.transition = was;
+  if (!ink.vfReady) { ink.vfReady = true; requestAnimationFrame(() => requestAnimationFrame(() => ink.classList.add('vf-go'))); }
+}
+// a number counts to its new value (ms), formatted as the page shows it
+function vfCount(el, to, fmt, ms = 650) {
+  if (!el) return;
+  const from = Number(el.dataset.vfAt);
+  el.dataset.vfAt = String(to);
+  if (!Number.isFinite(from) || from === to || vfCalm()) { el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(from + (to - from) * e));
+    if (p < 1 && el.dataset.vfAt === String(to)) requestAnimationFrame(step);
+  };
+  el.textContent = fmt(from);
+  requestAnimationFrame(step);
+}
+
 function showView(v){
   VIEW = v;
   const pay = v==="pay", notes = v==="notes", cust = v==="customers", credit = v==="credit";
@@ -1840,6 +1915,8 @@ function showView(v){
   if(credit) renderCredit();
   try{ localStorage.setItem("vf_view", v); }catch(_){}
   window.scrollTo(0,0);
+  vfInk(document.querySelector('.tabbar'), '.tab.active');
+  vfRise(document.getElementById({pay:'viewPay',notes:'viewNotes',customers:'viewCustomers',credit:'viewCredit'}[v]));
 }
 
 /* ---------- customer roster (Tally Master.xml upload) ---------- */
