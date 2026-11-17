@@ -25,6 +25,32 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// A small clock (drawn: an emoji may not draw on every phone), centred at cx, cy.
+function clock(ctx, cx, cy, r, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(2, r * 0.18);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx, cy - r * 0.58);
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + r * 0.45, cy);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// "21 min" with a clock before it, right-aligned at `right`; -> its width.
+function took(ctx, s, right, y, size) {
+  ctx.font = `800 ${size}px ${DISPLAY}`;
+  const w = ctx.measureText(s).width;
+  text(ctx, s, right, y, { font: `800 ${size}px ${DISPLAY}`, align: 'right' });
+  const r = size * 0.36;
+  clock(ctx, right - w - r - size * 0.3, y - size * 0.34, r, C.ink);
+  return w + 2 * r + size * 0.3;
+}
+
 function text(ctx, s, x, y, { font, color = C.ink, align = 'left' }) {
   ctx.font = font;
   ctx.fillStyle = color;
@@ -243,8 +269,8 @@ function figuresHeight(m) {
   return Math.max(1200, Math.ceil(y) + 200);
 }
 
-// m: {title, sub, when, total, variation, direction, summary,
-//     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold, direction]]}],
+// m: {title, sub, when, took, total, variation, direction, summary,
+//     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, took, rows: [[label, litres, extra, bold, direction]]}],
 //     notes, footer, audit: {ok, text} | null, made,
 //     proofs: [{blob, label, sub}] — stock screenshots to show under the figures (optional)}
 // The canvas returned carries proofCount: how many screenshots made it in.
@@ -274,10 +300,19 @@ export async function resultImage(m) {
   fitText(ctx, m.sub, PAD, 198, { font: `500 28px ${SANS}`, color: 'rgba(255,255,255,0.92)' }, W - 2 * PAD);
   let y = 236 + 32;
 
-  // summary
+  // summary; on the right, how long the whole truck took to decant
   card(ctx, y, 236);
-  const inner = W - 2 * PAD - 72;
-  fitText(ctx, `Decanted ${m.total} · ${m.when}`, PAD + 36, y + 58, { font: `500 30px ${SANS}`, color: C.muted }, inner);
+  let inner = W - 2 * PAD - 72;
+  if (m.took) {
+    const right = W - PAD - 36;
+    const label = 'TANKER DECANTED IN';
+    ctx.font = `700 22px ${SANS}`;
+    const labelW = ctx.measureText(label).width;
+    text(ctx, label, right, y + 100, { font: `700 22px ${SANS}`, color: C.faint, align: 'right' });
+    const valueW = took(ctx, m.took, right, y + 158, 52);
+    inner -= Math.max(labelW, valueW) + 32;
+  }
+  fitText(ctx, `Decanted ${m.total} · ${m.when}`, PAD + 36, y + 58, { font: `500 30px ${SANS}`, color: C.muted }, W - 2 * PAD - 72);
   fitText(ctx, m.variation, PAD + 36, y + 152, { font: `800 84px ${DISPLAY}`, color: varColor(m.direction) }, inner);
   fitText(ctx, m.summary, PAD + 36, y + 204, { font: `500 28px ${SANS}`, color: C.muted }, inner);
   y += 236 + 24;
@@ -301,7 +336,9 @@ export async function resultImage(m) {
     ctx.fill();
     text(ctx, t.product, x + nameW + 18 + 42, y + 65, { font: `700 26px ${SANS}` });
     if (t.band) pill(ctx, t.bandLabel, right, y + 66, BAND[t.band], 'right');
-    fitText(ctx, t.meta, x, y + 110, { font: `500 26px ${SANS}`, color: C.faint }, right - x);
+    // its chambers and times, and on the right how long it took to decant
+    const tookW = t.took ? took(ctx, t.took, right, y + 112, 32) + 24 : 0;
+    fitText(ctx, t.meta, x, y + 110, { font: `500 26px ${SANS}`, color: C.faint }, right - x - tookW);
     const varW = fitText(ctx, t.variation, x, y + 186, { font: `800 60px ${DISPLAY}`, color: varColor(t.direction) }, right - x);
     fitText(ctx, t.pctLine, right, y + 180, { font: `500 26px ${SANS}`, color: C.muted, align: 'right' }, right - x - varW - 32);
     let ry = y + 262;
