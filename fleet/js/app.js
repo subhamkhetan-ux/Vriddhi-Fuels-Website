@@ -28,8 +28,10 @@ import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverBriefSvg, driverPagesSvg, loansPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, driverPagesSvg, loansPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcCheckPagesSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
+import { compactStatement, expandStatement, KINDS as SSFC_KINDS, readStatement, statementFromText } from './ssfcstmt.js';
+import { reconcile } from './ssfcrecon.js';
 import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, pdfText, toDataUrl, zipBlob } from './render.js';
 import {
   addDays, addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
@@ -160,6 +162,7 @@ async function boot() {
   if (params.has('demo')) {
     state.demo = true;
     state.store = memoryStore(demoData(today()), { settings: demoSettings() });
+    state.ssfcStmts = null;
     return enter();
   }
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return renderSetup();
@@ -173,6 +176,7 @@ async function boot() {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'shree-shyam-fleet-auth' },
   });
   state.store = supabaseStore(state.client);
+  state.ssfcStmts = null;
   state.client.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') renderLogin(); });
   const { data } = await state.client.auth.getSession();
   if (!data || !data.session) return renderLogin();
@@ -518,6 +522,7 @@ const ROUTES = [
   [/^#\/performance(?:\?r=(.*))?$/, (m) => viewPerformance(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/vehicle\/([^/?]+)$/, (m) => viewVehicle(decodeURIComponent(m[1]))],
   [/^#\/ssfc$/, () => viewSsfc()],
+  [/^#\/ssfc\/check(?:\/(\d{4}-\d{2}))?$/, (m) => viewSsfcCheck(m[1] || '')],
   [/^#\/trends(?:\?r=(.*))?$/, (m) => viewTrends(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/diesel$/, () => viewDiesel()],
   [/^#\/diesel\/([^/?]+)$/, (m) => viewDieselVehicle(decodeURIComponent(m[1]))],
@@ -599,6 +604,7 @@ async function route() {
     if (h.startsWith('#/drivers')) return '#/drivers';
     if (h.startsWith('#/costs')) return '#/costs';
     if (h.startsWith('#/loans')) return '#/loans';
+    if (h.startsWith('#/ssfc')) return '#/ssfc';
     if (h.startsWith('#/upload')) return '#/setup';
     if (h.startsWith('#/trends')) return '#/';
     return h.split('?')[0];
@@ -1706,6 +1712,8 @@ async function viewSsfc() {
     ${state.data.checks && state.data.checks.ssfcTotal != null ? `<p class="small ${Math.abs(state.data.checks.ssfcTotal - a.total) < 1 ? 'good-text' : 'warn-text'}">${Math.abs(state.data.checks.ssfcTotal - a.total) < 1 ? '✓ Same as the Ledger sheet’s Total Outstanding' : `Ledger sheet shows ${rupees(state.data.checks.ssfcTotal)} — re-save the workbook in Excel and upload again`}</p>` : ''}
   </section>
 
+  <a class="todo sc-link" href="#/ssfc/check"><b>Check SSFC's monthly statement →</b><span class="muted small">Every trip, rate, diesel fill, deduction, bill and DEF refill in their account, against your books — what SSFC owes you or must explain.</span></a>
+
   <section class="card">
     <div class="row-between"><h3>Invoices · cleared oldest first</h3>
       <div class="chips small-chips" role="group" aria-label="GST"><button class="chip${ui.gst ? ' on' : ''}" data-gst="1">With GST</button><button class="chip${!ui.gst ? ' on' : ''}" data-gst="0">Without GST</button></div></div>
@@ -1743,6 +1751,228 @@ async function viewSsfc() {
   document.getElementById('inv-all').addEventListener('click', () => { ui.all = !ui.all; rerender(); });
   document.getElementById('share-ssfc').addEventListener('click', shareSsfc);
   bindCharts(main());
+}
+
+
+// ---------------------------------------------------------------------------
+// SSFC's monthly statement, checked against the books (ssfcstmt.js reads it,
+// ssfcrecon.js checks it). Each month's statement is kept as read, in the
+// fleet project's storage (ssfc/<month>.json), so the months can be checked
+// against each other (a bill charged twice, a trip paid a month later).
+// ---------------------------------------------------------------------------
+async function ssfcStatements() {
+  if (state.ssfcStmts) return state.ssfcStmts;
+  const out = new Map();
+  state.ssfcErr = '';
+  if (state.store && state.store.ssfcList) {
+    try {
+      const months = await state.store.ssfcList();
+      const got = await Promise.all(months.map((m) => state.store.ssfcGet(m).catch(() => null)));
+      for (const c of got) if (c && c.month) out.set(c.month, c);
+    } catch (err) {
+      state.ssfcErr = /bucket|not found/i.test(err.message) ? 'The fleet project\'s storage isn\'t set up — run the updated supabase/fleet-schema.sql to keep statements.' : err.message;
+    }
+  }
+  state.ssfcStmts = out;
+  return out;
+}
+async function readStatementFile(f) {
+  if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
+    const text = await pdfText(f);
+    if (!text.trim()) return { error: `${f.name} is a scanned copy — there's no text in it to read. Ask SSFC for the Excel file.` };
+    return statementFromText(text, { fileName: f.name });
+  }
+  const XLSX = await loadSheetJS();
+  const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellFormula: true, cellStyles: false, cellHTML: false, cellText: false });
+  return readStatement(bookFromSheetJS(XLSX, wb), { fileName: f.name });
+}
+async function addStatements(files) {
+  const all = await ssfcStatements();
+  const done = [];
+  const errors = [];
+  for (const f of files) {
+    try {
+      const st = await readStatementFile(f);
+      if (st.error) { errors.push(st.error); continue; }
+      if (!st.month) { errors.push(`${f.name}: couldn't tell which month it is for — put the month in the file's name (e.g. "Sep 2026") and add it again.`); continue; }
+      // a PDF doesn't replace the Excel file of the same month (the Excel has the bills)
+      const had = all.get(st.month);
+      if (had && !had.pdf && st.pdf) { errors.push(`${f.name}: ${monthLong(st.month)} is already in from the Excel file, which has the bills — kept that.`); continue; }
+      const c = compactStatement(st);
+      all.set(st.month, c);
+      done.push(st.month);
+      if (state.store && state.store.ssfcSave && !state.localOnly) await state.store.ssfcSave(st.month, c);
+    } catch (err) {
+      errors.push(`${f.name}: ${err.message}`);
+    }
+  }
+  state.ssfcRev = (state.ssfcRev || 0) + 1;
+  if (errors.length) toast(errors.join(' · '), 'bad');
+  if (done.length) {
+    toast(`Read ${done.map(monthName).join(', ')}${state.localOnly ? ' — on this device only, not saved' : ''}.`);
+    const last = done.sort().pop();
+    if (location.hash === `#/ssfc/check/${last}`) rerender(); else location.hash = `#/ssfc/check/${last}`;
+  }
+}
+// the check for a month, worked out once for each statement set and workbook
+function ssfcReport(month) {
+  const key = `${month}|${state.rev}|${state.ssfcRev || 0}`;
+  if (!state.ssfcReports || state.ssfcReportsOf !== state.data) { state.ssfcReports = new Map(); state.ssfcReportsOf = state.data; }
+  if (state.ssfcReports.has(key)) return state.ssfcReports.get(key);
+  const all = [...state.ssfcStmts.values()].map(expandStatement);
+  const st = all.find((x) => x.month === month);
+  if (!st) return null;
+  let tyreExpected = null;
+  try {
+    const tb = derived().tyreBill;
+    tyreExpected = new Map(tb.cells.filter((c) => c.month === month && c.expected != null).map((c) => [c.veh, c.expected]));
+  } catch { /* no tyre rule */ }
+  const rep = reconcile(st, state.data, { others: all.filter((x) => x !== st), tyreExpected });
+  state.ssfcReports.set(key, rep);
+  return rep;
+}
+const SC_AREA = { trip: 'Trip', rate: 'Rate', diesel: 'Diesel', deduction: 'Deduction', bill: 'Bill', def: 'DEF', register: 'Your register', ledger: 'Ledger', math: 'Their maths', ld: 'Late delivery' };
+const SC_LEVEL = { bad: ['SSFC owes you / must explain', 'bad'], warn: ['Doesn\'t add up · ask for proof · post it', 'warn'], info: ['Good to know', 'info'] };
+
+async function viewSsfcCheck(month) {
+  const all = await ssfcStatements();
+  const months = [...all.keys()].sort();
+  if (!month || !all.has(month)) month = months[months.length - 1] || '';
+  const ui = state.ui.ssfcCheck || (state.ui.ssfcCheck = { area: '' });
+  const add = `<label class="btn small file-btn">Add statements (Excel / PDF)<input type="file" id="sc-files" accept=".xlsx,.xls,.xlsm,.pdf,application/pdf" multiple hidden></label>`;
+  const intro = `<p class="muted small">SSFC's monthly account — the Excel file with its expense sheet (or the PDF, for older months) — read whatever its layout, and checked line by line against the Trip Register, HSD Data, Urea DEF, Rates and Ledger sheets: trips paid or missing, the rate and weight, diesel litres and price, cash office, every deduction and the bill behind it, DEF refills, bills charged twice or in two months, late-delivery penalties, and their own arithmetic.</p>`;
+  if (!month) {
+    setMain(`<section class="card"><div class="row-between"><h2>SSFC statement check</h2>${add}</div>${intro}
+      ${state.ssfcErr ? `<div class="todo warn">${esc(state.ssfcErr)}</div>` : '<p class="muted">No statement added yet. Add one or more months — older ones too: a trip SSFC paid late, or a bill charged twice, is found across months.</p>'}</section>`);
+    bindSsfcCheck(null);
+    return;
+  }
+  const rep = ssfcReport(month);
+  const t = rep.totals;
+  const c = all.get(month);
+  const chip = (m) => {
+    const r = ssfcReport(m);
+    return `<a class="chip${m === month ? ' on' : ''}" href="#/ssfc/check/${m}">${esc(monthName(m))}${r && r.totals.atStake > 0 ? ` <span class="sc-due">${money(r.totals.atStake)}</span>` : ''}</a>`;
+  };
+  const areas = [...new Set(rep.issues.map((x) => x.area))];
+  const shown = rep.issues.filter((x) => !ui.area || x.area === ui.area);
+  const item = (x) => `<div class="sc-item ${x.level}"><span class="sc-area">${esc(SC_AREA[x.area] || x.area)}</span><span class="sc-text">${esc(x.text)}</span>${x.amount ? `<b class="sc-amt">${rupees(x.amount)}</b>` : '<span></span>'}</div>`;
+  const group = (level) => {
+    const list = shown.filter((x) => x.level === level);
+    if (!list.length) return '';
+    const sumAmt = list.reduce((a, x) => a + (x.amount || 0), 0);
+    const head = `<h3 class="sc-head ${level}">${SC_LEVEL[level][0]} <span class="muted small">${plural(list.length, 'finding')}${level === 'bad' && sumAmt ? ` · ${rupees(sumAmt)}` : ''}</span></h3>`;
+    return level === 'info' ? `<details class="sc-more"><summary>${head}</summary>${list.map(item).join('')}</details>` : `${head}${list.map(item).join('')}`;
+  };
+  const vRows = rep.vehicles.map((v) => {
+    const bad = rep.issues.filter((x) => x.veh === v.veh && x.level === 'bad').length;
+    const netOff = v.regTrips && v.net != null && Math.abs(v.net - v.regNet) > 100;
+    return `<tr${bad ? ' class="sc-flag"' : ''}><td><a href="#sc-${esc(v.veh)}"><b>${esc(v.veh)}</b></a>${bad ? ` <span class="pill bad-pill">${bad}</span>` : ''}</td>
+      <td class="r">${v.trips}${v.regTrips !== v.trips ? ` <small class="warn-text">/ ${v.regTrips}</small>` : ''}</td><td class="r">${rupees(v.freight)}</td>
+      <td class="r">${rupees(v.diesel)}<small class="muted"> ${indian(v.litres)} L</small>${Math.abs(v.diesel - v.oursDiesel) > Math.max(100, v.diesel * 0.002) ? `<small class="warn-text"> yours ${rupees(v.oursDiesel)}</small>` : ''}</td>
+      <td class="r">${rupees(v.cashOffice)}</td><td class="r">${rupees(v.dedTotal)}</td>
+      <td class="r"><b>${v.net != null ? rupees(v.net) : '—'}</b>${netOff ? `<small class="warn-text"> yours ${rupees(v.regNet)}</small>` : ''}</td></tr>`;
+  }).join('');
+  const st = expandStatement(c);
+  const details = st.vehicles.map((v) => {
+    const pairs = rep.pairs.filter((p) => p.veh === v.veh);
+    const bills = st.expenses.filter((e) => e.veh === v.veh);
+    return `<details class="sc-veh" id="sc-${esc(v.veh)}"><summary><b>${esc(v.veh)}</b> <span class="muted small">${plural(v.trips.length, 'trip')} · deductions ${rupees(v.deductions.reduce((a, d) => a + d.amount, 0))} · net ${v.net != null ? rupees(v.net) : '—'}</span></summary>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>LR</th><th class="r">Load</th><th class="r">Unload</th><th class="r">Rate</th><th class="r">Diesel</th><th class="r">Cash office</th><th class="r">Total</th><th>Your trip</th></tr></thead><tbody>
+      ${pairs.map(({ s, t: r }) => `<tr><td>${s.loadDate ? fmtDate(s.loadDate) : '—'}${s.loadDateFix ? ' <span class="pill warn-pill" title="SSFC saved this date day/month swapped">fixed</span>' : ''}</td><td class="small">${esc(s.lr || '')}</td>
+        <td class="r">${tonnes(s.loadWt)}</td><td class="r">${s.unloadWt != null ? tonnes(s.unloadWt) : '—'}</td><td class="r">₹${indian(s.rate)}</td>
+        <td class="r">${rupees(s.ssfcDiesel)}<small class="muted"> ${indian(s.ssfcLitres)} L</small></td><td class="r">${rupees(s.cashOffice)}</td><td class="r">${s.total != null ? rupees(s.total) : '—'}</td>
+        <td>${r ? `<a href="#/trip/${r.row}">${esc(r.trip)}</a>` : '<span class="pill warn-pill">not in register</span>'}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${v.deductions.length ? `<div class="sc-deds">${v.deductions.map((d) => `<span><small>${esc(d.label)}</small><b>${rupees(d.amount)}</b><i>${esc((SSFC_KINDS[d.kind] || {}).name || d.kind)}</i></span>`).join('')}</div>` : ''}
+      ${bills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Bill date</th><th>What (as SSFC wrote it)</th><th>Head</th><th class="r">Amount</th></tr></thead><tbody>
+        ${bills.map((e) => `<tr><td>${e.date ? fmtDate(e.date) : '—'}</td><td>${esc(e.desc)}${e.def ? ' <span class="pill warn-pill">DEF</span>' : ''}${e.bill ? ` <small class="muted">#${esc(e.bill)}</small>` : ''}</td><td class="small">${esc(e.cat || (SSFC_KINDS[e.kind] || {}).name || '')}</td><td class="r">${rupees(e.amount)}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
+    </details>`;
+  }).join('');
+  const D = rep.def;
+  const DT = rep.dieselTrips || [];
+  const dtOff = DT.filter((x) => x.status !== 'ok');
+  const DT_PILL = { more: ['SSFC more', 'bad-pill'], less: ['yours more', 'warn-pill'], moved: ['fill on next / last trip', 'warn-pill'], register: ['correct P / Q', 'warn-pill'], litres: ['litres differ', 'info-pill'], ok: ['✓', 'good-pill'] };
+  const dtRow = (x) => `<tr${x.status === 'more' ? ' class="sc-flag"' : ''}><td><b>${esc(shortVeh(x.veh))}</b> <a href="#/trip/${x.row}">${esc(x.trip)}</a><small class="muted"> ${x.loadDate ? fmtDate(x.loadDate) : ''} · ${tonnes(x.loadWt)}</small></td>
+      <td class="r">${indian(x.ssfcL)} L${x.cash ? `<small class="muted"> + ${rupees(x.cash)} cash</small>` : ''}<small class="muted"> ${rupees(x.ssfcRs)}</small></td>
+      <td class="r">${x.useHsd ? `${indian(x.hsdL)} L<small class="muted"> ${rupees(x.hsdRs)} · ${plural(x.hsdN, 'fill')}</small>` : '—'}</td>
+      <td class="r">${indian(x.regL)} L<small class="muted"> ${rupees(x.regRs)}</small></td>
+      <td class="r ${x.dRs > 0 && x.status !== 'moved' ? 'bad-text' : ''}">${x.status === 'ok' ? '—' : rupees(x.dRs)}</td>
+      <td><span class="pill ${DT_PILL[x.status][1]}">${DT_PILL[x.status][0]}</span></td></tr>`;
+  setMain(`<section class="card">
+    <div class="row-between"><h2>SSFC statement check</h2><span class="row-gap">${add}${shareBtn('share-sc')}</span></div>
+    <div class="chips sc-months" role="group" aria-label="Month">${months.map(chip).join('')}</div>
+    ${state.ssfcErr ? `<div class="todo warn">${esc(state.ssfcErr)}</div>` : ''}
+    <div class="acct-hero sc-hero">
+      <div><span class="lbl">${t.atStake > 0 ? 'To claim from SSFC' : 'Nothing to claim'}</span><span class="val" ${exact(t.atStake)}>${money(t.atStake)}</span><span class="sub">${plural(t.bad, 'finding')} in SSFC's favour · ${plural(t.warn, 'to check', 'to check')}</span></div>
+      <div class="side"><span class="lbl">SSFC net · ${esc(monthLong(month))}</span><b ${exact(t.net)}>${money(t.net)}</b><span class="sub">${plural(t.trips, 'trip')} · ${plural(rep.vehicles.length, 'vehicle')}</span></div>
+    </div>
+    <div class="kpis acct-kpis">
+      <div class="kpi"><span class="lbl">Freight</span><span class="val" ${exact(t.freight)}>${money(t.freight)}</span><span class="sub">weight × rate</span></div>
+      <div class="kpi"><span class="lbl">Diesel</span><span class="val" ${exact(t.diesel)}>${money(t.diesel)}</span><span class="sub">SSFC's pumps + Vriddhi</span></div>
+      <div class="kpi"><span class="lbl">Cash office</span><span class="val" ${exact(t.cashOffice)}>${money(t.cashOffice)}</span><span class="sub">cash given to drivers</span></div>
+      <div class="kpi"><span class="lbl">Deductions</span><span class="val" ${exact(t.deductions)}>${money(t.deductions)}</span><span class="sub">fastag, maintenance, RTO…</span></div>
+    </div>
+    <p class="muted small">${esc(c.file || '')}${c.pdf ? ' · from the PDF: its bill-by-bill expense sheet isn\'t in it — ask SSFC for the Excel file' : ''}${(c.warnings || []).filter((w) => !/PDF/.test(w)).map((w) => ` · ${esc(w)}`).join('')}</p>
+  </section>
+
+  <section class="card">
+    <div class="row-between"><h3>Findings</h3>${areas.length > 1 ? `<div class="chips small-chips" role="group" aria-label="Show"><button class="chip${!ui.area ? ' on' : ''}" data-area="">All</button>${areas.map((a) => `<button class="chip${ui.area === a ? ' on' : ''}" data-area="${esc(a)}">${esc(SC_AREA[a] || a)}</button>`).join('')}</div>` : ''}</div>
+    ${shown.some((x) => x.level !== 'info') ? '' : '<p class="good-text">✓ Nothing in SSFC\'s favour, and nothing that doesn\'t add up.</p>'}
+    ${group('bad')}${group('warn')}${group('info')}
+  </section>
+
+  <section class="card"><h3>Each vehicle</h3>
+    <p class="muted small">Trips in SSFC's statement (/ in your register that month), and SSFC's figures; where yours differ they're shown beside them.</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="r">Trips</th><th class="r">Freight</th><th class="r">Diesel</th><th class="r">Cash office</th><th class="r">Deductions</th><th class="r">Net</th></tr></thead><tbody>${vRows}</tbody>
+      <tfoot><tr><td><b>All</b></td><td class="r">${t.trips}</td><td class="r">${rupees(t.freight)}</td><td class="r">${rupees(t.diesel)}</td><td class="r">${rupees(t.cashOffice)}</td><td class="r">${rupees(t.deductions)}</td><td class="r"><b>${rupees(t.net)}</b></td></tr></tfoot></table></div>
+  </section>
+
+  ${DT.length ? `<section class="card"><div class="row-between"><h3>Diesel, trip by trip</h3>${dtOff.length && dtOff.length < DT.length ? `<button class="btn ghost small" id="sc-dt-all" type="button">${ui.dtAll ? 'Only the ones that differ' : `All ${DT.length} trips`}</button>` : ''}</div>
+    <p class="muted small">Each trip in SSFC's statement is paired with your trip by its loaded weight, and SSFC's diesel on it — litres, and the pump <i>cash</i> (diesel bought for cash: its litres aren't on the statement) — set against ${DT.some((x) => x.useHsd) ? 'the fills from SSFC tagged to that trip in HSD Data, and' : ''} your Trip Register's SSFC Diesel (P / Q). The difference is SSFC's ₹ − yours. ${dtOff.length ? `${plural(dtOff.length, 'trip')} differ${dtOff.length === 1 ? 's' : ''}.` : 'Every trip agrees.'}</p>
+    ${dtOff.length || ui.dtAll ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">SSFC charged</th><th class="r">HSD Data (SSFC fills)</th><th class="r">Your P / Q</th><th class="r">Difference</th><th></th></tr></thead><tbody>
+      ${(ui.dtAll ? DT : dtOff).map(dtRow).join('')}</tbody></table></div>` : ''}
+  </section>` : ''}
+
+  ${D.bills ? `<section class="card"><h3>DEF / AdBlue — SSFC's bills vs your Urea DEF sheet</h3>
+    <p class="muted small">Every DEF line in SSFC's bills (however it's spelt — AD BLUE, URIA, CLEARLUE, DEF bucket…) paired with a refill bought from SSFC in your Urea DEF sheet, same vehicle, within 3 days. ${D.paired} of ${D.bills} pair up.</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="r">SSFC charged</th><th class="r">Your sheet</th><th class="r">No refill of yours</th><th class="r">Price diff.</th></tr></thead><tbody>
+      ${D.vehicles.map((v) => `<tr${v.unmatched || v.priceDiff > 1 ? ' class="sc-flag"' : ''}><td><b>${esc(v.veh)}</b></td><td class="r">${rupees(v.ssfcRs)} <small class="muted">${plural(v.ssfcN, 'bill')}</small></td><td class="r">${rupees(v.oursRs)} <small class="muted">${indian(v.oursL)} L</small></td>
+        <td class="r">${v.unmatched ? `<b class="bad-text">${rupees(v.unmatchedRs)}</b> <small class="muted">${plural(v.unmatched, 'bill')}</small>` : '—'}</td><td class="r ${v.priceDiff > 1 ? 'bad-text' : ''}">${Math.abs(v.priceDiff) > 1 ? rupees(v.priceDiff) : '—'}</td></tr>`).join('')}
+    </tbody></table></div></section>` : ''}
+
+  <section class="card"><h3>Trips, deductions and bills, vehicle by vehicle</h3>${details}
+    <p class="row-gap"><button class="btn ghost small" id="sc-remove" type="button">Remove ${esc(monthName(month))}'s statement</button></p></section>`);
+  bindSsfcCheck(rep);
+}
+function bindSsfcCheck(rep) {
+  const m = main();
+  m.querySelector('#sc-files')?.addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) addStatements(files); });
+  m.querySelectorAll('[data-area]').forEach((b) => b.addEventListener('click', () => { state.ui.ssfcCheck.area = b.dataset.area; rerender(); }));
+  m.querySelector('#sc-dt-all')?.addEventListener('click', () => { state.ui.ssfcCheck.dtAll = !state.ui.ssfcCheck.dtAll; rerender(); });
+  m.querySelector('#share-sc')?.addEventListener('click', async () => {
+    const base = `SSFC check ${monthLong(rep.month)}`;
+    sharePictures(base, [
+      { label: 'To claim and check', make: async () => pageFiles(ssfcCheckPagesSvg(rep, { ...(await shareKit()) }), base) },
+      { label: 'With the notes', make: async () => pageFiles(ssfcCheckPagesSvg(rep, { ...(await shareKit()), infos: true }), base) },
+    ]);
+  });
+  m.querySelector('#sc-remove')?.addEventListener('click', async () => {
+    if (!confirm(`Remove SSFC's ${monthLong(rep.month)} statement from the app? (You can add it again.)`)) return;
+    try {
+      if (state.store && state.store.ssfcRemove && !state.localOnly) await state.store.ssfcRemove(rep.month);
+      state.ssfcStmts.delete(rep.month);
+      state.ssfcRev = (state.ssfcRev || 0) + 1;
+      location.hash = '#/ssfc/check';
+      toast('Removed.');
+    } catch (err) { toast(err.message, 'bad'); }
+  });
+  m.querySelectorAll('.sc-vehs a[href^="#sc-"], a[href^="#sc-"]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const d = document.getElementById(a.getAttribute('href').slice(1));
+    if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  }));
 }
 
 // ---------------------------------------------------------------------------
