@@ -1,0 +1,4 @@
+# Third-party bundles — not our code, keep them out of the knowledge graph
+**/vendor/
+*.min.js
+*.min.mjs
