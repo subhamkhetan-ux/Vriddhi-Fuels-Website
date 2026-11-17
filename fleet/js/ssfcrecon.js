@@ -433,3 +433,25 @@ export function defCheck(stmt, data, others = []) {
   const shared = mine.filter((b) => b.e.others && b.e.others.length);
   return { issues, vehicles: [...byVeh.values()].sort((a, b) => a.veh.localeCompare(b.veh)), shared: shared.length, bills: mine.length, paired: mine.filter((b) => b.u).length };
 }
+
+// ---- settled: a month, or one finding, you've dealt with --------------------------------------
+// A finding is known by what it says (so if the books or the statement change, it shows again).
+export function findingKey(x) {
+  const s = `${x.level}|${x.area}|${x.veh || ''}|${x.text}`;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+// mark: { settled: { at, by } | null, cleared: { [findingKey]: { at, by } } } — kept with the statement
+export function settledView(rep, mark = {}) {
+  const cleared = mark.cleared || {};
+  const month = !!mark.settled;
+  const open = [];
+  const settled = [];
+  for (const x of rep.issues) (month || cleared[findingKey(x)] ? settled : open).push(x);
+  const bad = open.filter((x) => x.level === 'bad');
+  return {
+    open, settled, monthSettled: month, settledOn: mark.settled || null,
+    atStake: r2(bad.reduce((a, x) => a + (x.amount || 0), 0)), bad: bad.length, warn: open.filter((x) => x.level === 'warn').length,
+  };
+}

@@ -401,3 +401,21 @@ test('diesel trip by trip: pump cash is diesel bought for cash — compared in �
   assert.equal(r2b.dieselTrips.find((x) => x.veh === B).status, 'register');
   assert.match(r2b.issues.find((x) => x.area === 'register' && /correct P \/ Q/.test(x.text)).text, /305 L \+ ₹3,150 cash diesel \(₹31,820\) and your HSD Data agrees/);
 });
+
+test('settled: a whole month, or one finding, drops out of what is open', async () => {
+  const { settledView, findingKey } = await import('../../fleet/js/ssfcrecon.js');
+  const st = readStatement(book(statementRows(), expenseRows()));
+  const r = reconcile(st, books());
+  const all = settledView(r, {});
+  assert.equal(all.open.length, r.issues.length);
+  assert.equal(all.atStake, r.totals.atStake);
+  const def = r.issues.find((x) => x.area === 'def' && x.level === 'bad');
+  const one = settledView(r, { cleared: { [findingKey(def)]: { at: '2026-10-01', by: 'demo' } } });
+  assert.equal(one.settled.length, 1);
+  assert.equal(one.atStake, r2(all.atStake - def.amount));
+  const month = settledView(r, { settled: { at: '2026-10-01', by: 'demo' } });
+  assert.deepEqual([month.open.length, month.atStake, month.monthSettled], [0, 0, true]);
+  // the same finding found again has the same key; a changed one doesn't
+  assert.equal(findingKey({ ...def }), findingKey(def));
+  assert.notEqual(findingKey({ ...def, text: `${def.text}!` }), findingKey(def));
+});
