@@ -272,11 +272,71 @@ function renderBanner() {
   }
 }
 
+
+/* ---- motion kit (design pass) ---- */
+function vfCalm() { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+// a screen's cards rise in one after another (call when a screen is opened, not on refreshes)
+function vfRise(el) {
+  if (!el || vfCalm()) return;
+  el.classList.remove('vf-rise'); void el.offsetWidth; el.classList.add('vf-rise');
+  clearTimeout(el.vfRiseT); el.vfRiseT = setTimeout(() => el.classList.remove('vf-rise'), 1000);
+}
+// the active tab's highlight glides to the tab picked: one element under the tabs,
+// drawn like the active tab itself (read from it, so light/dark themes follow)
+function vfInk(bar, sel) {
+  if (!bar) return;
+  const on = [...bar.querySelectorAll(sel)].find((x) => x.offsetWidth);   // (the first one shown)
+  let ink = bar.querySelector(':scope > .vf-ink');
+  if (!on || !on.offsetWidth) { if (ink) ink.style.opacity = '0'; return; }
+  if (!ink) {
+    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+    ink = document.createElement('span'); ink.className = 'vf-ink'; ink.setAttribute('aria-hidden', 'true');
+    bar.prepend(ink); bar.classList.add('vf-inked');
+    if (window.ResizeObserver) new ResizeObserver(() => vfInk(bar, sel)).observe(bar);
+    // a theme switch (light/dark) repaints the highlight in the new look
+    (vfInk.bars = vfInk.bars || new Map()).set(bar, sel);
+    if (!vfInk.mo && window.MutationObserver) {
+      vfInk.mo = new MutationObserver(() => vfInk.bars.forEach((s, b) => { if (b.isConnected) vfInk(b, s); }));
+      for (const n of [document.documentElement, document.body]) vfInk.mo.observe(n, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    }
+  }
+  bar.querySelectorAll('[data-vf-on]').forEach((x) => { if (x !== on) x.removeAttribute('data-vf-on'); });
+  const was = on.style.transition;
+  on.style.transition = 'none';
+  on.removeAttribute('data-vf-on');
+  const cs = getComputedStyle(on);
+  Object.assign(ink.style, {
+    backgroundImage: cs.backgroundImage, backgroundColor: cs.backgroundColor, borderRadius: cs.borderRadius, boxShadow: cs.boxShadow,
+    border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
+    width: `${on.offsetWidth}px`, height: `${on.offsetHeight}px`, transform: `translate(${on.offsetLeft}px, ${on.offsetTop}px)`, opacity: '1',
+  });
+  on.setAttribute('data-vf-on', '');
+  void on.offsetWidth;
+  on.style.transition = was;
+  if (!ink.vfReady) { ink.vfReady = true; requestAnimationFrame(() => requestAnimationFrame(() => ink.classList.add('vf-go'))); }
+}
+// a number counts to its new value (ms), formatted as the page shows it
+function vfCount(el, to, fmt, ms = 650) {
+  if (!el) return;
+  const from = Number(el.dataset.vfAt);
+  el.dataset.vfAt = String(to);
+  if (!Number.isFinite(from) || from === to || vfCalm()) { el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(from + (to - from) * e));
+    if (p < 1 && el.dataset.vfAt === String(to)) requestAnimationFrame(step);
+  };
+  el.textContent = fmt(from);
+  requestAnimationFrame(step);
+}
+
 function setTab(tab) {
   APP.tab = tab;
   try { localStorage.setItem('vriddhi-decant-tab', tab); } catch { /* ignore */ }
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   render();
+  vfInk(document.getElementById('tabbar'), '.tab.active');
   enter(document.getElementById(`view-${tab}`));
 }
 
@@ -370,6 +430,7 @@ export function render() {
   document.getElementById('view-home').hidden = inWizard || APP.tab !== 'home';
   document.getElementById('view-plan').hidden = inWizard || APP.tab !== 'plan';
   document.getElementById('view-monitor').hidden = inWizard || APP.tab !== 'monitor';
+  if (!document.querySelector('#tabbar > .vf-ink')) vfInk(document.getElementById('tabbar'), '.tab.active');   // (first draw)
   document.getElementById('view-log').hidden = inWizard || APP.tab !== 'log';
   document.getElementById('view-reports').hidden = inWizard || APP.tab !== 'reports';
   if (inWizard) { if (!viewHasFocus('view-wizard')) renderWizard(document.getElementById('view-wizard')); return; }

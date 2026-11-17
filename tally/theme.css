@@ -10,7 +10,7 @@
   --line: rgba(255,255,255,.14); --line-soft: rgba(255,255,255,.08);
   --txt: #f5f0eb; --txt-2: #b4aba2; --txt-3: #a39990;
   --orange: #ff7a1a; --navy: #f4511e;
-  --accent-soft: #ff7a1a24; --accent-line: #ff7a1a55; --grad-cta: linear-gradient(180deg,#cc430e,#b93c0b);
+  --accent-soft: #ff7a1a24; --accent-line: #ff7a1a55; --grad-cta: linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
   --amber: #ffb23e; --amber-tint: #ffb23e18; --amber-line: #ffb23e40;
   --green: #2fd08a; --green-tint: #2fd08a18; --green-line: #2fd08a40;
   --blue: #8fc1ff; --blue-tint: #3987e51a; --blue-line: #3987e54d;
@@ -24,8 +24,8 @@
   --blur: blur(22px) saturate(140%);
   --ease-out: cubic-bezier(.23,1,.32,1);
   --press-duration: 120ms;
-  --display: "Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --text: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --display: "Plus Jakarta Sans","Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --text: "Plus Jakarta Sans", -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   --numeric: var(--display);
   --mono: ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
   --safe-top: env(safe-area-inset-top,0px); --safe-bot: env(safe-area-inset-bottom,0px);
@@ -80,9 +80,9 @@ input::placeholder { color: var(--txt-3); opacity: .85; }
 header.top {
   position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px;
   padding: calc(12px + var(--safe-top)) max(20px,calc((100vw - 1000px)/2)) 12px;
-  background: linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96)); color: #fff;
+  background: linear-gradient(135deg,rgba(244,81,30,.85),rgba(255,122,26,.62)); color: #fff;
   backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
-  border-bottom: 1px solid #ffffff29; box-shadow: 0 10px 30px -14px rgba(0,0,0,.42);
+  border-bottom: 1px solid #ffffff29; box-shadow: 0 10px 30px -14px #f4511eb3;
 }
 .header-brand { flex: 1; min-width: 0; }
 .header-brand small { display: block; font-size: 11px; font-weight: 650; letter-spacing: .1em; color: #fff; margin-bottom: 1px; }
@@ -137,7 +137,7 @@ header.top .hbtn { color: #fff; min-width: 44px; height: 44px; padding: 8px; bor
 .totalbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-top: 15px; padding: 12px 2px; font-size: 13px; color: var(--txt-2); border-top: 1px solid var(--line-soft); }
 .totalbar b { font: 800 26px var(--numeric); font-variant-numeric: tabular-nums; color: var(--txt); }
 .btn { display: block; width: 100%; text-align: center; padding: 12px 14px; min-height: 46px; border-radius: 13px; font-size: 15px; font-weight: 650; margin-top: 12px; border: 1px solid transparent; }
-.btn.primary,.btn.navy { font-family:var(--display); font-weight:800; background: var(--grad-cta); color: white; box-shadow: 0 10px 24px -13px rgba(0,0,0,.42),0 1px 0 #ffffff30 inset; }
+.btn.primary,.btn.navy { font-family:var(--display); font-weight:800; background: var(--grad-cta); color: white; box-shadow: 0 10px 24px -13px #f4511e99,0 1px 0 #ffffff30 inset; }
 .btn.ghost { background: var(--glass); border-color: var(--line); color: var(--txt); }
 .po-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .po-pick[hidden] { display: none; }
@@ -156,7 +156,7 @@ header.top .hbtn { color: #fff; min-width: 44px; height: 44px; padding: 8px; bor
 select option { background: var(--panel); color: var(--txt); }
 .seg { display: flex; gap: 4px; padding: 4px; background: var(--field); border: 1px solid var(--line); border-radius: 13px; }
 .seg button { flex: 1; padding: 11px 5px; font-size: 13px; font-weight: 650; color: var(--txt-2); border-radius: 9px; }
-.seg button.on { background: var(--grad-cta); color: white; box-shadow: 0 5px 16px -9px rgba(0,0,0,.42); }
+.seg button.on { background: var(--grad-cta); color: white; box-shadow: 0 5px 16px -9px #f4511e; }
 .plist { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; margin-top: 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--floating); }
 .plist button { display: block; width: 100%; text-align: left; padding: 12px; font-size: 14px; border-bottom: 1px solid var(--line-soft); }
 .plist button:last-child { border-bottom: 0; }
@@ -344,3 +344,16 @@ input[type=date]::-webkit-date-and-time-value { text-align:left; min-width:0; }
   *,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;
     transition-property:opacity,color,background-color,border-color,box-shadow!important;scroll-behavior:auto!important}
 }
+
+/* ---- motion kit (design pass): the active tab's highlight glides, a screen's cards rise in, presses answer ---- */
+.vf-ink{position:absolute;left:0;top:0;z-index:0;pointer-events:none;box-sizing:border-box;opacity:0}
+.vf-ink.vf-go{transition:transform .42s cubic-bezier(.32,.72,0,1),width .42s cubic-bezier(.32,.72,0,1),height .42s cubic-bezier(.32,.72,0,1),opacity .2s}
+.vf-inked>:not(.vf-ink){position:relative;z-index:1}
+.vf-inked>[data-vf-on]{background:transparent!important;box-shadow:none!important;border-color:transparent!important}
+.vf-rise>*{animation:vf-rise .44s cubic-bezier(.23,1,.32,1) both}
+.vf-rise>:nth-child(2){animation-delay:.04s}.vf-rise>:nth-child(3){animation-delay:.08s}.vf-rise>:nth-child(4){animation-delay:.12s}
+.vf-rise>:nth-child(5){animation-delay:.16s}.vf-rise>:nth-child(6){animation-delay:.2s}.vf-rise>:nth-child(n+7){animation-delay:.24s}
+@keyframes vf-rise{from{opacity:0;transform:translateY(12px)}}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary){transition-property:transform,background-color,border-color,color,box-shadow,opacity;transition-duration:.14s}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary):active:not(:disabled){transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){.vf-ink.vf-go{transition:opacity .2s}.vf-rise>*{animation:none}}

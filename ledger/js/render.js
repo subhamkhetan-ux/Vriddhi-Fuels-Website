@@ -243,7 +243,7 @@ export function statementFontCss() {
 // The shared ledger / outstanding pictures (share-svg.js) use the app's font,
 // Sora. A picture made from an SVG can't fetch anything, so the font goes in
 // as data: URLs. '' when offline: the phone's own sans-serif font.
-const SORA_CSS = 'https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=block';
+const SORA_CSS = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=block';
 let brandFontPromise = null;
 export function brandFontCss() {
   if (!brandFontPromise) {

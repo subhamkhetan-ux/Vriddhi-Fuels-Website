@@ -30,7 +30,7 @@ const C = {
 const LOAD_COLOR = { top: C.good, ok: C.ink, low: C.warn, poor: C.bad };
 const loadNote = (b) => (!b ? '' : b.grade === 'top' ? '★ full load' : `−${b.gapNear.toFixed(2)} T vs best`);
 const SERIES = [C.s1, C.s2, C.s3, C.s4, C.s5, C.s6, C.s7, C.s8, C.faint];
-const SANS = 'Sora, "Noto Sans Devanagari", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+const SANS = 'Plus Jakarta Sans, "Noto Sans Devanagari", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FULLMON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 

@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="./icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
 <script src="./slip.js"></script>
 <script>
@@ -40,8 +40,8 @@
     --shadow:0 14px 34px -18px rgba(70,45,20,.35),0 2px 6px -2px rgba(70,45,20,.08),0 1px 0 rgba(255,255,255,.95) inset;
     --ink:#1b2130; --muted:#5d6475; --faint:#5f6676; --line:rgba(27,33,48,.12);
     --accent:#F4511E; --accent-2:#FF8A2B; --accent-soft:rgba(255,122,26,.12);
-    --grad-cta:linear-gradient(180deg,#cc430e,#b93c0b);
-    --grad-good:linear-gradient(135deg,#13703f 0%,#15803d 100%);
+    --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+    --grad-good:linear-gradient(135deg,#128a4a 0%,#2cc277 100%);
     --grad-bad:linear-gradient(135deg,#c93434 0%,#ef6b5e 100%);
     --grad-ink:linear-gradient(140deg,#1d2538 0%,#33405e 100%);
     --good:#12804a; --good-bg:rgba(18,128,74,.11);
@@ -49,8 +49,8 @@
     --bad:#c3352f; --bad-bg:rgba(208,59,59,.11);
     /* the Decanting app's typefaces: Sora for headings & figures, IBM Plex Mono
        for number plates, the phone's own system font for body text */
-    --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --text:"Plus Jakarta Sans", -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --display:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
     /* legacy names the app's code still uses */
     --navy:#1b2540; --navy2:#2b3756; --amber:#FF8A2B; --amber-d:#e2620f;
@@ -84,8 +84,10 @@
   header{
     position:sticky;top:0;z-index:10;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;
     background:
-      linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96));
-    border-bottom:1px solid rgba(255,255,255,.28);box-shadow:0 10px 28px -14px rgba(70,30,8,.2);
+      radial-gradient(120% 160% at 100% 0%, rgba(255,214,150,.55) 0%, rgba(255,214,150,0) 46%),
+      radial-gradient(80% 140% at 0% 100%, rgba(170,30,0,.28) 0%, rgba(170,30,0,0) 55%),
+      linear-gradient(135deg,#E5420E 0%,#F7651C 48%,#FF9A3C 100%);
+    border-bottom:1px solid rgba(255,255,255,.28);box-shadow:0 10px 28px -14px rgba(229,66,14,.8);
   }
   header img{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.95);object-fit:contain;padding:3px;box-shadow:0 4px 12px -4px rgba(120,30,0,.45)}
   header .t{font-family:var(--display);font-size:18px;font-weight:700;letter-spacing:.2px;line-height:1.1;text-shadow:0 1px 2px rgba(120,30,0,.3)}
@@ -102,11 +104,11 @@
     display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
     border:1px solid rgba(255,255,255,.35);border-radius:18px;padding:20px 18px;margin-bottom:14px;cursor:pointer;
     font-family:var(--display);font-size:20px;font-weight:700;letter-spacing:.2px;color:#fff;background:var(--grad-cta);
-    box-shadow:0 14px 28px -14px rgba(70,30,8,.2),0 1px 0 rgba(255,255,255,.35) inset;-webkit-appearance:none;text-align:left;
+    box-shadow:0 14px 28px -14px rgba(244,81,30,.85),0 1px 0 rgba(255,255,255,.35) inset;-webkit-appearance:none;text-align:left;
   }
   .big:active{transform:translateY(1px)}
   .big:disabled{opacity:.5;box-shadow:none}
-  .big.green{background:var(--grad-good);box-shadow:0 14px 28px -14px rgba(70,30,8,.2),0 1px 0 rgba(255,255,255,.3) inset}
+  .big.green{background:var(--grad-good);box-shadow:0 14px 28px -14px rgba(18,128,74,.8),0 1px 0 rgba(255,255,255,.3) inset}
   .big.red{background:var(--grad-bad);box-shadow:0 14px 28px -14px rgba(195,53,47,.8),0 1px 0 rgba(255,255,255,.3) inset}
   .big.navy{background:var(--grad-ink);box-shadow:0 14px 28px -16px rgba(27,37,64,.8),0 1px 0 rgba(255,255,255,.18) inset}
   .big.glass{background:var(--glass-2);color:var(--ink);border:1px solid var(--glass-line);font-size:16px;padding:14px 16px;box-shadow:var(--shadow)}
@@ -293,7 +295,7 @@
   .mbtns{display:flex;gap:10px;margin-top:14px}
   .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:700;cursor:pointer}
   .mbtn.ghost{background:rgba(27,33,48,.07);color:var(--ink)}
-  .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(70,30,8,.2)}
+  .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(18,128,74,.8)}
   .mbtn:disabled{opacity:.5}
   /* the slip / statement preview: the picture as the customer gets it */
   .slipview{margin-top:10px;max-height:52vh;overflow-y:auto;border-radius:14px;border:1px solid var(--line);background:#fff;
@@ -342,10 +344,10 @@
 
   /* Login */
   .loginwrap{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;z-index:50;
-    background:radial-gradient(700px 500px at 85% 0%, rgba(255,255,255,.08), rgba(255,255,255,0) 60%),linear-gradient(150deg,#a8320a 0%,#b93c0b 55%,#cc430e 100%)}
+    background:radial-gradient(700px 500px at 85% 0%, rgba(255,255,255,.35), rgba(255,255,255,0) 60%),linear-gradient(150deg,#F4511E 0%,#FF8A2B 55%,#ffb35c 100%)}
   .loginwrap.on{display:flex}
   .loginbox{width:100%;max-width:380px;text-align:center;color:#fff;padding:26px 22px;border-radius:26px;
-    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.35);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+    background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
     box-shadow:0 30px 60px -24px rgba(120,30,0,.55)}
   .loginbox img{width:76px;height:76px;border-radius:20px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
   .loginbox h1{font-family:var(--display);font-size:24px;font-weight:700;margin:0 0 2px}
@@ -435,8 +437,11 @@
   .loadsum .ls-row+.ls-row{border-top:1px solid var(--line)}
   .loadsum .ls-row .plate{font-size:11px;padding:3px 6px;justify-self:start}
   .loadsum .ls-bar{height:6px;border-radius:99px;background:rgba(27,33,48,.09);overflow:hidden}
-  .loadsum .ls-bar i{display:block;height:100%;border-radius:inherit;background:var(--grad-cta)}
+  /* filling = calm green that deepens when full (orange-red read as a fault); the fill glides to its new level */
+  .loadsum .ls-bar i{display:block;height:100%;width:100%;border-radius:inherit;background:linear-gradient(90deg,#9fe3bf,#46c487);
+    transform-origin:left center;transform:scaleX(var(--p,0));transition:transform .7s var(--ease-out),background-color .3s}
   .loadsum .ls-row.full .ls-bar i{background:var(--grad-good)}
+  .loadsum .ls-row.full .ls-n b::after{content:" ✓";color:var(--green-d,#12804a)}
   .loadsum .ls-n{font-size:12.5px;color:var(--muted);font-weight:600;text-align:right;min-width:62px;font-variant-numeric:tabular-nums}
   .loadsum .ls-n b{font-family:var(--display);font-size:14px;color:var(--ink);font-weight:700}
   .loadsum .ls-trip{grid-column:1 / -1;justify-self:start;margin-top:4px;font-size:11.5px;font-weight:700;color:var(--amber-d);
@@ -1049,6 +1054,19 @@
   *,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;
     transition-property:opacity,color,background-color,border-color,box-shadow!important;scroll-behavior:auto!important}
 }
+
+/* ---- motion kit (design pass): the active tab's highlight glides, a screen's cards rise in, presses answer ---- */
+.vf-ink{position:absolute;left:0;top:0;z-index:0;pointer-events:none;box-sizing:border-box;opacity:0}
+.vf-ink.vf-go{transition:transform .42s cubic-bezier(.32,.72,0,1),width .42s cubic-bezier(.32,.72,0,1),height .42s cubic-bezier(.32,.72,0,1),opacity .2s}
+.vf-inked>:not(.vf-ink){position:relative;z-index:1}
+.vf-inked>[data-vf-on]{background:transparent!important;box-shadow:none!important;border-color:transparent!important}
+.vf-rise>*{animation:vf-rise .44s cubic-bezier(.23,1,.32,1) both}
+.vf-rise>:nth-child(2){animation-delay:.04s}.vf-rise>:nth-child(3){animation-delay:.08s}.vf-rise>:nth-child(4){animation-delay:.12s}
+.vf-rise>:nth-child(5){animation-delay:.16s}.vf-rise>:nth-child(6){animation-delay:.2s}.vf-rise>:nth-child(n+7){animation-delay:.24s}
+@keyframes vf-rise{from{opacity:0;transform:translateY(12px)}}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary){transition-property:transform,background-color,border-color,color,box-shadow,opacity;transition-duration:.14s}
+:where(.btn,.chip,.cta,.tab,.tabs a,.big,button.main,button.alt,button.primary):active:not(:disabled){transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){.vf-ink.vf-go{transition:opacity .2s}.vf-rise>*{animation:none}}
 </style>
 </head>
 <body>
@@ -2247,8 +2265,69 @@ document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backe
 /* ---------- Screen routing ---------- */
 const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings","scTrips","scMileage","scTrend"];
 let stack=["scHome"];
+
+/* ---- motion kit (design pass) ---- */
+function vfCalm() { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+// a screen's cards rise in one after another (call when a screen is opened, not on refreshes)
+function vfRise(el) {
+  if (!el || vfCalm()) return;
+  el.classList.remove('vf-rise'); void el.offsetWidth; el.classList.add('vf-rise');
+  clearTimeout(el.vfRiseT); el.vfRiseT = setTimeout(() => el.classList.remove('vf-rise'), 1000);
+}
+// the active tab's highlight glides to the tab picked: one element under the tabs,
+// drawn like the active tab itself (read from it, so light/dark themes follow)
+function vfInk(bar, sel) {
+  if (!bar) return;
+  const on = [...bar.querySelectorAll(sel)].find((x) => x.offsetWidth);   // (the first one shown)
+  let ink = bar.querySelector(':scope > .vf-ink');
+  if (!on || !on.offsetWidth) { if (ink) ink.style.opacity = '0'; return; }
+  if (!ink) {
+    if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+    ink = document.createElement('span'); ink.className = 'vf-ink'; ink.setAttribute('aria-hidden', 'true');
+    bar.prepend(ink); bar.classList.add('vf-inked');
+    if (window.ResizeObserver) new ResizeObserver(() => vfInk(bar, sel)).observe(bar);
+    // a theme switch (light/dark) repaints the highlight in the new look
+    (vfInk.bars = vfInk.bars || new Map()).set(bar, sel);
+    if (!vfInk.mo && window.MutationObserver) {
+      vfInk.mo = new MutationObserver(() => vfInk.bars.forEach((s, b) => { if (b.isConnected) vfInk(b, s); }));
+      for (const n of [document.documentElement, document.body]) vfInk.mo.observe(n, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    }
+  }
+  bar.querySelectorAll('[data-vf-on]').forEach((x) => { if (x !== on) x.removeAttribute('data-vf-on'); });
+  const was = on.style.transition;
+  on.style.transition = 'none';
+  on.removeAttribute('data-vf-on');
+  const cs = getComputedStyle(on);
+  Object.assign(ink.style, {
+    backgroundImage: cs.backgroundImage, backgroundColor: cs.backgroundColor, borderRadius: cs.borderRadius, boxShadow: cs.boxShadow,
+    border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
+    width: `${on.offsetWidth}px`, height: `${on.offsetHeight}px`, transform: `translate(${on.offsetLeft}px, ${on.offsetTop}px)`, opacity: '1',
+  });
+  on.setAttribute('data-vf-on', '');
+  void on.offsetWidth;
+  on.style.transition = was;
+  if (!ink.vfReady) { ink.vfReady = true; requestAnimationFrame(() => requestAnimationFrame(() => ink.classList.add('vf-go'))); }
+}
+// a number counts to its new value (ms), formatted as the page shows it
+function vfCount(el, to, fmt, ms = 650) {
+  if (!el) return;
+  const from = Number(el.dataset.vfAt);
+  el.dataset.vfAt = String(to);
+  if (!Number.isFinite(from) || from === to || vfCalm()) { el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(from + (to - from) * e));
+    if (p < 1 && el.dataset.vfAt === String(to)) requestAnimationFrame(step);
+  };
+  el.textContent = fmt(from);
+  requestAnimationFrame(step);
+}
+
 function show(id, pushIt){
+  const fresh=!$("#"+id).classList.contains("on");
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
+  if(fresh) vfRise($("#"+id));
   if(pushIt!==false){ if(stack[stack.length-1]!==id) stack.push(id); }
   $("#backBtn").style.display = stack.length>1 ? "" : "none";
   markNav();
@@ -2260,6 +2339,7 @@ const NAV_OF={ scAdd:"scHome", scConf:"scHome", scLog:"scReport", scTrend:"scMil
 function markNav(){
   const cur=stack[stack.length-1], at=NAV_OF[cur]||cur;
   document.querySelectorAll("#topNav [data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===at));
+  if(typeof vfInk==="function") vfInk($("#topNav"), "[data-nav].on");
 }
 markNav();
 function goBack(){
@@ -2532,6 +2612,7 @@ function renderLoadSum(){
   const list=VEHICLES.filter(v=>!SUM_EXCLUDE.some(x=>plateKey(x)===plateKey(v.plate)));
   if(!list.length){ box.innerHTML=""; return; }
   let tot=0, cap=0;
+  const LS_PREV=(renderLoadSum.prev||={});      // plate -> the fill last shown (0..1)
   const rows=list.map(v=>{
     const st=tankerState(v.plate); tot+=st.total; cap+=st.cap;
     const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
@@ -2539,10 +2620,15 @@ function renderLoadSum(){
     const trip=until>Date.now()
       ? '<span class="ls-trip" title="Not available to load in the Decanting app until '+timeLabel(until)+'">🚚 On trip till '+timeLabel(until)+'</span>' : '';
     return '<div class="ls-row'+(st.full?' full':'')+'"><span class="plate">'+esc(fmtPlate(v.plate))+'</span>'
-      +'<span class="ls-bar" role="img" aria-label="'+esc(fmtPlate(v.plate))+': '+fmt(st.total)+' of '+fmt(st.cap)+' L"><i style="width:'+f1(pct)+'%"></i></span>'
+      +'<span class="ls-bar" role="img" aria-label="'+esc(fmtPlate(v.plate))+': '+fmt(st.total)+' of '+fmt(st.cap)+' L"><i data-plate="'+esc(plateKey(v.plate))+'" data-p="'+(pct/100).toFixed(4)+'" style="--p:'+((LS_PREV[plateKey(v.plate)] ?? 0)).toFixed(4)+'"></i></span>'
       +'<span class="ls-n"><b>'+fmt(st.total)+'</b> L</span>'+trip+'</div>';
   }).join("");
-  box.innerHTML='<div class="loadsum"><div class="ls-h"><span>Loaded now</span><span class="ls-tot"><b>'+fmt(tot)+'</b> L <small>of '+fmt(cap)+'</small></span></div>'+rows+'</div>';
+  box.innerHTML='<div class="loadsum"><div class="ls-h"><span>Loaded now</span><span class="ls-tot"><b id="lsTot">'+fmt(renderLoadSum.tot??tot)+'</b> L <small>of '+fmt(cap)+'</small></span></div>'+rows+'</div>';
+  const totEl=$("#lsTot"); if(totEl){ totEl.dataset.vfAt=String(renderLoadSum.tot??tot); vfCount(totEl, tot, fmt); } renderLoadSum.tot=tot;
+  // each bar starts where it was last drawn and glides to its new level
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    for(const i of box.querySelectorAll('.ls-bar i')){ i.style.setProperty('--p',i.dataset.p); LS_PREV[i.dataset.plate]=Number(i.dataset.p); }
+  }));
 }
 function renderTankers(){
   if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }
