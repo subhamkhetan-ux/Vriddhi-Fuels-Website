@@ -253,7 +253,7 @@ Tap **Start decanting** on the truck's card:
    - **Still in the truck** — chambers held back in the plan, kept for later
      or not emptied, while the other tanks go on: e.g. C1,2 decanting into
      Tank 3, and two minutes later C3–5 into Tank 2. Pick the tank for each
-     chamber (the app suggests: as much as fits, in as few tanks as possible)
+     chamber (the app suggests: as much as fits, shared so the truck is freed soonest)
      and **▶ Start**. A tank not in use starts — its stock before is checked
      as above, and if a fresh one is needed it waits on the screen with its
      own ▶ Start. A tank of this truck that is still decanting takes the

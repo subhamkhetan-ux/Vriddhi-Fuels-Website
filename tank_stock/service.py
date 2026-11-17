@@ -119,10 +119,11 @@ STATIC_FILES = {
     "/pumps.js": ("pumps.js", "text/javascript; charset=utf-8"),
     "/picture.js": ("picture.js", "text/javascript; charset=utf-8"),   # the decanting picture (decant-js/)
 }
-# The decant app's decanting picture (its own code, served as it is: the page
-# draws it on the phone, as the decant app does), at decant-js/<name>.
+# The decant app's decanting picture and spoken instructions (its own code,
+# served as it is: the page draws and speaks them on the phone, as the decant
+# app does), at decant-js/<name>.
 DECANT_JS = Path(__file__).resolve().parents[1] / "decant" / "js"
-PICTURE_FILES = ("scene.js", "core.js", "ui.js", "worker.js")
+PICTURE_FILES = ("scene.js", "core.js", "ui.js", "worker.js", "voice.js")
 SECURITY_HEADERS = (
     ("Cache-Control", "no-store"),
     ("X-Content-Type-Options", "nosniff"),

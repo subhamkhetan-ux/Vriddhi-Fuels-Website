@@ -32,6 +32,7 @@ original.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import itertools
 import math
 import random
 import re
@@ -44,7 +45,7 @@ import traceback
 PRODUCTS = ("MS", "HSD", "XG")
 DEFAULT_SETTINGS = {
     "tolerancePct": 0.25, "toleranceMinL": 25, "warnRoomL": 150, "staleMinutes": 30,
-    "settleMinutes": 10, "pipeMoveSecs": 45,
+    "settleMinutes": 10, "pipeMoveSecs": 45, "emptySecs5": 495, "emptySecs4": 420,
     "ownTTs": [{"tt": "OD23U8210", "chambers": [5, 5, 4, 4, 4]}],
 }
 
@@ -129,7 +130,8 @@ def settings_with(saved: dict | None, tanks: list) -> dict:
                    "fillTo": float(t.get("fillTo") or (20500 if float(t.get("capacity") or 20000) == 20000
                                                        else t.get("capacity") or 20000))}
                   for i, t in enumerate(tanks)]
-    for k in ("tolerancePct", "toleranceMinL", "warnRoomL", "staleMinutes", "settleMinutes", "pipeMoveSecs"):
+    for k in ("tolerancePct", "toleranceMinL", "warnRoomL", "staleMinutes", "settleMinutes", "pipeMoveSecs",
+              "emptySecs5", "emptySecs4"):
         try:
             s[k] = float(s[k])
         except (TypeError, ValueError):
@@ -306,21 +308,85 @@ def tank_result(litres: float, before: dict, after: dict, settings: dict, sales_
             "direction": "short" if variation < 0 else "excess" if variation > 0 else "exact"}
 
 
-def suggest_plan(chambers: list, tanks: list, readings: dict) -> list:
-    """A first plan for the page: each chamber into a tank of its product, a
-    product with two tanks filling the one with more room first. (The app's
-    own suggestPlan weighs more; this is only where the page starts, and
-    you change any chamber.)"""
-    room = {t["id"]: room_of(readings.get(t["id"]), t) for t in tanks}
+def chamber_seconds(litres: float, settings: dict) -> int:
+    """chamberSeconds: the settings' 5 KL and 4 KL times, other sizes on the line through them."""
+    def pos(k):
+        try:
+            v = float(settings.get(k))
+        except (TypeError, ValueError):
+            v = 0
+        return v if v > 0 else DEFAULT_SETTINGS[k]
+    t5, t4 = pos("emptySecs5"), pos("emptySecs4")
+    per = (t5 - t4) / 1000
+    secs = (t4 + (litres - 4000) * per if per >= 0
+            else t4 * litres / 4000 if litres <= 4500 else t5 * litres / 5000)
+    return max(30, js_round(secs))
+
+
+def solve_plan(chambers: list, tanks: list, settings: dict) -> dict:
+    """solvePlan without typed amounts: as much as fits, leaving every tank
+    warnRoomL of room (only if nothing fits that way, closer to the brim);
+    then the truck freed soonest (its tanks decant at once, one pipe each);
+    then the tank listed first takes the bigger share (Tank 2 before Tank 3:
+    5+5+4+4+4 goes 12 KL into Tank 2, 10 KL into Tank 3); then the fewest pipe
+    moves, the roomiest tank taking the first chambers.
+    chambers: [{no, litres}], tanks: [{id, room}] -> {chamber no: tank id | None}"""
+    cs = sorted(chambers, key=lambda c: c["no"])
+    ts = [t for t in tanks if not math.isnan(t["room"])]
+    n, k = len(cs), len(ts)
+    if not n or not k or (k + 1) ** n > 400000:
+        left = {t["id"]: t["room"] for t in ts}               # greedyPlan
+        out = {}
+        for c in cs:
+            t = next((x for x in ts if left[x["id"]] >= c["litres"]), None)
+            out[c["no"]] = t["id"] if t else None
+            if t:
+                left[t["id"]] -= c["litres"]
+        return out
+    warn = settings.get("warnRoomL", DEFAULT_SETTINGS["warnRoomL"])
+    try:
+        move = float(settings.get("pipeMoveSecs"))
+    except (TypeError, ValueError):
+        move = DEFAULT_SETTINGS["pipeMoveSecs"]
+    secs = [chamber_seconds(c["litres"], settings) for c in cs]
+    rank = {j: r for r, j in enumerate(sorted(range(k), key=lambda j: (-ts[j]["room"], j)))}
+    best = safe = None
+    for choice in itertools.product(range(k + 1), repeat=n):    # each chamber: a tank, or k = hold
+        per, busy, count = [0.0] * k, [0.0] * k, [0] * k
+        for i, j in enumerate(choice):
+            if j < k:
+                per[j] += cs[i]["litres"]
+                busy[j] += secs[i]
+                count[j] += 1
+        if any(per[j] > ts[j]["room"] + 1e-6 for j in range(k)):
+            continue
+        tight = sum(1 for j in range(k) if per[j] > 0 and ts[j]["room"] - per[j] < warn)
+        finish = max([busy[j] + (count[j] - 1) * move for j in range(k) if count[j]] or [0])
+        switches = sum(1 for i in range(1, n) if choice[i] != choice[i - 1])
+        order = 0
+        for j in choice:
+            order = order * (k + 1) + (k if j == k else rank[j])
+        score = (-sum(per), tight, finish, *(-p for p in per), switches, order)
+        if best is None or score < best[0]:
+            best = (score, choice)
+        if tight == 0 and (safe is None or score < safe[0]):
+            safe = (score, choice)
+    if safe and -safe[0][0] > 0:
+        best = safe
+    return {c["no"]: (ts[best[1][i]]["id"] if best[1][i] < k else None) for i, c in enumerate(cs)}
+
+
+def suggest_plan(chambers: list, tanks: list, readings: dict, settings: dict | None = None) -> list:
+    """suggestPlan: per product, its chambers over its tanks (solve_plan);
+    you change any chamber on the page."""
+    s = settings or DEFAULT_SETTINGS
     plan = []
-    for c in chambers:
-        options = [t for t in tanks if t["product"] == c["product"]]
-        fits = [t for t in options if (room[t["id"]] if not math.isnan(room[t["id"]]) else 0) >= c["litres"]]
-        pick = max(fits, key=lambda t: room[t["id"]], default=None)
-        if pick:
-            room[pick["id"]] -= c["litres"]
-        plan.append({"no": c["no"], "product": c["product"], "litres": c["litres"], "tank": pick["id"] if pick else None})
-    return plan
+    for key in dict.fromkeys(c["product"] for c in chambers if c.get("product")):
+        cs = [c for c in chambers if c["product"] == key and c["litres"] > 0]
+        ts = [{"id": t["id"], "room": room_of(readings.get(t["id"]), t)} for t in tanks if t["product"] == key]
+        assign = solve_plan(cs, ts, s) if cs else {}
+        plan += [{"no": c["no"], "product": key, "litres": c["litres"], "tank": assign.get(c["no"])} for c in cs]
+    return sorted(plan, key=lambda p: p["no"])
 
 
 def sync_status(s: dict) -> None:

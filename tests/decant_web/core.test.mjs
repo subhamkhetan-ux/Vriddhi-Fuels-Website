@@ -209,13 +209,21 @@ test('plan: fits the most without leaving a tank brim-full', () => {
   assert.deepEqual(solvePlan({ chambers, tanks, requests: { T2: 5000, T3: 9000 }, prefer: 'T3' }).perTank, { T2: 4000, T3: 9000 });
 });
 
-test('plan: the roomiest tank takes the first chambers (the 26-Sep 09:34 load)', () => {
-  // HSD 5+5+4+4+4 into Tank 2 (16,553 L room) and Tank 3 (15,863 L room) —
-  // as it was decanted that morning: C1-C3 into Tank 2, C4-C5 into Tank 3.
+test('plan: both tanks roomy — truck freed soonest, the bigger share into Tank 2', () => {
+  // HSD 5+5+4+4+4 into Tank 2 (16,553 L room) and Tank 3 (15,863 L room):
+  // 12 KL into Tank 2 and 10 KL into Tank 3, both pipes done at about the same time.
   const chambers = [5000, 5000, 4000, 4000, 4000].map((litres, i) => ({ no: i + 1, litres }));
-  const r = solvePlan({ chambers, tanks: [{ id: 'T2', room: 16553.2 }, { id: 'T3', room: 15863.39 }] });
-  assert.deepEqual(r.assign, { 1: 'T2', 2: 'T2', 3: 'T2', 4: 'T3', 5: 'T3' });
-  assert.equal(r.total, 22000);
+  const tanks = [{ id: 'T2', room: 16553.2 }, { id: 'T3', room: 15863.39 }];
+  const r = solvePlan({ chambers, tanks });
+  assert.deepEqual(r.assign, { 1: 'T3', 2: 'T3', 3: 'T2', 4: 'T2', 5: 'T2' });
+  assert.deepEqual(r.perTank, { T2: 12000, T3: 10000 });
+  // split even when one tank could take it all (25 KL of room in Tank 2)
+  assert.deepEqual(solvePlan({ chambers, tanks: [{ id: 'T2', room: 25000 }, { id: 'T3', room: 15863.39 }] }).perTank, { T2: 12000, T3: 10000 });
+  // a 22 KL transport TT of 4.5+4.5+4.5+4.5+4: three chambers into Tank 2, two into Tank 3
+  const t22 = [4500, 4500, 4500, 4500, 4000].map((litres, i) => ({ no: i + 1, litres }));
+  assert.deepEqual(solvePlan({ chambers: t22, tanks }).perTank, { T2: 13000, T3: 9000 });
+  // Tank 3 short of room: as much as fits still comes first
+  assert.deepEqual(solvePlan({ chambers, tanks: [{ id: 'T2', room: 16553.2 }, { id: 'T3', room: 8500 }] }).perTank, { T2: 14000, T3: 8000 });
 });
 
 test('plan: a brim-full fill only when nothing else fits; MS from chamber 1', () => {
@@ -229,14 +237,14 @@ test('plan for a whole invoice, and its checks', () => {
   const layout = chamberLayout(INV_MIX);
   const plan = suggestPlan({ layout, tanks: DEFAULT_TANKS, readings: READINGS });
   assert.deepEqual(plan.map((p) => [p.no, p.product, p.tank]), [
-    [1, 'MS', 'T1'], [2, 'HSD', 'T3'], [3, 'HSD', 'T3'], [4, 'HSD', 'T2'], [5, 'HSD', null]]);
+    [1, 'MS', 'T1'], [2, 'HSD', 'T2'], [3, 'HSD', 'T3'], [4, 'HSD', 'T3'], [5, 'HSD', null]]);
   const chk = checkPlan({ plan, tanks: DEFAULT_TANKS, readings: READINGS, now: NOW, chart: DIP_CHART });
   assert.deepEqual(chk.blocking, []);
   assert.deepEqual(chk.warnings, []);
   const t3 = chk.perTank.find((r) => r.tank === 'T3');
-  assert.equal(t3.litres, 9000);
-  assert.equal(t3.after, 18989.83);
-  assert.equal(t3.leftRoom, 1510.17);                                  // room to 20,500 L
+  assert.equal(t3.litres, 8000);
+  assert.equal(t3.after, 17989.83);
+  assert.equal(t3.leftRoom, 2510.17);                                  // room to 20,500 L
   assert.ok(Math.abs(t3.beforeDip - 98.709) < 0.01);
   assert.ok(t3.afterDip > t3.beforeDip);
   // chambers already emptied are left out of the next plan

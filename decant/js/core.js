@@ -400,11 +400,15 @@ function tankProduct(key) {
 //   prefer: the tank whose amount was typed last (it wins a tie).
 // With requests: get each tank as close to its amount as possible. Without:
 // decant as much as fits while leaving every tank at least `warnRoomL` of room
-// (only if nothing fits that way, fill closer to the brim), in as few tanks as
-// possible, the tank with the most room taking the first chambers. Never puts
-// more in a tank than its room.
+// (only if nothing fits that way, fill closer to the brim); then free the truck
+// soonest — its tanks decant at once, one pipe each, so the chambers are shared
+// out to finish together (the settings' chamber and pipe times); then the tank
+// listed first takes the bigger share (Tank 2 before Tank 3: 5+5+4+4+4 goes
+// 12 KL into Tank 2, 10 KL into Tank 3); then the fewest pipe moves, the tank
+// with the most room taking the first chambers. Never puts more in a tank than
+// its room.
 // Returns {assign: {no: tankId|null}, perTank: {id: litres}, total}.
-export function solvePlan({ chambers, tanks, requests = null, prefer = null, warnRoomL = 150 }) {
+export function solvePlan({ chambers, tanks, requests = null, prefer = null, warnRoomL = 150, settings = null }) {
   const cs = [...chambers].sort((a, b) => a.no - b.no);
   const ts = tanks.filter((t) => Number.isFinite(t.room));
   const n = cs.length;
@@ -416,6 +420,8 @@ export function solvePlan({ chambers, tanks, requests = null, prefer = null, war
   if (!n || !ts.length || limit > 400000) {
     return greedyPlan(cs, ts, requests);
   }
+  const secs = cs.map((c) => chamberSeconds(c.litres, settings));
+  const move = pipeMoveSeconds(settings);
   for (let code = 0; code < limit; code++) {
     let c = code;
     for (let i = 0; i < n; i++) { choice[i] = c % opts; c = Math.floor(c / opts); }
@@ -429,7 +435,7 @@ export function solvePlan({ chambers, tanks, requests = null, prefer = null, war
       }
     }
     if (!ok) continue;
-    const score = scorePlan(cs, ts, choice, per, requests, warnRoomL, prefer);
+    const score = scorePlan(cs, ts, choice, per, requests, warnRoomL, prefer, secs, move);
     const cand = { score, choice: [...choice], per };
     if (!best || lexLess(score, best.score)) best = cand;
     if (!requests && score[1] === 0 && (!bestSafe || lexLess(score, bestSafe.score))) bestSafe = cand;
@@ -442,11 +448,10 @@ export function solvePlan({ chambers, tanks, requests = null, prefer = null, war
   return { assign, perTank, total: best.per.reduce((a, b) => a + b, 0) };
 }
 
-function scorePlan(cs, ts, choice, per, requests, warnRoomL, prefer) {
+function scorePlan(cs, ts, choice, per, requests, warnRoomL, prefer, secs, move) {
   const total = per.reduce((a, b) => a + b, 0);
   let switches = 0;
   for (let i = 1; i < cs.length; i++) if (choice[i] !== choice[i - 1]) switches += 1;
-  const used = per.filter((p) => p > 0).length;
   // Chambers in order, the roomiest tank first, holding back the last ones:
   // read the choices as digits (0 = most room … hold = last) — smaller wins.
   const rank = ts.map((t, j) => j).sort((a, b) => ts[b].room - ts[a].room || a - b);
@@ -465,8 +470,15 @@ function scorePlan(cs, ts, choice, per, requests, warnRoomL, prefer) {
   }
   let tight = 0;
   ts.forEach((t, j) => { if (per[j] > 0 && t.room - per[j] < warnRoomL) tight += 1; });
+  // when the last tank's pipe is done: its chambers one after another, a pipe move between each
+  const busy = new Array(ts.length).fill(0);
+  const count = new Array(ts.length).fill(0);
+  for (let i = 0; i < cs.length; i++) {
+    if (choice[i] < ts.length) { busy[choice[i]] += secs[i]; count[choice[i]] += 1; }
+  }
+  const finish = Math.max(0, ...busy.map((b, j) => (count[j] ? b + (count[j] - 1) * move : 0)));
   // [1] is the brim-full count (solvePlan reads it); the rest break ties.
-  return [-total, tight, used, switches, order];
+  return [-total, tight, finish, ...per.map((p) => -p), switches, order];
 }
 
 function lexLess(a, b) {
@@ -503,7 +515,7 @@ export function suggestPlan({ layout, tanks, readings, exclude = new Set(), requ
     let assign = {};
     if (avail.length && chambers.length) {
       const req = requests ? Object.fromEntries(avail.map((t) => [t.id, requests[t.id] ?? 0])) : null;
-      ({ assign } = solvePlan({ chambers, tanks: avail, requests: req, warnRoomL: s.warnRoomL }));
+      ({ assign } = solvePlan({ chambers, tanks: avail, requests: req, warnRoomL: s.warnRoomL, settings: s }));
     }
     for (const c of chambers) plan.push({ no: c.no, product: key, litres: c.litres, tank: assign[c.no] ?? null });
   }
