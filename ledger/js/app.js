@@ -11,6 +11,7 @@ import {
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods } from './scpl.js';
+import { MIN_PASSWORD, passwordError, passwordProblem } from './password.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
 import { extractMaster, readWorkbook } from './master.js';
@@ -254,6 +255,7 @@ function renderShell() {
       ${state.demo ? '<span class="pill warn-pill" title="Nothing you do here is saved">Demo<span class="hide-sm"> · made-up data · nothing is saved</span></span>' : ''}
       <span class="spacer"></span>
       <span class="who">${esc(state.me.email)}</span>
+      ${state.demo ? '' : '<button class="btn ghost small" id="password" title="Change the password you sign in with">Password</button>'}
       <button class="btn ghost small" id="signout">${state.demo ? 'Leave demo' : 'Sign out'}</button>
     </header>
     <nav class="tabs" aria-label="Sections">
@@ -262,6 +264,71 @@ function renderShell() {
     <div id="auto-bar" aria-live="polite"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
+  document.getElementById('password')?.addEventListener('click', changePassword);
+}
+
+// Change password: the current one is checked first (signing in with it
+// again), then the new one saved. Signed-in phones stay signed in; the Mac's
+// sync script needs the new one in its Keychain.
+// the email the Mac sync script signs in with (its LEDGER_EMAIL), as written
+// there: its Keychain entry is found by this exact spelling
+const MAC_LEDGER_EMAIL = 'Ledger@vriddhi.local';
+function changePassword() {
+  document.querySelector('.share-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'share-sheet';
+  sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+      <div class="row-between"><h3 id="pw-title">Change password</h3><button class="icon" type="button" data-close aria-label="Close">✕</button></div>
+      <p class="muted small">For <b>${esc(state.me.email)}</b>. At least ${MIN_PASSWORD} characters.</p>
+      <form id="pw-form" class="stack" autocomplete="on">
+        <input type="email" name="username" value="${esc(state.me.email)}" autocomplete="username" hidden>
+        <label>Current password <input name="current" type="password" required autocomplete="current-password"></label>
+        <label>New password <input name="next" type="password" required minlength="${MIN_PASSWORD}" autocomplete="new-password"></label>
+        <label>New password again <input name="confirm" type="password" required minlength="${MIN_PASSWORD}" autocomplete="new-password"></label>
+        <label class="pw-show"><input type="checkbox" id="pw-show"> Show passwords</label>
+        <p class="form-msg bad-text" role="alert"></p>
+        <p class="actions"><button class="btn" type="submit">Change password</button><button class="btn ghost" type="button" data-close>Cancel</button></p>
+      </form>
+    </div>`;
+  document.body.append(sheet);
+  const close = () => { sheet.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
+  const form = sheet.querySelector('#pw-form');
+  const msg = form.querySelector('.form-msg');
+  form.current.focus();
+  sheet.querySelector('#pw-show').addEventListener('change', (e) => {
+    form.querySelectorAll('input[type=password], input[data-pw]').forEach((i) => { i.dataset.pw = '1'; i.type = e.target.checked ? 'text' : 'password'; });
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const [current, next, confirm] = [form.current.value, form.next.value, form.confirm.value];
+    const problem = passwordProblem(current, next, confirm);
+    msg.textContent = problem;
+    if (problem) return;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = 'Changing…';
+    try {
+      // the current password, checked by signing in with it again
+      const check = await state.client.auth.signInWithPassword({ email: state.me.email, password: current });
+      if (check.error) throw check.error;
+      const { error } = await state.client.auth.updateUser({ password: next });
+      if (error) throw error;
+    } catch (err) {
+      msg.textContent = passwordError(err && err.message);
+      btn.disabled = false;
+      btn.textContent = 'Change password';
+      return;
+    }
+    sheet.querySelector('.share-box').innerHTML = `
+      <div class="row-between"><h3>Password changed</h3><button class="icon" type="button" data-close aria-label="Close">✕</button></div>
+      <p>Use the new password the next time you sign in. Phones and browsers already signed in stay signed in.</p>
+      <p class="muted small"><b>The Mac sync</b> signs in with the password kept in each Mac's Keychain — update it there, or the sync stops. In Terminal on each Mac, run this and type the new password (twice). The email must be written exactly as in the sync script (<code>LEDGER_EMAIL</code> at the top of <code>~/bin/vriddhi_gdrive.sh</code>) — capital letters count:</p>
+      <pre class="code">security add-generic-password -U -s vriddhi-ledger -a "${esc(MAC_LEDGER_EMAIL)}" -w</pre>
+      <p class="actions"><button class="btn" type="button" data-close>Done</button></p>`;
+  });
 }
 
 const ROUTES = [
