@@ -12,7 +12,7 @@ const C = {
 };
 const BAND = { ok: ['#2FD08A', 'rgba(47,208,138,0.18)'], watch: ['#FFB23E', 'rgba(255,178,62,0.18)'], high: ['#FF6B5E', 'rgba(255,107,94,0.2)'] };
 const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-const DISPLAY = `"Plus Jakarta Sans", ${SANS}`;
+const DISPLAY = `"Sora", ${SANS}`;
 const varColor = (dir) => (dir === 'short' ? C.short : dir === 'excess' ? C.excess : C.ink);
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -275,7 +275,7 @@ function figuresHeight(m) {
 //     proofs: [{blob, label, sub}] — stock screenshots to show under the figures (optional)}
 // The canvas returned carries proofCount: how many screenshots made it in.
 export async function resultImage(m) {
-  try { await Promise.all(['800 64px "Plus Jakarta Sans"', '700 34px "Plus Jakarta Sans"'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
+  try { await Promise.all(['800 64px Sora', '700 34px Sora'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = figuresHeight(m);

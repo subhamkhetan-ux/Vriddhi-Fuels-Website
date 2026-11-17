@@ -21,7 +21,7 @@ const C = {
   bg: '#0b0807', ink: '#f5f0eb', muted: '#b4aba2', faint: '#7c746c', good: '#2fd08a', bad: '#ff6b5e', warn: '#ffb23e',
   amber: '#ff9e42', HSD: '#3987e5', MS: '#d95926', XG: '#199e70', OTHER: '#9085e9', PAY: '#2fd08a',
 };
-const SANS = 'Plus Jakarta Sans, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Arial, sans-serif';
+const SANS = 'Sora, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Arial, sans-serif';
 const PRODUCT = { HSD: 'Diesel', MS: 'Petrol', XG: 'XtraGreen', OTHER: 'Other' };
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

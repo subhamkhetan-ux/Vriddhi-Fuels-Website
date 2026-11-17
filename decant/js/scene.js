@@ -369,7 +369,15 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   }).join('; ');
   // ticked: anything moving by the clock, and a tank settling (its slow ripple)
   const moving = anim.g.length || anim.t.length || anim.p.length || rows.some((r) => stageOf(r) === 'settling');
-  return `<svg class="dscene${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${s.tt_no || 'Truck'}: ${said}`)}"${moving ? ` data-anim="${esc(JSON.stringify(anim))}"` : ''}>
+  // what the picture is built from, without the figures that change while it runs (the
+  // tanks' live readings, the clock): a redraw with the same signature keeps the picture
+  // already on the page and only hands it the new figures (keepScenes / updateScene)
+  const sig = hashOf(JSON.stringify([s.id, s.status, s.tt_no, compact, wide, W, [...act].sort(), order,
+    chambers.map((c) => [c.no, c.litres, c.product]), [...done].sort(),
+    rows.map((r) => [r.tank, r.chambers, r.litres, r.product, stageOf(r), r.startedAt, r.joinedAt, r.before?.volume, r.after?.volume, Boolean(round.get(r)?.at?.live)]),
+    tanks.map((t) => [t.id, t.no, t.product, t.capacity, rows.some((r) => r.tank === t.id) ? null : Math.round((stock[t.id]?.volume || 0) / 100)]),
+    settings ? [settings.emptySecs5, settings.emptySecs4, settings.pipeMoveSecs, settings.moveSecs] : null]));
+  return `<svg class="dscene${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" role="img" data-sig="${sig}" aria-label="${esc(`${s.tt_no || 'Truck'}: ${said}`)}"${moving ? ` data-anim="${esc(JSON.stringify(anim))}"` : ''}>
     <defs>${defs.join('')}
       <linearGradient id="${id}soil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1e16"/><stop offset="1" stop-color="#140e0a"/></linearGradient>
       ${people ? `${workerDefs(id)}<radialGradient id="${id}vig" gradientUnits="userSpaceOnUse" cx="${W / 2}" cy="125" r="160" gradientTransform="translate(${W / 2} 125) scale(1.5 1) translate(${-W / 2} -125)"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".75"/></radialGradient>` : ''}
@@ -559,30 +567,47 @@ function tickOne(svg, now, full = true) {
   };
   const text = (k, v) => { const n = el(k); if (n && n.textContent !== v) n.textContent = v; };
   const show = (n, on) => put(n, 'display', on ? '' : 'none');
-  for (const g of full ? a.g : []) {
+  // levels and figures move every frame: each eases toward its value now (a new
+  // reading, or the clock), so nothing steps once a second or jumps when a figure comes
+  const sm = smoothOf(svg);
+  const dt = Math.min(250, Math.max(0, now - (sm.at || now)));
+  sm.at = now;
+  const k = 1 - Math.exp(-dt / EASE_MS);
+  let easing = false;
+  const ease = (key, target, eps) => {
+    const cur = sm.v[key];
+    if (!Number.isFinite(cur) || REDUCED() || lite) { sm.v[key] = target; return target; }
+    const v = Math.abs(target - cur) <= eps ? target : cur + (target - cur) * k;
+    if (v !== target) easing = true;
+    sm.v[key] = v;
+    return v;
+  };
+  for (const g of a.g) {
     const p = part(now, g.from, g.to);
     const on = now >= g.from && now < g.to;
-    put(el(`l${g.k}`), 'transform', `translate(0 ${glassY(FULL * (1 - p), a.w ? GLASS_W : GLASS_N)})`);
-    el(`g${g.k}`)?.classList.toggle('on', on);
+    const level = ease(`g${g.k}`, FULL * (1 - p), 0.0005);
+    put(el(`l${g.k}`), 'transform', `translate(0 ${glassAt(level, a.w ? GLASS_W : GLASS_N)})`);
+    if (full || on !== el(`g${g.k}`)?.classList.contains('on')) el(`g${g.k}`)?.classList.toggle('on', on);
     show(el(`c${g.k}`), on);
-    if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
+    if (on) text(`n${g.k}`, fmtL(g.l * (level / FULL)));
   }
-  for (const t of full ? a.t : []) {
+  for (const t of a.t) {
     const read = Number.isFinite(t.got);
-    const litres = t.before + (read ? t.got : t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0));
-    const y = tankY(litres, t.cap);
+    const litres = ease(`t${t.k}`, t.before + (read ? t.got : t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0)), 0.5);
+    const y = tankAt(litres, t.cap);
     const flowing = read ? t.flow : inWindow(t.wins, now);                    // not while the pipe is moved
     put(el(`t${t.k}`), 'transform', `translate(0 ${y})`);
-    el(`d${t.k}`)?.classList.toggle('flowing', flowing);
+    const d = el(`d${t.k}`);
+    if (d && d.classList.contains('flowing') !== flowing) d.classList.toggle('flowing', flowing);
     text(`v${t.k}`, `${read ? '' : '≈'}${fmtL(litres)}`);
     text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
     // the stream reaches down to the surface; shown only while fuel runs
     show(el(`fl${t.k}`), flowing);
-    const y2 = r1(Math.max(STREAM_TOP, y));
+    const y2 = r2(Math.max(STREAM_TOP, y));
     put(el(`fs${t.k}`), 'y2', y2);
     put(el(`fg${t.k}`), 'y2', y2);
-    put(el(`fp${t.k}`), 'transform', `translate(${el(`fs${t.k}`)?.getAttribute('x1') ?? 0} ${r1(y)})`);
-    text(`fe${t.k}`, stageText(flowing, !read && t.wins.length ? t.wins[t.wins.length - 1][1] : null, now));
+    put(el(`fp${t.k}`), 'transform', `translate(${el(`fs${t.k}`)?.getAttribute('x1') ?? 0} ${r2(y)})`);
+    if (full) text(`fe${t.k}`, stageText(flowing, !read && t.wins.length ? t.wins[t.wins.length - 1][1] : null, now));
   }
   let focus = null;                                      // the first pipe being moved: what the picture zooms onto
   for (const p of a.p) {
@@ -640,19 +665,79 @@ function tickOne(svg, now, full = true) {
   show(el('cap'), Boolean(focus?.moving));
   if (focus?.moving) text('capt', `🔧 Moving the pipe · C${focus.mv[4]} → C${focus.mv[5]} · ${elapsed(focus.mv[1] - now)}`);
   const rippling = !lite && !REDUCED() && ripple(svg, pic, now);
-  return busy ? 2 : rippling ? 1 : 0;
+  return busy ? 2 : rippling || easing ? 1 : 0;
 }
 
-// Keep the pictures going — smoothly on a phone that keeps up: the attendant
-// every frame (up to 60 a second), the ripples 30 a second, the levels and
-// litres once a second. Nothing while the app is in the background or a
+// ---- keeping the picture on the page while its figures change ----
+// What each picture has shown (eased values), kept with the picture itself, so a
+// picture kept across a redraw carries on from where it was.
+const smoothed = new WeakMap();
+const EASE_MS = 420;                                     // a new figure is mostly reached in about half a second
+function smoothOf(svg) { let m = smoothed.get(svg); if (!m) { m = { v: {}, at: 0 }; smoothed.set(svg, m); } return m; }
+const glassAt = (level, G = GLASS_N) => (level <= 0.001 ? G.bottom + 3 : r2(G.bottom - level * (G.bottom - G.top)));
+const tankAt = (litres, cap) => r2(TANK.bottom - Math.max(0, Math.min(1.02, (litres || 0) / cap)) * (TANK.bottom - TANK.top));
+function hashOf(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i += 1) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+const unesc = (v) => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const attrOf = (html, name) => {
+  const tag = /^\s*<svg\b[^>]*>/.exec(html)?.[0] || '';
+  const m = new RegExp(`\\s${name}="([^"]*)"`).exec(tag);
+  return m ? unesc(m[1]) : null;
+};
+let quietUntil = 0;                                      // a redraw just happened: a late frame then isn't the picture's
+// Hand a picture on the page the figures of a fresh drawing (`html`, from
+// decantScene) when it is the same picture: -> true when kept, false when it
+// must be replaced (something it is built from changed).
+export function updateScene(svg, html) {
+  if (!svg || !html || svg.dataset.sig !== attrOf(html, 'data-sig')) return false;
+  const anim = attrOf(html, 'data-anim');
+  if (anim !== (svg.dataset.anim ?? null)) {
+    if (anim === null) delete svg.dataset.anim; else svg.dataset.anim = anim;
+    parsed.delete(svg);                                  // (its parts are looked up again: cheap)
+  }
+  quietUntil = performance.now() + 400;
+  return true;
+}
+// Around an app's redraw of a screen: the pictures on it before …
+export function takeScenes(root) {
+  return root ? [...root.querySelectorAll('svg.dscene[data-sig]')] : [];
+}
+// … and after: each new picture that is the same as one before is swapped back
+// for the one before (with the new figures), so it carries on moving instead of
+// starting again. -> how many were kept.
+export function keepScenes(root, before) {
+  if (!root || !before?.length) return 0;
+  const old = new Map(before.map((svg) => [svg.dataset.sig, svg]));
+  let kept = 0;
+  for (const svg of root.querySelectorAll('svg.dscene[data-sig]')) {
+    const was = old.get(svg.dataset.sig);
+    if (!was || was === svg) continue;
+    old.delete(svg.dataset.sig);
+    if (svg.dataset.anim !== was.dataset.anim) {
+      if (svg.dataset.anim === undefined) delete was.dataset.anim; else was.dataset.anim = svg.dataset.anim;
+      parsed.delete(was);
+    }
+    was.setAttribute('aria-label', svg.getAttribute('aria-label') || '');
+    svg.replaceWith(was);
+    kept += 1;
+  }
+  quietUntil = performance.now() + 400;
+  return kept;
+}
+
+// Keep the pictures going — smoothly on a phone that keeps up: everything
+// every frame (up to 60 a second), the levels and litres eased toward each new
+// figure. Nothing while the app is in the background or a
 // picture is out of sight. The app comes first: a picture that fails is left as
 // it is (the rest of the app carries on), and a phone that's held up — 50 ms or
 // more, five times in five seconds while a picture moves — steps down to a
 // lighter pace (the attendant 24 a second, the ripples 10), and if it's still
 // held up, to the still picture (no attendant or ripples: the pipe just moves
 // over, as with reduce motion).
-const PACE = { smooth: { move: 0, ripple: 33 }, light: { move: 42, ripple: 100 } };   // ms to the next tick; 0: every frame
+const PACE = { smooth: { move: 0, ripple: 0 }, light: { move: 33, ripple: 50 } };   // ms to the next tick; 0: every frame (up to 60 a second)
 let smooth = true;
 export function runScenes() {
   let timer = null;
@@ -685,11 +770,11 @@ export function runScenes() {
     let want = 0;
     try { want = tickScenes(document, Date.now(), full); } catch (e) { lite = true; if (!warned) { warned = true; console.warn('decanting picture:', e); } }
     const t1 = performance.now();
-    if (want > 0 && due && t0 - since > 3000) {           // (not the app's own start)
-      const n = reported ? longs - counted : (t0 - due >= 50 ? 1 : 0) + (t1 - t0 >= 50 ? 1 : 0);
+    if (want > 0 && due && t0 - since > 3000 && t0 > quietUntil) {   // (not the app's own start, nor just after a redraw)
+      const n = reported ? longs - counted : (t0 - due >= 80 ? 1 : 0) + (t1 - t0 >= 80 ? 1 : 0);
       for (let i = 0; i < n; i += 1) stalls.push(t1);
       while (stalls.length && t1 - stalls[0] > 5000) stalls.shift();
-      if (stalls.length >= 5) {
+      if (stalls.length >= 10) {
         stalls.length = 0;
         if (smooth) smooth = false;
         else { lite = true; try { want = tickScenes(); } catch { want = 0; } }
@@ -697,11 +782,11 @@ export function runScenes() {
     }
     counted = longs;
     const pace = PACE[smooth ? 'smooth' : 'light'];
-    if (want === 0) { due = 0; timer = setTimeout(loop, 1000); } else if (want === 2 && pace.move === 0) {
+    const ms = want === 2 ? pace.move : pace.ripple;
+    if (want === 0) { due = 0; timer = setTimeout(loop, 1000); } else if (ms === 0) {
       due = t1 + 17;
       frame = requestAnimationFrame(loop);
     } else {
-      const ms = want === 2 ? pace.move : pace.ripple;
       due = t1 + ms;
       timer = setTimeout(loop, ms);
     }

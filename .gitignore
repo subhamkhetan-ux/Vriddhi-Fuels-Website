@@ -59,3 +59,6 @@ xtrapower/monitor.pid
 # Account manager: the previous config kept on every save (holds passwords).
 xtrapower/config.json.bak
 xtrapower/debug/
+
+# graphify knowledge graph — rebuilt locally (git hooks + `graphify update .`), ~26 MB
+graphify-out/

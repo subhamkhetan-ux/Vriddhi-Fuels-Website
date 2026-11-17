@@ -10,7 +10,7 @@
     address:"At Kherual, Post Badmal, Jharsuguda, Odisha 768202", phone:"9937344411 · 7008540577", gstin:"21AATFV8250A1Z8" };
   const PRODUCT = "High Speed Diesel (HSD)";
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  const DISPLAY = '"Plus Jakarta Sans", ' + SANS;
+  const DISPLAY = '"Sora", ' + SANS;
   const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
   /* Light, and dark as the ledger app's pictures (ledger/js/share-svg.js):
      near-black with an orange and a purple glow, light text, glass cards.
@@ -37,7 +37,7 @@
   }
   function ready(){
     const f = document.fonts;
-    const fonts = f && f.load ? Promise.all(["800 40px \"Plus Jakarta Sans\"", "700 40px \"Plus Jakarta Sans\"", "600 40px IBM Plex Mono"].map(x => f.load(x).catch(() => {}))) : Promise.resolve();
+    const fonts = f && f.load ? Promise.all(["800 40px Sora", "700 40px Sora", "600 40px IBM Plex Mono"].map(x => f.load(x).catch(() => {}))) : Promise.resolve();
     return Promise.all([fonts, logo()]).then(r => r[1]);
   }
 

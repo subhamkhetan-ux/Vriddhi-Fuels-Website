@@ -20,7 +20,7 @@ import { forgetWizard, openWizard, renderWizard, startSession, wizardActive } fr
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
 import { renderMonitor } from './monitor.js';
-import { decantScene, runScenes } from './scene.js';
+import { decantScene, keepScenes, runScenes, takeScenes } from './scene.js';
 import { clearShots, keepShot, tidyShots } from './shots.js';
 import { THEMES, initTheme, nextTheme, onTheme, setTheme, themeChoice, themeIcon, themeLabel } from './theme.js';
 import { initTv } from './tv.js';
@@ -611,6 +611,7 @@ function renderHome(el) {
   const ctx = { busy, waiting };
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
 
+  const scenes = takeScenes(el);                        // a decantation's picture carries on through the redraw
   // (sections in boxes: one under another on a phone; side by side on a TV, index.html's html.tv)
   el.innerHTML = `
     <div class="home-top${open.length ? ' busy' : ''}">
@@ -630,6 +631,7 @@ function renderHome(el) {
       ${APP.showOlder ? `<div class="home-list">${older.map((x) => invoiceCard(x.inv, x.st)).join('')}</div>` : ''}` : ''}
     ${doneToday.length ? `<h2>Finished today <span class="count">${doneToday.length}</span></h2>${doneToday.map(doneRow).join('')}` : ''}
   `;
+  keepScenes(el, scenes);
 }
 
 function invKey(inv) {
