@@ -563,6 +563,14 @@ In **its own Supabase project** — not the project `/payments`, `/app`,
 
    Repeat for anyone else who should use the ledger. `ledger_remove_member`
    takes a login away.
+
+   **Changing a password:** signed in, tap **Password** in the top bar — the
+   current password, then the new one twice (at least 8 characters); the
+   current one is checked first. Phones already signed in stay signed in.
+   Then update the Mac's Keychain on each Mac (the sync signs in with it):
+   `security add-generic-password -U -s vriddhi-ledger -a "<email>" -w`.
+   A forgotten password is reset in the SQL Editor:
+   `update auth.users set encrypted_password = extensions.crypt('<new>', extensions.gen_salt('bf')), updated_at = now() where email = '<email>';`
 5. **Connect the page:** copy the project's **URL** and its **publishable**
    (anon) key — the project's **Connect** button shows both, or Project
    Settings → API Keys — into [`config.js`](./config.js), or send them to
@@ -658,6 +666,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/price-letter.js` + `assets/price-letter.docx` | The price letter: wording for a day or a period, rupees in words, the Word file (the template with the sentence and stamp put in) and the PDF page |
 | `js/scpl.js` | The SCPL bill (modSCPLBilling): the 10-day periods, reading the Vehicle labels, the split and totals, and the PDF pages laid out as the Word template |
 | `js/bank-board.js` | The bank details poster: the first details, tidying and checking them, and the A4 page (SVG) |
+| `js/password.js` | Change password: checks on what's typed and Supabase's messages in plain words |
 | `js/quote.js` | Quotes: the Customers table and PI Log sheet, the PI Log's rules (next PI No., the check against Excel's), file names |
 | `js/sheet-svg.js` | Draws a sheet's print area as an A4 page, as Excel prints it |
 | `js/demo-workbook.js` | The demo's Tanker Billing workbook (made-up data; made by `tools/demo_workbook.mjs`) |
