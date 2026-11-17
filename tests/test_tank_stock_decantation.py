@@ -203,6 +203,39 @@ def test_when_sales_come_back_while_settling_the_stock_after_is_from_before_the_
     assert any("so it sells again" in e for e in out["events"])
 
 
+def test_a_settling_level_moving_under_15_litres_still_gets_its_stock_after_on_time():
+    # The level jitters by 13 L all through the settle time (+7 / -6 around
+    # 15,745 L): its stock after is taken once the settle time is over, not
+    # after three settle times as "not steady".
+    run = start({2: "T2"})
+    base = BEFORE["T2"] + 4990
+    jitter = {("T2", secs): base + (7 if (secs // 10) % 2 else -6) for secs in range(700, 4000, 10)}
+    truck = Truck([("T2", 50, 4990, 495)], misreads=jitter)
+    out = run_for(run, truck, 3000)
+    done = dz._ts(row(run, "T2")["doneAt"]) - T0
+    a, after_at = [(a, secs) for a, secs in out["afters"] if a["tank"] == "T2"][0]
+    assert after_at <= done + 600 + 60, (done, after_at)
+    assert not a.get("unsteady") and a["from"] == "now"
+    assert not any("so it sells again" in e for e in out["events"])
+
+
+def test_a_settling_level_still_creeping_more_than_15_litres_waits_to_be_steady():
+    # It creeps up 25 L over ten minutes after the pipe stopped (a fall that
+    # big would be sales coming back), then holds: its stock after waits till
+    # the last settle time moved under 15 L, not just the settle time.
+    run = start({2: "T2"})
+    base = BEFORE["T2"] + 4990
+    creep = {("T2", secs): round(base + min(25.0, max(0.0, (secs - 700) / 600 * 25)), 2) for secs in range(700, 4000, 10)}
+    truck = Truck([("T2", 50, 4990, 495)], misreads=creep)
+    out = run_for(run, truck, 3000)
+    done = dz._ts(row(run, "T2")["doneAt"]) - T0
+    a, after_at = [(a, secs) for a, secs in out["afters"] if a["tank"] == "T2"][0]
+    assert after_at > done + 600 + 60, (done, after_at)                  # not at the settle time
+    # the last ten minutes moved under 15 L from about 1540 s (the creep's last 15 L from 940 s)
+    assert after_at >= 1540 - 30 and a["from"] == "now" and not a.get("unsteady")
+    assert row(run, "T2")["after"]["volume"] == base + 25
+
+
 def test_a_tank_that_never_starts_is_asked_about_and_left_out():
     run = start({2: "T2", 4: "T3"})
     truck = Truck([("T2", 50, 4990, 495)])

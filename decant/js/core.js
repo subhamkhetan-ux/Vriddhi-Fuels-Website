@@ -828,6 +828,17 @@ export function stillTimeline(live, row, chambers, now) {
   });
 }
 
+// How long from one time to another, for people: "21 min", "1 h 05 min",
+// "under 1 min"; '' when either is missing or they're the wrong way round.
+export function fmtDuration(from, to) {
+  const ms = Date.parse(to) - Date.parse(from);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return 'under 1 min';
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} min`;
+}
+
 // 495 -> "8:15"
 export function fmtMinSec(secs) {
   const r = Math.round(secs);

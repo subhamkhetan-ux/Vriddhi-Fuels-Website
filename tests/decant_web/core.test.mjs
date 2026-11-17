@@ -6,7 +6,7 @@ import fs from 'node:fs';
 
 import {
   DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainLive, drainTimeline,
-  fmtMinSec, invoiceStatus, istDate, keepLocalSession, litresAtDip, productKey, settingsWith, solvePlan, staleDraft, suggestPlan, tankResult, usedChambers,
+  fmtDuration, fmtMinSec, invoiceStatus, istDate, keepLocalSession, litresAtDip, productKey, settingsWith, solvePlan, staleDraft, suggestPlan, tankResult, usedChambers,
 } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
 
@@ -766,4 +766,12 @@ test('a chamber listed twice, or an invoice line without its quantity, is said -
   assert.ok(noQty.problems.some((p) => /has no quantity/.test(p)));
   assert.ok(noQty.problems.every((p) => !/NaN/.test(p)));
   assert.equal(noQty.lines[0].litres, 0);
+});
+
+test('how long a decanting took, for the result: minutes, then hours and minutes', () => {
+  assert.equal(fmtDuration('2026-11-17T05:17:00Z', '2026-11-17T05:38:00Z'), '21 min');          // OD23U8210, 10:47–11:08
+  assert.equal(fmtDuration('2026-11-17T05:17:00Z', '2026-11-17T06:22:30Z'), '1 h 06 min');
+  assert.equal(fmtDuration('2026-11-17T05:17:00Z', '2026-11-17T05:17:20Z'), 'under 1 min');
+  assert.equal(fmtDuration('2026-11-17T05:17:00Z', null), '');                                   // not done yet
+  assert.equal(fmtDuration('2026-11-17T05:38:00Z', '2026-11-17T05:17:00Z'), '');                 // the wrong way round
 });

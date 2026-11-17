@@ -10,7 +10,7 @@
 //               no tank waits for another to finish.
 //   5 Result  — variation per tank; shared as a picture
 
-import { fromServer, ownTT,
+import { fmtDuration, fromServer, ownTT,
   PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainLive, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
@@ -77,6 +77,11 @@ function stepOf(s) {
 const stageOf = (s, t) => tankStage(s, t);
 const startOf = (s, t) => t.startedAt || (stageOf(s, t) === 'waiting' ? null : s.data.startedAt || null);
 const doneOf = (s, t) => t.doneAt || (['settling', 'read'].includes(stageOf(s, t)) ? s.data.decantedAt || null : null);
+// How long it took, as a chip after the times ("⏱ 21 min"); '' if unknown.
+const tookChip = (from, to, what) => {
+  const took = fmtDuration(from, to);
+  return took ? ` <span class="took" title="${esc(what)}: ${esc(took)} to decant">⏱ ${esc(took)}</span>` : '';
+};
 const anyDone = (s) => (s.data.tanks || []).some((t) => doneOf(s, t));
 // a reading's dip — from the dip chart if it wasn't read or typed
 const dipOf = (r) => (r ? (Number.isFinite(r.dip) ? r.dip : dipAtLitres(state.chart, r.volume)) : null);
@@ -1024,14 +1029,14 @@ function stepResult(s) {
   const totV = round2(res.reduce((a, x) => a + (x.r?.variation || 0), 0));
   const money = res.reduce((a, x) => a + (x.r && d.prices?.[x.t.product] ? x.r.variation * d.prices[x.t.product] : 0), 0);
   return `${ackCard(s)}<div class="card accent">
-      <div class="result"><div><div class="hint">Decanted ${fmtKL(totL)} from ${esc(s.tt_no)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}</div>
+      <div class="result"><div><div class="hint">Decanted ${fmtKL(totL)} from ${esc(s.tt_no)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}${tookChip(d.startedAt, d.decantedAt, 'the whole truck')}</div>
         <div class="var ${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'}">${fmtSigned(totV, ' L', 2)}</div>
         <div class="hint">${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'} overall · ${fmtPct(totL ? (totV / totL) * 100 : 0)}${money ? ` · ≈ ${fmtMoney(money)} at invoice price` : ''}</div></div></div>
       ${auditLine(shown) ? `<div class="audit ${auditLine(shown).ok ? 'ok' : 'no'}">${esc(auditLine(shown).text)}</div>` : ''}
     </div>
     ${res.map(({ t, r }) => `<div class="card">
       <div class="rd-head"><span class="nm">${tankName(t.tank)}</span>${productChip(t.product)}${r ? bandBadge(r.band, r.direction) : ''}</div>
-      <div class="hint">C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · decanted ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}</div>
+      <div class="hint">C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · decanted ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}${tookChip(startOf(s, t), doneOf(s, t), tankName(t.tank))}</div>
       ${r ? `<div class="result" style="margin-top:6px"><div class="var ${r.direction}">${fmtSigned(r.variation, ' L', 2)}</div><div class="hint" style="text-align:right">${fmtPct(r.pct)}<br>OK within ±${fmtL(r.tol)}</div></div>` : ''}
       <table class="cmp"><thead><tr><th></th><th>Litres</th><th>Dip</th></tr></thead><tbody>
         <tr><td>Stock before · ${fmtTime(t.before.readingAt)}${fromOf(t.before)}</td><td>${fmtL(t.before.volume, 2)}</td><td>${fmtDip(dipOf(t.before))}</td></tr>
@@ -1694,6 +1699,7 @@ function resultModel(s) {
     sub: `Invoice ${s.invoice_no || '—'}${inv.invoice_date ? ` · ${inv.invoice_date} ${inv.invoice_time || ''}` : ''}`,
     total: fmtKL(totL),
     when: `${fmtDate(day, true)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}`,
+    took: fmtDuration(d.startedAt, d.decantedAt),        // the whole truck: first tank started to last done
     variation: fmtSigned(totV, ' L', 2),
     direction: dir,
     summary: `${dir === 'exact' ? 'exact' : `${dir} overall`} · ${fmtPct(totL ? (totV / totL) * 100 : 0)}${money ? ` · ≈ ${fmtMoney(money)} at invoice price` : ''}`,
@@ -1706,7 +1712,8 @@ function resultModel(s) {
       direction: r?.direction || 'exact',
       variation: r ? fmtSigned(r.variation, ' L', 2) : '—',
       pctLine: r ? `${fmtPct(r.pct)} · OK within ±${fmtL(r.tol)}` : '',
-      meta: `C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · decanted ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}`,
+      meta: `C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}`,
+      took: fmtDuration(startOf(s, t), doneOf(s, t)),
       rows: [
         [`Stock before · ${fmtTime(t.before?.readingAt)}${stockProof(t.before) ? ` · ${stockProof(t.before).short}` : ''}`, fmtL(t.before?.volume, 2), fmtDip(dipOf(t.before))],
         [`Stock after · ${fmtTime(t.after?.readingAt)}${stockProof(t.after) ? ` · ${stockProof(t.after).short}` : ''}`, fmtL(t.after?.volume, 2), fmtDip(dipOf(t.after))],
