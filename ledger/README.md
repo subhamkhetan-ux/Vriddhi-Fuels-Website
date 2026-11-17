@@ -568,7 +568,7 @@ In **its own Supabase project** — not the project `/payments`, `/app`,
    current password, then the new one twice (at least 8 characters); the
    current one is checked first. Phones already signed in stay signed in.
    Then update the Mac's Keychain on each Mac (the sync signs in with it):
-   `security add-generic-password -U -s vriddhi-ledger -a "<email>" -w`.
+   `security add-generic-password -U -s vriddhi-ledger -a "Ledger@vriddhi.local" -w` — the email spelt exactly as `LEDGER_EMAIL` in the script (capital letters count: the Keychain entry is found by it).
    A forgotten password is reset in the SQL Editor:
    `update auth.users set encrypted_password = extensions.crypt('<new>', extensions.gen_salt('bf')), updated_at = now() where email = '<email>';`
 5. **Connect the page:** copy the project's **URL** and its **publishable**

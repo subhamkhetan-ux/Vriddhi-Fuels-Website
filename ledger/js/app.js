@@ -270,6 +270,9 @@ function renderShell() {
 // Change password: the current one is checked first (signing in with it
 // again), then the new one saved. Signed-in phones stay signed in; the Mac's
 // sync script needs the new one in its Keychain.
+// the email the Mac sync script signs in with (its LEDGER_EMAIL), as written
+// there: its Keychain entry is found by this exact spelling
+const MAC_LEDGER_EMAIL = 'Ledger@vriddhi.local';
 function changePassword() {
   document.querySelector('.share-sheet')?.remove();
   const sheet = document.createElement('div');
@@ -322,8 +325,8 @@ function changePassword() {
     sheet.querySelector('.share-box').innerHTML = `
       <div class="row-between"><h3>Password changed</h3><button class="icon" type="button" data-close aria-label="Close">✕</button></div>
       <p>Use the new password the next time you sign in. Phones and browsers already signed in stay signed in.</p>
-      <p class="muted small"><b>The Mac sync</b> signs in with the password kept in each Mac's Keychain — update it there, or the sync stops. In Terminal on each Mac, run this and type the new password (twice):</p>
-      <pre class="code">security add-generic-password -U -s vriddhi-ledger -a "${esc(state.me.email)}" -w</pre>
+      <p class="muted small"><b>The Mac sync</b> signs in with the password kept in each Mac's Keychain — update it there, or the sync stops. In Terminal on each Mac, run this and type the new password (twice). The email must be written exactly as in the sync script (<code>LEDGER_EMAIL</code> at the top of <code>~/bin/vriddhi_gdrive.sh</code>) — capital letters count:</p>
+      <pre class="code">security add-generic-password -U -s vriddhi-ledger -a "${esc(MAC_LEDGER_EMAIL)}" -w</pre>
       <p class="actions"><button class="btn" type="button" data-close>Done</button></p>`;
   });
 }
