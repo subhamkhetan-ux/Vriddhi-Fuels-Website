@@ -31,7 +31,7 @@ import {
   daybookPagesSvg, driverBriefSvg, driverPagesSvg, loansPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcCheckPagesSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
 import { compactStatement, expandStatement, KINDS as SSFC_KINDS, readStatement, statementFromText } from './ssfcstmt.js';
-import { reconcile } from './ssfcrecon.js';
+import { findingKey, reconcile, settledView } from './ssfcrecon.js';
 import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, pdfText, toDataUrl, zipBlob } from './render.js';
 import {
   addDays, addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
@@ -1799,6 +1799,8 @@ async function addStatements(files) {
       const had = all.get(st.month);
       if (had && !had.pdf && st.pdf) { errors.push(`${f.name}: ${monthLong(st.month)} is already in from the Excel file, which has the bills — kept that.`); continue; }
       const c = compactStatement(st);
+      if (had && had.settled) c.settled = had.settled;              // marked settled stays settled
+      if (had && had.cleared) c.cleared = had.cleared;
       all.set(st.month, c);
       done.push(st.month);
       if (state.store && state.store.ssfcSave && !state.localOnly) await state.store.ssfcSave(st.month, c);
@@ -1831,6 +1833,15 @@ function ssfcReport(month) {
   state.ssfcReports.set(key, rep);
   return rep;
 }
+// a month's settled marks, saved with its statement
+async function saveSsfcMarks(months, done) {
+  try {
+    if (state.store && state.store.ssfcSave && !state.localOnly) for (const m of months) await state.store.ssfcSave(m, state.ssfcStmts.get(m));
+    toast(`${done}${state.localOnly ? ' — on this device only, not saved' : ''}`);
+  } catch (err) { toast(err.message, 'bad'); }
+  rerender();
+}
+const markOf = () => ({ at: today(), by: state.me ? state.me.email : '' });
 const SC_AREA = { trip: 'Trip', rate: 'Rate', diesel: 'Diesel', deduction: 'Deduction', bill: 'Bill', def: 'DEF', register: 'Your register', ledger: 'Ledger', math: 'Their maths', ld: 'Late delivery' };
 const SC_LEVEL = { bad: ['SSFC owes you / must explain', 'bad'], warn: ['Doesn\'t add up · ask for proof · post it', 'warn'], info: ['Good to know', 'info'] };
 
@@ -1850,22 +1861,36 @@ async function viewSsfcCheck(month) {
   const rep = ssfcReport(month);
   const t = rep.totals;
   const c = all.get(month);
+  // what's still open: a month marked settled, or a finding ticked settled, drops out
+  const V = settledView(rep, c);
   const chip = (m) => {
     const r = ssfcReport(m);
-    return `<a class="chip${m === month ? ' on' : ''}" href="#/ssfc/check/${m}">${esc(monthName(m))}${r && r.totals.atStake > 0 ? ` <span class="sc-due">${money(r.totals.atStake)}</span>` : ''}</a>`;
+    const v = r ? settledView(r, all.get(m)) : null;
+    const tag = !v ? '' : v.monthSettled ? ' <span class="sc-ok" title="Settled">✓</span>' : v.atStake > 0 ? ` <span class="sc-due">${money(v.atStake)}</span>` : '';
+    return `<a class="chip${m === month ? ' on' : ''}" href="#/ssfc/check/${m}">${esc(monthName(m))}${tag}</a>`;
   };
-  const areas = [...new Set(rep.issues.map((x) => x.area))];
-  const shown = rep.issues.filter((x) => !ui.area || x.area === ui.area);
-  const item = (x) => `<div class="sc-item ${x.level}"><span class="sc-area">${esc(SC_AREA[x.area] || x.area)}</span><span class="sc-text">${esc(x.text)}</span>${x.amount ? `<b class="sc-amt">${rupees(x.amount)}</b>` : '<span></span>'}</div>`;
+  const latest = months[months.length - 1];
+  const earlier = months.filter((m) => m < latest && !(all.get(m) || {}).settled);
+  const areas = [...new Set(V.open.map((x) => x.area))];
+  const shown = V.open.filter((x) => !ui.area || x.area === ui.area);
+  const clearedOn = (x) => (c.cleared || {})[findingKey(x)];
+  const item = (x, done = false) => {
+    const k = findingKey(x);
+    const btn = V.monthSettled || x.level === 'info' ? '' : done
+      ? `<button class="sc-tick" type="button" data-reopen="${k}" title="Show it again">Reopen</button>`
+      : `<button class="sc-tick" type="button" data-settle="${k}" title="Dealt with — stop showing it">✓ Settled</button>`;
+    const on = done && clearedOn(x) ? `<small class="muted"> · settled ${fmtDate(clearedOn(x).at)}</small>` : '';
+    return `<div class="sc-item ${x.level}${done ? ' done' : ''}"><span class="sc-area">${esc(SC_AREA[x.area] || x.area)}</span><span class="sc-text">${esc(x.text)}${on}</span><span class="sc-side">${x.amount ? `<b class="sc-amt">${rupees(x.amount)}</b>` : ''}${btn}</span></div>`;
+  };
   const group = (level) => {
     const list = shown.filter((x) => x.level === level);
     if (!list.length) return '';
     const sumAmt = list.reduce((a, x) => a + (x.amount || 0), 0);
     const head = `<h3 class="sc-head ${level}">${SC_LEVEL[level][0]} <span class="muted small">${plural(list.length, 'finding')}${level === 'bad' && sumAmt ? ` · ${rupees(sumAmt)}` : ''}</span></h3>`;
-    return level === 'info' ? `<details class="sc-more"><summary>${head}</summary>${list.map(item).join('')}</details>` : `${head}${list.map(item).join('')}`;
+    return level === 'info' ? `<details class="sc-more"><summary>${head}</summary>${list.map((x) => item(x)).join('')}</details>` : `${head}${list.map((x) => item(x)).join('')}`;
   };
   const vRows = rep.vehicles.map((v) => {
-    const bad = rep.issues.filter((x) => x.veh === v.veh && x.level === 'bad').length;
+    const bad = V.open.filter((x) => x.veh === v.veh && x.level === 'bad').length;
     const netOff = v.regTrips && v.net != null && Math.abs(v.net - v.regNet) > 100;
     return `<tr${bad ? ' class="sc-flag"' : ''}><td><a href="#sc-${esc(v.veh)}"><b>${esc(v.veh)}</b></a>${bad ? ` <span class="pill bad-pill">${bad}</span>` : ''}</td>
       <td class="r">${v.trips}${v.regTrips !== v.trips ? ` <small class="warn-text">/ ${v.regTrips}</small>` : ''}</td><td class="r">${rupees(v.freight)}</td>
@@ -1903,9 +1928,11 @@ async function viewSsfcCheck(month) {
   setMain(`<section class="card">
     <div class="row-between"><h2>SSFC statement check</h2><span class="row-gap">${add}${shareBtn('share-sc')}</span></div>
     <div class="chips sc-months" role="group" aria-label="Month">${months.map(chip).join('')}</div>
+    ${earlier.length ? `<p class="small muted">${plural(earlier.length, 'month')} before ${esc(monthName(latest))} not settled yet. <button class="btn ghost small" id="sc-settle-before" type="button">Mark ${earlier.length === 1 ? esc(monthName(earlier[0])) : `all ${earlier.length}`} settled</button></p>` : ''}
     ${state.ssfcErr ? `<div class="todo warn">${esc(state.ssfcErr)}</div>` : ''}
+    ${V.monthSettled ? `<div class="todo info sc-settled"><span>✓ <b>${esc(monthLong(month))} is settled</b>${V.settledOn.at ? ` — marked ${fmtDate(V.settledOn.at)}${V.settledOn.by ? ` by ${esc(V.settledOn.by)}` : ''}` : ''}. Its findings are folded away below.</span><button class="btn ghost small" id="sc-reopen-month" type="button">Reopen</button></div>` : ''}
     <div class="acct-hero sc-hero">
-      <div><span class="lbl">${t.atStake > 0 ? 'To claim from SSFC' : 'Nothing to claim'}</span><span class="val" ${exact(t.atStake)}>${money(t.atStake)}</span><span class="sub">${plural(t.bad, 'finding')} in SSFC's favour · ${plural(t.warn, 'to check', 'to check')}</span></div>
+      <div><span class="lbl">${V.monthSettled ? 'Settled' : V.atStake > 0 ? 'To claim from SSFC' : 'Nothing to claim'}</span><span class="val" ${exact(V.atStake)}>${money(V.atStake)}</span><span class="sub">${V.monthSettled ? `${plural(V.settled.length, 'finding')} settled` : `${plural(V.bad, 'finding')} in SSFC's favour · ${plural(V.warn, 'to check', 'to check')}${V.settled.length ? ` · ${V.settled.length} settled` : ''}`}</span></div>
       <div class="side"><span class="lbl">SSFC net · ${esc(monthLong(month))}</span><b ${exact(t.net)}>${money(t.net)}</b><span class="sub">${plural(t.trips, 'trip')} · ${plural(rep.vehicles.length, 'vehicle')}</span></div>
     </div>
     <div class="kpis acct-kpis">
@@ -1918,9 +1945,11 @@ async function viewSsfcCheck(month) {
   </section>
 
   <section class="card">
-    <div class="row-between"><h3>Findings</h3>${areas.length > 1 ? `<div class="chips small-chips" role="group" aria-label="Show"><button class="chip${!ui.area ? ' on' : ''}" data-area="">All</button>${areas.map((a) => `<button class="chip${ui.area === a ? ' on' : ''}" data-area="${esc(a)}">${esc(SC_AREA[a] || a)}</button>`).join('')}</div>` : ''}</div>
-    ${shown.some((x) => x.level !== 'info') ? '' : '<p class="good-text">✓ Nothing in SSFC\'s favour, and nothing that doesn\'t add up.</p>'}
+    <div class="row-between"><h3>Findings</h3>${V.monthSettled ? '' : `<button class="btn small" id="sc-settle-month" type="button">✓ Mark ${esc(monthName(month))} settled</button>`}</div>
+    <div class="row-between">${areas.length > 1 ? `<div class="chips small-chips" role="group" aria-label="Show"><button class="chip${!ui.area ? ' on' : ''}" data-area="">All</button>${areas.map((a) => `<button class="chip${ui.area === a ? ' on' : ''}" data-area="${esc(a)}">${esc(SC_AREA[a] || a)}</button>`).join('')}</div>` : ''}</div>
+    ${V.monthSettled ? '' : shown.some((x) => x.level !== 'info') ? '' : `<p class="good-text">✓ Nothing open — nothing in SSFC's favour, and nothing that doesn't add up${V.settled.length ? ' that isn\'t settled' : ''}.</p>`}
     ${group('bad')}${group('warn')}${group('info')}
+    ${V.settled.length ? `<details class="sc-more"><summary><h3 class="sc-head info">${V.monthSettled ? 'The findings, as they were' : 'Settled'} <span class="muted small">${plural(V.settled.length, 'finding')}</span></h3></summary>${V.settled.map((x) => item(x, true)).join('')}</details>` : ''}
   </section>
 
   <section class="card"><h3>Each vehicle</h3>
@@ -1944,9 +1973,9 @@ async function viewSsfcCheck(month) {
 
   <section class="card"><h3>Trips, deductions and bills, vehicle by vehicle</h3>${details}
     <p class="row-gap"><button class="btn ghost small" id="sc-remove" type="button">Remove ${esc(monthName(month))}'s statement</button></p></section>`);
-  bindSsfcCheck(rep);
+  bindSsfcCheck(rep, { ...rep, issues: V.open, totals: { ...t, atStake: V.atStake, bad: V.bad, warn: V.warn } }, earlier);
 }
-function bindSsfcCheck(rep) {
+function bindSsfcCheck(rep, open = rep, earlier = []) {
   const m = main();
   m.querySelector('#sc-files')?.addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) addStatements(files); });
   m.querySelectorAll('[data-area]').forEach((b) => b.addEventListener('click', () => { state.ui.ssfcCheck.area = b.dataset.area; rerender(); }));
@@ -1954,9 +1983,29 @@ function bindSsfcCheck(rep) {
   m.querySelector('#share-sc')?.addEventListener('click', async () => {
     const base = `SSFC check ${monthLong(rep.month)}`;
     sharePictures(base, [
-      { label: 'To claim and check', make: async () => pageFiles(ssfcCheckPagesSvg(rep, { ...(await shareKit()) }), base) },
-      { label: 'With the notes', make: async () => pageFiles(ssfcCheckPagesSvg(rep, { ...(await shareKit()), infos: true }), base) },
+      { label: 'To claim and check', make: async () => pageFiles(ssfcCheckPagesSvg(open, { ...(await shareKit()) }), base) },
+      { label: 'With the notes', make: async () => pageFiles(ssfcCheckPagesSvg(open, { ...(await shareKit()), infos: true }), base) },
     ]);
+  });
+  // settled: one finding, the month, or every month before the latest
+  const c = rep && state.ssfcStmts.get(rep.month);
+  m.querySelectorAll('[data-settle], [data-reopen]').forEach((b) => b.addEventListener('click', () => {
+    c.cleared = { ...(c.cleared || {}) };
+    if (b.dataset.settle) c.cleared[b.dataset.settle] = markOf(); else delete c.cleared[b.dataset.reopen];
+    saveSsfcMarks([rep.month], b.dataset.settle ? 'Marked settled.' : 'Showing it again.');
+  }));
+  m.querySelector('#sc-settle-month')?.addEventListener('click', () => {
+    c.settled = markOf();
+    saveSsfcMarks([rep.month], `${monthLong(rep.month)} marked settled.`);
+  });
+  m.querySelector('#sc-reopen-month')?.addEventListener('click', () => {
+    delete c.settled;
+    saveSsfcMarks([rep.month], `${monthLong(rep.month)} reopened.`);
+  });
+  m.querySelector('#sc-settle-before')?.addEventListener('click', () => {
+    if (!confirm(`Mark ${earlier.map(monthName).join(', ')} settled? Their findings stop showing (you can reopen any month).`)) return;
+    for (const mm of earlier) state.ssfcStmts.get(mm).settled = markOf();
+    saveSsfcMarks(earlier, `${plural(earlier.length, 'month')} marked settled.`);
   });
   m.querySelector('#sc-remove')?.addEventListener('click', async () => {
     if (!confirm(`Remove SSFC's ${monthLong(rep.month)} statement from the app? (You can add it again.)`)) return;
