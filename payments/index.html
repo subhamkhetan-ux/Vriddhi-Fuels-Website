@@ -26,13 +26,13 @@
   --glass-line:rgba(255,255,255,.14); --glass-line-soft:rgba(255,255,255,.08);
   --glass-blur:blur(22px) saturate(140%);
   --glass-shadow:0 18px 40px -26px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.1) inset;
-  --ink:#F5F0EB; --muted:#B4ABA2; --faint:#7C746C;
+  --ink:#F5F0EB; --muted:#B4ABA2; --faint:#968D84;
   --accent:#FF7A1A; --accent-2:#F4511E; --accent-soft:#ff7a1a24; --amber:#FF9E42;
   --good:#2FD08A; --good-bg:#2fd08a29;
   --warn:#FFB23E; --warn-bg:#ffb23e26;
   --bad:#FF6B5E; --bad-bg:#ff6b5e26;
   --grad-brand:linear-gradient(120deg,#F4511E 0%,#FF7A1A 52%,#FF9E42 100%);
-  --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+  --grad-cta:linear-gradient(180deg,#cc430e,#b93c0b);
   --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
@@ -48,10 +48,10 @@ body{margin:0;color:var(--ink);overflow-x:clip;max-width:100%;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;
   -webkit-font-smoothing:antialiased;padding-bottom:80px}
 header{position:sticky;top:0;z-index:20;
-  background:linear-gradient(135deg,rgba(244,81,30,.82),rgba(255,122,26,.62));
+  background:linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96));
   backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
   border-bottom:1px solid rgba(255,255,255,.16);
-  box-shadow:0 10px 30px -14px rgba(244,81,30,.7);
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.42);
   padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px}
 header h1{font-family:var(--display);font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;flex:1;color:#fff;
   text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px}
@@ -71,7 +71,7 @@ header .btn:hover{border-color:#fff;background:rgba(255,255,255,.28)}
   border:1px solid var(--glass-line);border-radius:16px;padding:14px 14px 14px 16px;
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
   box-shadow:var(--glass-shadow)}
-.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent);z-index:1}
+.stat::before{ content: none; }
 .stat::after{content:"";position:absolute;right:-26px;top:-26px;width:82px;height:82px;border-radius:50%;
   background:var(--accent);filter:blur(22px);opacity:.42;pointer-events:none}
 .stat.ready::before{background:linear-gradient(var(--good),#1f9e69)}
@@ -149,7 +149,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--good)}
 .exportbar .sum b{color:var(--ink);font-size:15px;font-family:var(--display);font-variant-numeric:tabular-nums}
 .cta{font-family:var(--display);font-size:15px;font-weight:800;padding:12px 20px;border-radius:12px;border:none;
   background:var(--grad-cta);color:#fff;cursor:pointer;letter-spacing:.2px;
-  box-shadow:0 12px 26px -10px rgba(244,81,30,.85),0 1px 0 rgba(255,255,255,.25) inset}
+  box-shadow:0 12px 26px -10px rgba(0,0,0,.42),0 1px 0 rgba(255,255,255,.25) inset}
 .cta:active{transform:translateY(1px)}
 .cta:disabled{background:var(--panel2);color:var(--faint);cursor:default;box-shadow:none}
 details{margin-top:8px}
@@ -191,14 +191,14 @@ summary::-webkit-details-marker{display:none}
 .tab{flex:1;position:relative;background:transparent;border:1px solid transparent;color:var(--muted);
   font-size:14px;font-weight:700;padding:10px 6px;border-radius:11px;cursor:pointer;transition:color .15s,background .15s}
 .tab.active{color:#fff;background:linear-gradient(150deg,rgba(255,122,26,.24),rgba(255,122,26,.07));
-  border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(255,122,26,.8)}
+  border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(0,0,0,.42)}
 .tab:not(.active):hover{color:var(--ink)}
 .tabbadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 5px;border-radius:999px;
   background:var(--grad-cta);color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
 .cn-card{position:relative;border-color:var(--accent);overflow:hidden}
 .cn-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad-cta)}
 .cn-serial{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--accent)}
-.cn-overall{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:1px}
+.cn-overall{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:1px}
 .cn-summary{font-size:12.5px;color:var(--muted);margin:2px 2px 12px;font-variant-numeric:tabular-nums}
 .cn-summary b{color:var(--ink);font-weight:700}
 .cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
@@ -275,7 +275,7 @@ summary::-webkit-details-marker{display:none}
 .cr-table td{padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cr-table .num{text-align:right}
 /* per-invoice breakdown rows under a multi-invoice day */
-.cr-invno{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-weight:400;margin-top:2px}
+.cr-invno{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:400;margin-top:2px}
 .cr-invrow td{padding-top:5px;padding-bottom:5px;border-bottom:1px dashed var(--line);color:var(--muted);font-size:12px}
 .cr-invcell{position:relative;padding-left:22px!important;font-family:var(--mono)}
 .cr-invcell::before{content:"↳";position:absolute;left:7px;color:var(--faint)}
@@ -349,7 +349,7 @@ summary::-webkit-details-marker{display:none}
 .cr-ordcell .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;overflow-wrap:anywhere;position:relative}
 .cr-ordcell .v{font-family:var(--display);font-size:20px;font-weight:800;color:var(--amber,#FF9E42);font-variant-numeric:tabular-nums;margin-top:3px;overflow-wrap:anywhere;position:relative}
 .cr-ordkl{font-size:12px;color:var(--faint);font-weight:600}
-.cr-ordsrc{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:3px;position:relative}
+.cr-ordsrc{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:3px;position:relative}
 .cr-ordnote{font-size:11px;color:var(--faint);margin-top:8px}
 @media (max-width:560px){
   /* KPIs stack so the big rupee figures stay readable instead of clipping */
@@ -362,7 +362,7 @@ summary::-webkit-details-marker{display:none}
 }
 .cr-carry{font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:8px 11px;background:var(--glass-2);border:1px solid var(--glass-line);border-radius:11px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .cr-amtbtn.cr-add{color:var(--faint);border-style:dashed;border-color:var(--line)}
-.cr-holauto{font-size:10.5px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-left:2px}
+.cr-holauto{font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-left:2px}
 #crOpenDate,#crHolMark,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
 .cr-holclosing{flex-wrap:wrap;gap:8px}
 .cr-holclosing .cr-holbtns{flex-wrap:wrap;gap:6px}
@@ -382,6 +382,14 @@ summary::-webkit-details-marker{display:none}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
+
+/* ---- shared motion and focus (design pass; Tally is the reference) ---- */
+:root{--ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+:where(button,a,summary,[role="button"],[tabindex]):focus-visible{outline:2px solid var(--accent,#ff7a1a);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;
+    transition-property:opacity,color,background-color,border-color,box-shadow!important;scroll-behavior:auto!important}
+}
 </style>
 </head>
 <body>

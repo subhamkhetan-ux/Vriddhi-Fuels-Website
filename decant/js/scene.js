@@ -40,6 +40,14 @@ const SOIL = 146;
 const TANK = { top: 160, bottom: 204, half: 37 };
 const WAVE = 12;                                         // wave length (the ripple moves it by this)
 const FULL = 0.92;                                       // a full chamber's level in its sight glass
+const STREAM_TOP = TANK.top + 9;                         // where the fill pipe lets the fuel out inside a tank
+// a tank decanting: its stage and the time it has left by the chambers' times
+// ("moving pipe" while the hose is carried to the next chamber)
+const stageText = (flowing, end, now) => {
+  const left = Number.isFinite(end) && end > now && end - now < 6 * 3600e3 ? end - now : 0;
+  if (!left) return 'decanting';                       // all should be out (or no times to go by)
+  return flowing ? `decanting · ${elapsed(left)}` : 'moving pipe';   // between two chambers
+};
 const INK = '#15110f';
 const colorOf = (p) => PRODUCT_COLOR[p] || '#8a8178';
 let seq = 0;
@@ -271,6 +279,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     return `<g class="dp${flowing ? ' flowing' : ''}${st === 'settling' ? ' still' : ''}" data-k="p${row.tank}">
       <path class="hose" d="${pipeD(xo, xi, sag)}" fill="none" stroke="${INK}" stroke-width="5.2" stroke-linecap="round"/>
       <path class="hose-in" d="${pipeD(xo, xi, sag)}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linecap="round"/>
+      <path class="hose-glint" d="${pipeD(xo, xi, sag)}" fill="none" stroke="#fff" stroke-width="1.1" stroke-linecap="round" stroke-dasharray="1.6 13" opacity="${flowing ? 0.6 : 0}"/>
       <circle class="coupling" cx="${xo}" cy="${OUTLET_Y}" r="3.6" fill="${INK}" stroke="${col}" stroke-width="1.6"/>
       <circle class="drip" data-k="dr${row.tank}" r=".9" fill="${col}" display="none"/>
       <circle class="lock" data-k="lk${row.tank}" r="4" fill="none" stroke="#fff" stroke-width=".8" display="none"/>
@@ -288,6 +297,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const col = colorOf(t.product);
     const x0 = xc - half;
     const x1 = xc + half;
+    const xs = r1(xc - half * 0.78);                    // where the fill pipe enters it (beside its figures)
     const th = TANK.bottom - TANK.top;
     const cp = clip(`t${t.id}`, `<rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}"/>`);
     let inside = '';
@@ -312,10 +322,21 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
         const now1 = before + (rd?.at?.litres || 0);
         // read: the litres it has got, held till the next reading
         if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]), ...(rd.at?.live ? { got: rd.at.litres, flow: rd.at.flowing } : {}) });
-        inside = `<g data-k="t${t.id}" transform="translate(0 ${tankY(now1, cap)})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
+        // the fuel coming in: one stream from the fill pipe down to the
+        // surface (it shortens as the tank rises), a splash where it lands
+        const sy = tankY(now1, cap);
+        const sy2 = r1(Math.max(STREAM_TOP, sy));
+        inside = `<g data-k="t${t.id}" transform="translate(0 ${sy})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
           ${outline}
-          ${[0, 350, 700].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" data-d="${delay}"/>`).join('')}`;
-        tag = '<tspan class="ds-live">decanting</tspan>';
+          <g class="fill" data-k="fl${t.id}"${flowing ? '' : ' display="none"'}>
+            <line data-k="fs${t.id}" x1="${xs}" y1="${STREAM_TOP}" x2="${xs}" y2="${sy2}" stroke="${col}" stroke-width="2.6" stroke-linecap="round"/>
+            <line class="stream-glint" data-k="fg${t.id}" x1="${xs}" y1="${STREAM_TOP}" x2="${xs}" y2="${sy2}" stroke="#fff" stroke-opacity=".55" stroke-width="1" stroke-dasharray="1.5 5"/>
+            <g data-k="fp${t.id}" transform="translate(${xs} ${sy})"><ellipse class="splash" rx="3" ry="1.2" fill="none" stroke="#fff" stroke-width=".8" vector-effect="non-scaling-stroke" opacity=".5"/></g>
+          </g>`;
+        // how long it has left, by the chambers' times (counted down by the ticker)
+        // (not when live readings drive it: their timeline has no real end)
+        const end = rd?.tl.length && !rd.at?.live ? rd.tl[rd.tl.length - 1].to : null;
+        tag = `<tspan class="ds-live" data-k="fe${t.id}">${esc(stageText(flowing, end, now))}</tspan>`;
         // counting up: what's in it now, and what's gone in so far
         nums = `${vol(now1, !rd?.at?.live, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
       } else if (st === 'settling') {
@@ -331,7 +352,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     return `<g class="dt${flowing ? ' flowing' : ''}" data-k="d${t.id}"${row ? '' : ' opacity=".42"'}>
       <rect x="${xc - 3.5}" y="${GROUND + 4}" width="7" height="${CURB - GROUND - 4}" fill="#2a2a2a"/>
       <rect x="${xc - 5.5}" y="${GROUND}" width="11" height="4.5" rx="1.2" fill="${col}"/>
-      <line x1="${xc}" y1="${SOIL}" x2="${xc}" y2="${TANK.top + 10}" stroke="#5b544e" stroke-width="3"/>
+      <path d="M${xc} ${SOIL} V${SOIL + 6} H${xs} V${TANK.top + 10}" fill="none" stroke="#5b544e" stroke-width="3" stroke-linejoin="round"/>
       <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="#191512"/>
       <g clip-path="${cp}">${inside}</g>
       <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="none" stroke="#7d746c" stroke-width="1.4"/>
@@ -406,6 +427,9 @@ function ripple(svg, pic, now) {
       flows: all('.dp .hose-in').map((n) => ({ n, g: n.closest('.dp') })),
       drops: all('.drop').map((n) => ({ n, dt: n.closest('.dt'), d: Number(n.dataset.d) || 0 })),
       bubbles: all('.bubble').map((n) => ({ n, gl: n.closest('.gl') })),
+      glints: all('.dp .hose-glint').map((n) => ({ n, g: n.closest('.dp') })),
+      streams: all('.stream-glint').map((n) => ({ n, dt: n.closest('.dt') })),
+      splashes: all('.splash').map((n) => ({ n, dt: n.closest('.dt') })),
     };
   }
   const phase = (period, delay = 0) => ((((now - delay) % period) + period) % period) / period;
@@ -433,6 +457,25 @@ function ripple(svg, pic, now) {
     const p = phase(1400);
     put(b.n, 'transform', `translate(0 ${r1(-14 * p * p)})`);
     put(b.n, 'opacity', r2(p < 0.3 ? (0.7 * p) / 0.3 : 1 - p));
+  }
+  // the fuel itself: bright pulses running down the hose from the valve to
+  // the tank, the stream falling, and a ring spreading where it lands
+  for (const gl of r.glints) {
+    if (!gl.g?.classList.contains('flowing')) continue;
+    any = true;
+    put(gl.n, 'stroke-dashoffset', r1(-14.6 * phase(520)));
+  }
+  for (const s of r.streams) {
+    if (!s.dt?.classList.contains('flowing')) continue;
+    any = true;
+    put(s.n, 'stroke-dashoffset', r1(-6.5 * phase(260)));
+  }
+  for (const s of r.splashes) {
+    if (!s.dt?.classList.contains('flowing')) continue;
+    any = true;
+    const p = phase(700);
+    put(s.n, 'transform', `scale(${r2(1 + 2 * p)} ${r2(1 + 0.4 * p)})`);
+    put(s.n, 'opacity', r2(0.6 * (1 - p)));
   }
   return any;
 }
@@ -527,10 +570,19 @@ function tickOne(svg, now, full = true) {
   for (const t of full ? a.t : []) {
     const read = Number.isFinite(t.got);
     const litres = t.before + (read ? t.got : t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0));
-    put(el(`t${t.k}`), 'transform', `translate(0 ${tankY(litres, t.cap)})`);
-    el(`d${t.k}`)?.classList.toggle('flowing', read ? t.flow : inWindow(t.wins, now));   // not while the pipe is moved
+    const y = tankY(litres, t.cap);
+    const flowing = read ? t.flow : inWindow(t.wins, now);                    // not while the pipe is moved
+    put(el(`t${t.k}`), 'transform', `translate(0 ${y})`);
+    el(`d${t.k}`)?.classList.toggle('flowing', flowing);
     text(`v${t.k}`, `${read ? '' : '≈'}${fmtL(litres)}`);
     text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
+    // the stream reaches down to the surface; shown only while fuel runs
+    show(el(`fl${t.k}`), flowing);
+    const y2 = r1(Math.max(STREAM_TOP, y));
+    put(el(`fs${t.k}`), 'y2', y2);
+    put(el(`fg${t.k}`), 'y2', y2);
+    put(el(`fp${t.k}`), 'transform', `translate(${el(`fs${t.k}`)?.getAttribute('x1') ?? 0} ${r1(y)})`);
+    text(`fe${t.k}`, stageText(flowing, !read && t.wins.length ? t.wins[t.wins.length - 1][1] : null, now));
   }
   let focus = null;                                      // the first pipe being moved: what the picture zooms onto
   for (const p of a.p) {
@@ -548,11 +600,13 @@ function tickOne(svg, now, full = true) {
     const end = sc ? sc.hose : { x: moving ? mv[2] : w[2], y: OUTLET_Y };
     const d = pipeD(end.x, p.xi, p.sag, end.y);
     let parts = els.get(`${p.k}:parts`);
-    if (!parts) { parts = { paths: [...g.querySelectorAll('path')], cp: g.querySelector('.coupling') }; els.set(`${p.k}:parts`, parts); }
+    if (!parts) { parts = { paths: [...g.querySelectorAll('path')], cp: g.querySelector('.coupling'), glint: g.querySelector('.hose-glint') }; els.set(`${p.k}:parts`, parts); }
     for (const path of parts.paths) put(path, 'd', d);
     put(parts.cp, 'cx', r1(end.x));
     put(parts.cp, 'cy', r1(end.y));
-    g.classList.toggle('flowing', inWindow(p.wins, now));
+    const runs = inWindow(p.wins, now);
+    g.classList.toggle('flowing', runs);
+    put(parts.glint, 'opacity', runs ? 0.6 : 0);                         // (still there, unmoving, with reduce motion)
     // the valves' handles: open on the chamber the fuel runs from, else shut;
     // while the pipe is moved, where his hand has them
     for (const [from, to, x, no] of p.wins) {

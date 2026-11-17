@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="ts-csrf" content="__CSRF__">
-<meta name="theme-color" content="#F4511E">
+<meta name="theme-color" content="#BF3A0C">
 <title>Pumps</title>
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap">
@@ -17,10 +17,11 @@
     --glass-line: rgba(255,255,255,.14); --glass-line-soft: rgba(255,255,255,.08);
     --glass-blur: blur(22px) saturate(140%);
     --glass-shadow: 0 18px 40px -26px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.1) inset;
-    --ink: #F5F0EB; --muted: #B4ABA2; --faint: #8a8178;
+    --ink: #F5F0EB; --muted: #B4ABA2; --faint: #968D84;
     --accent: #FF7A1A; --accent-ink: #ffffff; --accent-soft: #ff7a1a24; --chip: rgba(255,255,255,.09);
     --ok: #2FD08A; --ok-bg: #2fd08a29; --mid: #FFB23E; --mid-bg: #ffb23e26; --warn: #FF6B5E; --warn-bg: #ff6b5e26;
-    --grad-cta: linear-gradient(135deg, #F4511E 0%, #FF8A2B 100%);
+    --grad-cta: linear-gradient(180deg,#cc430e,#b93c0b);
+    --ease-out: cubic-bezier(.23,1,.32,1); --ease-drawer: cubic-bezier(.32,.72,0,1);
     --display: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --p-hsd: #3987e5; --p-ms: #d95926; --p-xg: #199e70;
   }
@@ -41,14 +42,14 @@
   /* ---- header (hidden title when shown inside the XtraPower app's tab) ---- */
   header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
            padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
-           background: linear-gradient(135deg, rgba(244,81,30,.85), rgba(255,122,26,.62));
+           background: linear-gradient(135deg,rgba(190,58,14,.96),rgba(198,65,12,.96));
            backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
-           border-bottom: 1px solid rgba(255,255,255,.16); box-shadow: 0 10px 30px -14px rgba(244,81,30,.7); }
+           border-bottom: 1px solid rgba(255,255,255,.16); box-shadow: 0 10px 30px -14px rgba(0,0,0,.55); }
   .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; color: #fff; }
-  .brand .logo { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; font-size: 18px;
-                 background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.35); flex: none; }
-  h1 { font: 800 17px/1.15 var(--display); margin: 0; letter-spacing: .3px; text-shadow: 0 1px 2px rgba(120,30,0,.35); }
-  .brand small { font-size: 11.5px; opacity: .85; display: block; }
+  .brand .logo { width: 36px; height: 36px; border-radius: 11px; display: block; object-fit: cover; flex: none;
+                 background: #fff; border: 1px solid rgba(255,255,255,.5); box-shadow: 0 3px 10px -4px rgba(0,0,0,.45); }
+  h1 { font: 800 17px/1.15 var(--display); margin: 0; letter-spacing: .3px; }
+  .brand small { font-size: 12px; opacity: .95; display: block; }
   .embedded header { display: none; }
 
   /* ---- surfaces ---- */
@@ -71,24 +72,25 @@
           padding: 9px 13px; font-weight: 600; font-size: 13.5px; line-height: 1; font-family: inherit; cursor: pointer; }
   .chip[aria-pressed="true"] { border-color: rgba(255,122,26,.6); color: #fff;
                                background: linear-gradient(150deg, rgba(255,122,26,.4), rgba(244,81,30,.18));
-                               box-shadow: 0 6px 16px -10px rgba(255,122,26,.9); }
+}
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
   button.main, button.alt { font: 800 14.5px/1 var(--display); border-radius: 12px; padding: 13px 18px; cursor: pointer; letter-spacing: .2px; }
   button.main { border: none; color: #fff; background: var(--grad-cta);
-                box-shadow: 0 12px 26px -10px rgba(244,81,30,.85), 0 1px 0 rgba(255,255,255,.25) inset; }
-  button.main:active { transform: translateY(1px); }
+                box-shadow: 0 12px 26px -12px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.2) inset; }
+  button.main, button.alt, .up, .chip { transition: border-color .15s var(--ease-out), background-color .15s var(--ease-out), transform .1s var(--ease-out); }
+  button.main:active:not(:disabled), button.alt:active:not(:disabled), .up:active, .chip:active { transform: scale(.97); }
   button.alt { background: var(--glass-2); color: var(--ink); border: 1px solid var(--glass-line); font-weight: 700; }
   button:disabled { opacity: .45; cursor: default; box-shadow: none; }
   .up { font-weight: 600; font-size: 12.5px; line-height: 1; font-family: inherit; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--glass-line);
         background: var(--glass-2); color: var(--ink); cursor: pointer; }
-  .up:hover, button.alt:hover, .chip:hover { border-color: var(--accent); }
+  @media (hover: hover) and (pointer: fine) { .up:hover, button.alt:hover, .chip:hover { border-color: var(--accent); } }
   label.line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0;
                border-bottom: 1px solid var(--glass-line-soft); font-size: 14px; }
   input[type=number], select { font: inherit; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line);
                                background: rgba(0,0,0,.35); color: var(--ink); }
   input[type=number] { width: 96px; font-variant-numeric: tabular-nums; }
   select { width: 100%; padding: 11px; }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
 
   /* ---- the control bar: live or not, Start / Stop, and the counts ---- */
@@ -106,7 +108,7 @@
   .stat { background: rgba(0,0,0,.22); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 8px 6px;
           text-align: center; min-width: 0; }
   .stat b { display: block; font: 800 20px/1.1 var(--display); font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+  .stat span { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
   .stat.on b { color: var(--ok); } .stat.wait b { color: var(--mid); } .stat.bad b { color: var(--warn); }
 
   /* ---- the watched nozzles: one tile each, in pump order ---- */
@@ -115,7 +117,7 @@
           background: var(--glass); border: 1px solid var(--glass-line); border-radius: 16px; padding: 11px 12px 12px;
           backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow);
           overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
-  .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--line); }
+  .tile::before { content: none; }
   .tile.k-on { border-color: rgba(47,208,138,.5); background: linear-gradient(160deg, rgba(47,208,138,.16), var(--glass) 60%); }
   .tile.k-on::before { background: var(--ok); }
   .tile.k-wait { border-color: rgba(255,178,62,.45); } .tile.k-wait::before { background: var(--mid); }
@@ -124,7 +126,7 @@
   .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .t-head { display: flex; align-items: center; gap: 6px; }
   .pno { font: 800 22px/1 var(--display); }
-  .st { margin-left: auto; font: 800 10.5px/1 var(--display); letter-spacing: .05em; text-transform: uppercase;
+  .st { margin-left: auto; font: 800 11px/1 var(--display); letter-spacing: .05em; text-transform: uppercase;
         color: var(--muted); white-space: nowrap; }
   .k-on .st { color: var(--ok); } .k-wait .st { color: var(--mid); } .k-bad .st { color: var(--warn); }
   .t-where { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; }
@@ -138,11 +140,11 @@
   .t-left b { font: 800 24px/1 var(--display); color: var(--accent); font-variant-numeric: tabular-nums; }
   .t-left span { font-size: 12px; color: var(--muted); }
   .bar { height: 7px; border-radius: 999px; background: rgba(255,255,255,.09); overflow: hidden; margin-top: 6px; }
-  .bar i { display: block; height: 100%; background: var(--grad-cta); border-radius: 999px; transition: width .8s; }
+  .bar i { display: block; height: 100%; background: var(--grad-cta); border-radius: 999px; transition: width .4s var(--ease-out); }
   .t-hint { font-size: 11.5px; color: var(--faint); margin-top: 6px; }
-  .t-locks { margin-top: 7px; font-weight: 700; font-size: 11px; line-height: 1.35; font-family: inherit; color: var(--warn); background: var(--warn-bg);
+  .t-locks { margin-top: 7px; font-weight: 700; font-size: 11.5px; line-height: 1.35; font-family: inherit; color: var(--warn); background: var(--warn-bg);
              border-radius: 8px; padding: 5px 7px; }
-  .prod { font: 800 10.5px/1 var(--display); padding: 4px 6px; border-radius: 6px; color: #fff; }
+  .prod { font: 800 11px/1 var(--display); padding: 4px 6px; border-radius: 6px; color: #fff; }
   .prod.HSD { background: var(--p-hsd); } .prod.MS { background: var(--p-ms); } .prod.XG, .prod.XP95 { background: var(--p-xg); }
   .empty { text-align: center; color: var(--muted); padding: 26px 12px; border: 1px dashed var(--glass-line);
            border-radius: 16px; margin: 14px 0; font-size: 14px; }
@@ -198,11 +200,28 @@
   .lock { font-weight: 700; font-size: 12px; line-height: 1.2; font-family: inherit; color: var(--warn); background: var(--warn-bg);
           border: 1px solid rgba(255,107,94,.45); border-radius: 8px; padding: 6px 9px; }
   .unwatch { margin-top: 16px; width: 100%; }
+
+  /* ---- keyboard focus, touch size, motion (design pass) ---- */
+  button:focus-visible, a:focus-visible, summary:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
+  @media (pointer: coarse) { button, .chip { min-height: 44px; } }
+  dialog[open] { animation: dlg-in .22s var(--ease-out); }
+  dialog[open]::backdrop { animation: dlg-fade .22s var(--ease-out); }
+  @keyframes dlg-in { from { opacity: 0; transform: scale(.97); } }
+  @keyframes dlg-fade { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important;
+      transition-property: opacity, color, background-color, border-color, box-shadow !important; scroll-behavior: auto !important; }
+  }
+
+  /* the bottom sheet slides up from the edge it lives on */
+  dialog[open] { animation: sheet-up .3s var(--ease-drawer); }
+  @keyframes sheet-up { from { transform: translateY(100%); } }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="logo" aria-hidden="true">⛽</span>
+  <div class="brand"><img class="logo" src="icon-192.png" alt="" width="36" height="36">
     <div><h1>Pumps</h1><small>IOCL automation · live nozzles</small></div></div>
 </header>
 <main>
