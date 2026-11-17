@@ -727,8 +727,13 @@
     if (key !== pictureKey || !pictureEl) {
       try {
         const html = window.tsScene.decantScene(sc.s, { tanks: sc.tanks, stock: sc.stock, settings: sc.settings, act, wide });
-        pictureEl = el("div", "scene-box");
-        pictureEl.innerHTML = html;
+        // the same picture with new figures (the live readings, every second while it runs):
+        // the one on the page is kept and handed them, so it moves on smoothly instead of being drawn again
+        const kept = pictureEl && window.tsScene.updateScene && window.tsScene.updateScene(pictureEl.querySelector("svg.dscene"), html);
+        if (!kept) {
+          pictureEl = el("div", "scene-box");
+          pictureEl.innerHTML = html;
+        }
         pictureKey = key;
       } catch (e) {
         console.warn("decanting picture:", e);

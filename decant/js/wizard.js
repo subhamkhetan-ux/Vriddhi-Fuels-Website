@@ -15,7 +15,7 @@ import { fmtDuration, fromServer, ownTT,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { cloudEnabled, deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
-import { decantScene, tickScenes } from './scene.js';
+import { decantScene, keepScenes, takeScenes, tickScenes } from './scene.js';
 import {
   PRODUCT_COLOR, ago, ask, bandBadge, bigScreen, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
@@ -166,6 +166,7 @@ export function renderWizard(el) {
   const step = stepOf(s);
   const inv = s.data.invoice || {};
   const idx = STEPS.findIndex(([k]) => k === step);
+  const scenes = takeScenes(el);                      // the picture on the page carries on through the redraw
   el.innerHTML = `
     <div class="wz-top">
       <button class="btn sm" data-wz="close">← Back</button>
@@ -174,6 +175,7 @@ export function renderWizard(el) {
     </div>
     <div class="steps">${STEPS.map(([k, label], i) => `<div class="step${i === idx ? ' on' : i < idx ? ' done' : ''}"${i === idx ? ' aria-current="step"' : ''}>${label}</div>`).join('')}</div>
     <div id="wzBody">${{ truck: stepTruck, before: stepBefore, plan: stepPlan, decant: stepDecant, result: stepResult }[step](s)}</div>`;
+  keepScenes(el, scenes);
   if (shown !== `${s.id}:${step}`) { shown = `${s.id}:${step}`; enter(el.querySelector('#wzBody')); }
   clearInterval(timer);
   if (step === 'decant') timer = setInterval(tick, 1000);

@@ -24,8 +24,8 @@
   --blur: blur(22px) saturate(140%);
   --ease-out: cubic-bezier(.23,1,.32,1);
   --press-duration: 120ms;
-  --display: "Plus Jakarta Sans","Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --text: "Plus Jakarta Sans", -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --display: "Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --text: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   --numeric: var(--display);
   --mono: ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
   --safe-top: env(safe-area-inset-top,0px); --safe-bot: env(safe-area-inset-bottom,0px);
