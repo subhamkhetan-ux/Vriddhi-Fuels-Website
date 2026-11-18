@@ -39,10 +39,44 @@ export function poGroups(data) {
 
 export const groupName = (g, members) => (members.length === 1 ? members[0].name : (g.title || g.code).split(' — ')[0]);
 
+// What's still owed from before the statement's first day: the opening, less
+// everything received since (payments, TDS, shortage clear the oldest dues
+// first). null when nothing was owed then.
+//   -> {before: 'YYYY-MM-DD', opening, amount}
+export function pendingBefore(st) {
+  const opening = round2(Number(st.opening) || 0);
+  if (!(opening > 0.5) || !st.from) return null;
+  const t = st.totals;
+  const cleared = (Number(t.received) || 0) + (Number(t.tds) || 0) + (Number(t.shortage) || 0);
+  return { before: st.from, opening, amount: Math.max(0, round2(opening - cleared)) };
+}
+
+// How fast a bulk customer is lifting: litres billed from the 1st of this
+// month to asOn, against the 1st of last month to the same date (or last
+// month's end, when it is shorter). entries: a statement's (bills have qty).
+//   -> {day, cur: {from, to, qty}, prev: {from, to, qty}, change (fraction, null without last month)}
+export function liftingPace(entries, asOn) {
+  if (!asOn) return null;
+  const [y, m, d] = asOn.split('-').map(Number);
+  const iso = (yy, mm, dd) => `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  const py = m === 1 ? y - 1 : y;
+  const pm = m === 1 ? 12 : m - 1;
+  const prevLen = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  const cur = { from: iso(y, m, 1), to: asOn };
+  const prev = { from: iso(py, pm, 1), to: iso(py, pm, Math.min(d, prevLen)) };
+  const sum = (r) => round2((entries || []).reduce((a, e) => a + (e.type === 'bill' && e.date >= r.from && e.date <= r.to ? Number(e.qty) || 0 : 0), 0));
+  cur.qty = sum(cur);
+  prev.qty = sum(prev);
+  return { day: d, cur, prev, change: prev.qty ? (cur.qty - prev.qty) / prev.qty : null };
+}
+
 // the card a customer gets for their outstanding (pending: the FIFO bills)
 export function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '', fifo = null, units = null } = {}) {
   const t = st.totals;
   return {
+    // retail: what's still owed from before this month; bulk: how fast they're lifting
+    pendingBefore: kind === 'retail' ? pendingBefore(st) : null,
+    pace: kind === 'bulk' ? liftingPace(st.entries, asOn) : null,
     name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
     billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
     bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, recentPayments: st.recentPayments || [], lastBill: st.lastBill, companies: st.companies,
@@ -113,6 +147,7 @@ export function companyCard(c, st, asOn) {
   const cst = companyStatement(st, c.name);
   const f = companyPending(cst, asOn);
   return {
+    pace: liftingPace(cst.entries, asOn),
     name: c.name, kind: 'bulk', note: `Part of the ${st.name} account`, balance: c.outstanding, asOn, since: st.from,
     billed: c.billed, qty: c.qty, received: c.received, deductions: c.deductions, bills: c.bills, payments: c.payments,
     lastPayment: c.lastPayment, recentPayments: cst.recentPayments || [], lastBill: c.lastBill, companies: null, pending: f.pending, advance: f.advance,
