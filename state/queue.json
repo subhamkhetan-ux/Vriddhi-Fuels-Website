@@ -8389,6 +8389,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-18T04:00:39.266543+00:00"
+    },
+    {
+      "entry_id": "4a53a4588c626991",
+      "gmail_msg_id": "1882177468762548450",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "18/11/26",
+      "date_serial": 46344,
+      "amount": 447300.0,
+      "raw_payer": "GREAT RIVER COY PVT LT",
+      "customer": "Great River Coy Private Limited",
+      "candidates": [
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-18T06:45:20.780173+00:00",
+      "status": "matched"
     }
   ]
 }
