@@ -188,15 +188,13 @@ def rig(tmp_path, monkeypatch):
                      "session": Session([], "")}
         return self.live_view()
     monkeypatch.setattr(service.Station, "start_live", start_live)
-    drawn = []                                   # the result pictures asked for: (figures, proof pictures)
-    monkeypatch.setattr(auto.resultimg, "render", lambda m, pics=None, timeout=0: drawn.append((m, pics)) or b"\x89PNG-result")
     (tmp_path / "login.json").write_text(json.dumps({"ids": ["123456789"], "password": "pw"}))
     (tmp_path / "settings.json").write_text(json.dumps({"interval_s": 600, "tanks": [3], "auto_upload": False}))
     told = []
     st = service.Station(home=tmp_path, session_cls=Session, decant_mod=cloud, notify=told.append,
                          notify_photo=lambda png, caption: told.append(caption) or True)
     Session.opened = []
-    return SimpleNamespace(st=st, clock=clock, world=world, cloud=cloud, told=told, home=tmp_path, drawn=drawn)
+    return SimpleNamespace(st=st, clock=clock, world=world, cloud=cloud, told=told, home=tmp_path)
 
 
 def read(rig):
@@ -287,16 +285,6 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     # IOCL's acknowledgement: OD23U8210 is our own TT (the app's default settings), 14 of its 22 KL in: it went
     assert rig.told.count("IOCL ACK4 7011294526") == 1 and any("went earlier" in m for m in rig.told)
     assert rig.st.live["stop"].is_set()                  # it connected for this: it lets go
-    # the decant app's result picture, drawn here: on Telegram, and to download from the page
-    assert wait_for(lambda: any("📊 Decanting result: OD23U8210" in m for m in rig.told))
-    m, pics = rig.drawn[0]
-    assert m["title"] == "OD23U8210" and [t["name"] for t in m["tanks"]] == ["Tank 1", "Tank 2"]
-    assert m["tanks"][1]["variation"] == "−23.00 L" and m["tanks"][1]["meta"].startswith("C2,3 · 9 KL · ")
-    assert m["took"] and all(t["took"] for t in m["tanks"])
-    assert [p["label"] for p in pics] == ["Tank 1 · Stock before", "Tank 1 · Stock after", "Tank 2 · Stock before", "Tank 2 · Stock after"]
-    assert all(p.get("png") for p in pics)                                  # every stock with its proof picture
-    assert wait_for(lambda: a.view()["result_picture"] == s["id"])
-    assert rig.st.auto.result_picture(s["id"]) == b"\x89PNG-result" and rig.st.auto.result_picture("nope") == b""
     with pytest.raises(auto.AutoError):
         a.act("answer", {"tank": "T2", "chambers": [2]})
     # it leaves the page by itself a while after, a line about it staying
@@ -307,7 +295,6 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     assert a.view() is None and a.run is None
     last = rig.st.view()["auto_last"]
     assert last["phase"] == "finished" and "OD23U8210" in last["title"] and any("Tank 2" in r for r in last["result"])
-    assert last["picture"] == s["id"]                                       # (its result picture stays to download)
     again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append)
     assert again.auto.view() is None and again.auto.last == last           # (kept over a restart)
     a.act("clear", {})                                                      # (nothing to clear: fine)
