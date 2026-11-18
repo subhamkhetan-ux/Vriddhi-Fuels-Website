@@ -467,6 +467,36 @@ ${T(w - pad, h - 40, `Page ${i + 1} of ${pages}`, { size: 15, weight: 700, fill:
   });
 }
 
+// A bulk customer's lifting pace: this month from the 1st to today against
+// last month from the 1st to the same date — litres only.
+function paceBlock(x, y, w, pace) {
+  const mon = (iso) => `${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+  const span = (r) => `${Number(r.from.slice(8, 10))}–${Number(r.to.slice(8, 10))} ${MON[Number(r.to.slice(5, 7)) - 1]}`;
+  const max = Math.max(1, pace.cur.qty, pace.prev.qty);
+  const h = 236;
+  let out = `${R(x, y, w, h, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 })}
+${T(x + 28, y + 42, 'LIFTING PACE', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+${T(x + 28 + textWidth('LIFTING PACE', 16, 700) + 30, y + 42, `1st to the ${ordinal(pace.day)} of the month · litres`, { size: 16, fill: C.faint })}`;
+  let tag;
+  let tagColor;
+  if (pace.change == null) { tag = pace.cur.qty ? 'none last month' : ''; tagColor = C.muted; } else {
+    const pct = Math.round(Math.abs(pace.change) * 100);
+    if (pct === 0) { tag = 'same pace'; tagColor = C.muted; } else if (pace.change > 0) { tag = `▲ ${pct}% more`; tagColor = C.good; } else { tag = `▼ ${pct}% less`; tagColor = C.bad; }
+  }
+  if (tag) out += T(x + w - 28, y + 42, tag, { size: 22, weight: 800, anchor: 'end', fill: tagColor });
+  const barX = x + 260;
+  const barW = w - 260 - 260;
+  [[pace.cur, mon(pace.cur.from), C.amber, true], [pace.prev, mon(pace.prev.from), C.muted, false]].forEach(([r, label, color, now], i) => {
+    const yy = y + 102 + i * 72;
+    out += `${T(x + 28, yy, label, { size: 22, weight: now ? 800 : 700, fill: now ? C.ink : C.muted })}
+${T(x + 28, yy + 26, span(r), { size: 15, fill: C.faint })}
+${R(barX, yy - 12, barW, 12, { rx: 6, opacity: 0.08 })}${r.qty ? R(barX, yy - 12, Math.max(6, barW * (r.qty / max)), 12, { rx: 6, fill: color, opacity: now ? 0.95 : 0.6 }) : ''}
+${T(x + w - 28, yy, qtyText(r.qty) || '0 L', { size: now ? 26 : 22, weight: 800, anchor: 'end', fill: now ? C.ink : C.muted })}`;
+  });
+  return { svg: out, height: h };
+}
+const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
+
 // ---- one customer's outstanding card -------------------------------------------------
 // card: { name, kind: 'bulk'|'retail', balance, asOn, since, billed, received,
 //         deductions, qty, bills, payments, lastPayment {date, amount, count} (that
@@ -494,17 +524,28 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
   if (card.billed != null) facts.push(['Billed', `${rupees(card.billed)}${card.qty ? `  ·  ${qtyText(card.qty)}` : ''}`]);
   if (card.received != null) facts.push(['Received', rupees(card.received)]);
   if (card.deductions) facts.push(['TDS & shortage', rupees(card.deductions)]);
+  // retail: the part of the balance owed from before this month
+  if (card.pendingBefore) {
+    const p = card.pendingBefore;
+    const label = p.before.endsWith('-01') ? 'Pending from previous months' : `Pending from before ${dMon(p.before)}`;
+    facts.push([label, p.amount ? rupees(p.amount) : 'Cleared', p.amount ? C.warn : C.good]);
+  }
   if (card.lastPayment) facts.push(['Last payment', lastPaymentText(card.lastPayment)]);
   if (card.lastBill) facts.push(['Last bill', dMonY(card.lastBill)]);
   if (facts.length) {
     const fh = facts.length * 54 + 22;
     out += R(pad, y, w - 2 * pad, fh, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 });
-    facts.forEach(([k, v], i) => {
+    facts.forEach(([k, v, color], i) => {
       const yy = y + 46 + i * 54;
-      out += `${T(pad + 28, yy, k, { size: 19, fill: C.muted })}${T(w - pad - 28, yy, v, { size: 21, weight: 700, anchor: 'end', max: w - 2 * pad - 280 })}`;
+      out += `${T(pad + 28, yy, k, { size: 19, fill: color ? C.ink : C.muted, weight: color ? 700 : 400 })}${T(w - pad - 28, yy, v, { size: color ? 23 : 21, weight: color ? 800 : 700, anchor: 'end', max: w - 2 * pad - 340, fill: color || C.ink })}`;
       if (i < facts.length - 1) out += R(pad + 28, yy + 20, w - 2 * pad - 56, 1, { opacity: 0.07 });
     });
     y += fh + 30;
+  }
+  if (card.pace && (card.pace.cur.qty || card.pace.prev.qty)) {
+    const pb = paceBlock(pad, y, w - 2 * pad, card.pace);
+    out += pb.svg;
+    y += pb.height + 30;
   }
   if (card.companies) {
     const cb = companiesBlock(pad, y, w - 2 * pad, card.companies);

@@ -202,7 +202,12 @@ customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
 - **Share ledger**: the statement as A4-shaped pictures (as many pages as it
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
-  billed, received, last payment (that day's total), the **PO-wise
+  billed, received, last payment (that day's total); for a retail customer
+  **Pending from previous months** — the balance on the 1st less everything
+  received since (oldest dues clear first; *Cleared* when nothing is left);
+  for a bulk customer the **lifting pace** — litres from the 1st to today
+  against the 1st to the same date last month, with the change (also on each
+  unit's and each company's card); the **PO-wise
   outstanding** and the **pending bills** of a bulk customer — and, for a
   group, every company — then, at the bottom, **recent payments** (the last
   three payment days: each day's total and, under it, every payment — firm
