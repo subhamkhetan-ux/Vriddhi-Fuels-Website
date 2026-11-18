@@ -591,6 +591,7 @@
         const done = { finished: "finished ✓", cancelled: "cancelled", released: "handed over to the decant app", failed: "didn't start" }[prev.phase] || prev.phase;
         box.appendChild(el("div", "lastline", `Last: ${prev.title} · ${done} ${when(prev.at)}`
           + `${(prev.result || []).length ? ` · ${prev.result.map((r) => r.replace(/^(Tank \d+):.*variation ([^ ]+ L) \(([^)]*)\)$/, "$1 $2 ($3)")).join(", ")}` : ""}`));
+        if (prev.phase === "finished" && prev.picture) box.appendChild(resultLinks(prev.picture, ...String(prev.title || "").split(" · ")));
       }
       return;
     }
@@ -903,12 +904,35 @@
       for (const line of a.result) ul.appendChild(el("li", "", line));
       box.appendChild(ul);
     }
+    if (ok) box.appendChild(resultLinks(a.result_picture, a.tt_no || "", a.invoice_no || ""));
     const row = el("div", "row");
     const c = el("button", "up", "Clear now");
     c.addEventListener("click", () => autoAct("clear"));
     row.appendChild(c);
     if (a.clears_in_s != null) row.appendChild(el("span", "note", `Leaves this page by itself in ${Math.max(1, Math.ceil(a.clears_in_s / 60))} min`));
     box.appendChild(row);
+    return box;
+  }
+
+  // The decanting result picture (the decant app's, drawn on the server when it
+  // finished and sent on Telegram): open it, or save it to the phone.
+  function resultLinks(id, ...name) {
+    const box = el("div", "pf ok");
+    if (!id) {
+      box.className = "pf mid";
+      box.textContent = "Drawing the result picture (it comes on Telegram too)…";
+      return box;
+    }
+    const file = ["Decanting result", ...name.filter(Boolean)].join(" ");
+    const src = `api/auto/result?id=${encodeURIComponent(id)}&name=${encodeURIComponent(file)}`;
+    const open = el("a", "", "📊 Result picture");
+    open.href = src;
+    open.target = "_blank";
+    open.rel = "noopener";
+    const save = el("a", "save", "Save");
+    save.href = src;
+    save.download = `${file}.png`;
+    box.append(open, save);
     return box;
   }
 

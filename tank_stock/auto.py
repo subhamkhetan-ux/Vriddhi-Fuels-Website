@@ -49,6 +49,7 @@ import time
 import traceback
 
 from . import decantation as dz
+from . import resultimg
 
 AUTO_FILE = "decantation.json"
 ACTIVE = ("starting", "running", "paused")
@@ -65,6 +66,8 @@ PROBE_STALE_S = 180        # a planned tank whose card's clock hasn't moved this
 PROBE_START_WAIT = 75      # seconds for each planned tank's clock to move before the stock before
 PROOF_DIR = "auto-proof"   # each run's stock before / after pictures, per tank
 PROOF_RUNS_KEPT = 10       # runs whose pictures stay on the server
+RESULT_DIR = "auto-result" # each finished run's result picture (the decant app's), for the page
+RESULTS_KEPT = 20          # result pictures that stay on the server (about 1 MB each)
 PROOF_RETRY_S = 60         # a picture the decant app didn't take: try again this often
 CLEAR_AFTER_S = 15 * 60    # a finished (cancelled, handed over) decantation leaves the page this long after
 CLOCK_JUMP_S = 60           # the wall clock moved this much more (or less) than real time between two reads
@@ -143,7 +146,7 @@ class AutoDecant:
         """Off the page (under the lock), leaving a line about it."""
         if self.info.get("phase"):
             self.last = {"title": self._title(), "phase": self.phase, "at": self.info.get("at"),
-                         "result": self.info.get("result") or []}
+                         "result": self.info.get("result") or [], "picture": self.info.get("result_picture")}
         self.run, self.info = None, {}
         self._persist()
 
@@ -905,6 +908,7 @@ class AutoDecant:
                 self.info["ack_told"] = True
                 self._tell(self._ack_text())             # (on its own, to copy and send)
             self._send_sheet()
+            self._send_result()
             self._stop_live_if_ours()
         else:
             why = self.info.get("cloud_error") or "it couldn't be reached"
@@ -1089,6 +1093,80 @@ class AutoDecant:
             self.st.notify_photo(sheet, f"Stock before | after: {self._title()}")
         except Exception:  # noqa: BLE001 - a nice-to-have
             traceback.print_exc()
+
+    def _send_result(self) -> None:
+        """The decant app's result picture of this decantation, drawn here: to
+        the bot, and kept for the page's "Result picture". Drawn in the
+        background (some seconds), never in the way of ending the run."""
+        try:
+            s = copy.deepcopy(self.run.s)
+            names = {t["id"]: f"Tank {t['no']}" for t in self.run.settings.get("tanks") or [] if t.get("id")}
+            pics = resultimg.proofs(s, names, self.proof_picture)
+            title = self._title()
+        except Exception:  # noqa: BLE001 - a nice-to-have
+            traceback.print_exc()
+            return
+        threading.Thread(target=self._result_job, args=(s, names, pics, title), daemon=True,
+                         name="result-picture").start()
+
+    def _result_job(self, s: dict, names: dict, pics: list, title: str) -> None:
+        try:
+            chart = None
+            try:
+                chart = (self.st.decant.settings() or {}).get("chart")
+            except Exception:  # noqa: BLE001 - the app's chart, else its built-in one
+                pass
+            if not chart:
+                try:
+                    chart = self.st.decant.dip_chart()
+                except Exception:  # noqa: BLE001
+                    chart = None
+            png = resultimg.render(resultimg.model(s, names, chart), pics)
+        except Exception as exc:  # noqa: BLE001 - the decant app has the result all the same
+            print(f"result picture of {title}: {exc}", flush=True)
+            return
+        path = self._result_path(s.get("id"))
+        if path:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(png)
+                self._prune_results()
+                with self.lock:
+                    if self.info and (self.run is None or self.run.s.get("id") == s.get("id")):
+                        self.info["result_picture"] = s.get("id")
+                        self._persist()
+                    elif (self.last or {}).get("title") == title:
+                        self.last["picture"] = s.get("id")
+            except OSError:
+                traceback.print_exc()
+        try:
+            self.st.notify_photo(png, f"📊 Decanting result: {title}")
+        except Exception:  # noqa: BLE001 - a nice-to-have
+            traceback.print_exc()
+
+    def _result_path(self, session_id):
+        sid = "".join(ch for ch in str(session_id or "") if ch.isalnum() or ch in "-_")
+        return self.st.home / RESULT_DIR / f"{sid}.png" if sid else None
+
+    def result_picture(self, session_id: str) -> bytes:
+        """For the page: a finished decantation's result picture (b"" if none)."""
+        path = self._result_path(session_id)
+        try:
+            return path.read_bytes() if path else b""
+        except OSError:
+            return b""
+
+    def _prune_results(self) -> None:
+        root = self.st.home / RESULT_DIR
+        try:
+            pics = sorted(root.glob("*.png"), key=lambda p: p.stat().st_mtime)
+        except OSError:
+            return
+        for old in pics[:-RESULTS_KEPT]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
 
     def _prune_proofs(self) -> None:
         import shutil
