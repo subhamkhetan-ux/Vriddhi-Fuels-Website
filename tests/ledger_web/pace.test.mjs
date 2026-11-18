@@ -43,3 +43,14 @@ test('liftingPaces by % change: new lifting first, then the biggest rise', () =>
   const p = liftingPaces(data, '2026-11-18', { sort: 'pct' });
   assert.deepEqual(p.list.map((e) => e.name), ['New Movers', 'Alpha Transport', 'Steel One Ltd', 'Beta Roadways', 'Gone Carriers']);
 });
+
+test('paceListSvg: the list as shown, with the totals and each change', async () => {
+  const { paceListSvg } = await import('../../ledger/js/share-svg.js');
+  const pace = liftingPaces(data, '2026-11-18');
+  const { svg, size } = paceListSvg({ pace, label: '', sortLabel: 'by litres gained', asOn: '2026-11-18' });
+  for (const t of ['Lifting pace', 'Steel One Ltd', '7,000 L', 'vs 5,000 L', '+2,000 L', '▲ 40%', 'Beta Roadways', '▼ 50%', 'none last month', '1–18 Nov', '1–18 Oct', '9,000 L', '7,100 L', '▲ 27%']) assert.ok(svg.includes(t), t);
+  assert.ok(svg.indexOf('Steel One Ltd') < svg.indexOf('Gone Carriers'));
+  assert.equal(size.width, 1080);
+  const bulk = paceListSvg({ pace: { ...pace, list: pace.list.filter((e) => e.kind === 'bulk') }, label: 'Bulk', asOn: '2026-11-18' }).svg;
+  assert.ok(bulk.includes('Lifting pace · Bulk') && !bulk.includes('Alpha Transport'));
+});
