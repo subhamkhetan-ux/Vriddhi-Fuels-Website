@@ -10,7 +10,7 @@ import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
 import { analyse, dateRange, daysBetween, dayRsp, FUELS, liftingPaces, periods, PRODUCT_NAME, shortGroup } from './dash.js';
-import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods } from './scpl.js';
+import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods, billMonths, tagBill, tagFileName, plateKey, setupOf } from './scpl.js';
 import { MIN_PASSWORD, passwordError, passwordProblem } from './password.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
 import { dmy as dmyLetter, LETTER_PAGE, LETTER_PRODUCTS, letterDocx, letterSvg, letterText, price2, priceRanges } from './price-letter.js';
@@ -343,6 +343,7 @@ const ROUTES = [
   [/^#\/quotes(?:\/(pi|log|cn|cnlog|letter|bank))?$/, (m) => viewQuotes(m[1] || '')],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/scpl$/, () => viewScpl()],
+  [/^#\/tagbill$/, () => viewTagBill()],
   [/^#\/payments$/, () => viewPayments()],
   [/^#\/payments\/modes$/, () => viewPaymentModes()],
   [/^#\/loans$/, () => viewLoans()],
@@ -3160,6 +3161,11 @@ async function viewStatements() {
       <p><a class="btn" href="#/scpl">Make the SCPL bill</a></p>
     </section>
     <section class="card">
+      <h2>Customer bills — split by vehicle</h2>
+      <p class="muted">Any customer's bills as one PDF in the SCPL bill's layout — a page per vehicle tag (Shivaay Logistics: JSW, 700 Acre, …) or one page; monthly or every 10 days; HSD, MS or XtraGreen. Set a customer up once and the app remembers it.</p>
+      <p><a class="btn" href="#/tagbill">Make customer bills</a></p>
+    </section>
+    <section class="card">
       <h2>Stamp on the statements</h2>
       ${stampRow(stamp, 'st-stamp-file', 'st-stamp-remove', 'statements')}
     </section>`);
@@ -3285,6 +3291,167 @@ async function viewScpl() {
   run('scpl-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
   run('scpl-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
   run('scpl-print', async () => printPages(shown, A4));
+}
+
+// ---- customer bills, split by vehicle tag (Shivaay Logistics: JSW, 700 Acre, …) ----
+// Any customer gets a bill setup, saved once (setting bill_setups): split by
+// vehicle tag or one page, whole month or 10 days, which products, Bill To.
+// The bill: one PDF, a page per tag, in the SCPL bill's layout.
+const TAG_DEFAULT_CUSTOMER = 'Shivaay Logistics';
+const TAG_PRODUCTS = [['HSD', 'HSD'], ['MS', 'MS (petrol)'], ['XG', 'XtraGreen']];
+async function viewTagBill() {
+  const today = localToday();
+  const S = state.tagBill || (state.tagBill = { from: '', to: '', mode: '', customer: '', picked: {}, draft: null });
+  const [saved, customers, savedBank] = await Promise.all([state.store.setting('bill_setups').catch(() => undefined),
+    state.store.customers(), state.store.setting('bank_details').catch(() => null)]);
+  const bank = cleanBank({ ...BANK_DEFAULT, ...(savedBank && savedBank.details ? savedBank.details : {}) });
+  const all = (saved && saved.customers) || {};
+  const norm = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  // the customer: set up ones first, then everyone with a ledger or bills
+  const setUp = customers.filter((c) => all[norm(c.name)]).map((c) => c.name).sort((a, b) => a.localeCompare(b));
+  const others = customers.filter((c) => !all[norm(c.name)] && !c.archived && (c.bills || c.ledger)).map((c) => c.name).sort((a, b) => a.localeCompare(b));
+  const names = [...setUp, ...others];
+  const pick = (n) => names.find((x) => norm(x) === norm(n));
+  const customer = (S.customer && pick(S.customer)) || pick(TAG_DEFAULT_CUSTOMER) || setUp[0] || names[0] || TAG_DEFAULT_CUSTOMER;
+  const savedSetup = setupOf(all[norm(customer)]);
+  if (!S.draft || S.draft.customer !== norm(customer)) S.draft = { customer: norm(customer), setup: setupOf(all[norm(customer)]) };
+  const setup = S.draft.setup;
+  const changed = !all[norm(customer)] || JSON.stringify(setup) !== JSON.stringify(savedSetup);
+  // the period: the setup's kind; the last whole one by default
+  const months = billMonths(today);
+  const tens = scplPeriods(today);
+  const list = setup.period === '10day' ? tens : months;
+  if (S.mode !== `${norm(customer)}|${setup.period}` || !S.from) {
+    S.mode = `${norm(customer)}|${setup.period}`;
+    const d = setup.period === '10day' ? scplDefaultRange(today) : months[1];
+    S.from = d.from; S.to = d.to; S.picked = {};
+  }
+  const sales = await state.store.salesRange(S.from, S.to);
+  const bill = tagBill(sales, { customer, from: S.from, to: S.to, setup, picked: S.picked });
+  const known = [...new Set([...Object.values(setup.tags), ...bill.vehicles.map((v) => v.auto)].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const c = customers.find((x) => norm(x.name) === norm(customer));
+  const sheet = { name: (c && (c.title || c.name)) || customer, address: String((c && c.bill_address) || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean), gstin: (c && c.gstin) || '' };
+  const own = setup.billTo || {};
+  const billTo = { name: own.name || sheet.name, address: own.address && own.address.length ? own.address : sheet.address, gstin: own.gstin || sheet.gstin };
+  const name = tagFileName(customer, S.from, S.to);
+  const ready = bill.count && !bill.unread.length && !changed;
+  const periodKey = `${S.from}|${S.to}`;
+  const inList = list.some((m) => `${m.from}|${m.to}` === periodKey);
+  const L = (n) => `${fmtLitres(n)} L`;
+  const monthLong = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const radio = (nm, val, label, on) => `<label class="inline-label"><input type="radio" name="${nm}" value="${val}"${on ? ' checked' : ''}> ${label}</label>`;
+  setMain(`
+    <section class="card">
+      <div class="row-between"><h2>Customer bills</h2><a class="btn ghost small" href="#/statements">← Statements</a></div>
+      <p class="muted small">Any customer's bills as one PDF in the SCPL bill's layout — split into a page per <b>tag</b> (Shivaay Logistics: JSW, 700 Acre, …) or on one page. Set a customer up once; the app remembers it.</p>
+      <form class="row-form" id="tag-form" autocomplete="off">
+        <label>Customer <select name="customer">
+          ${setUp.length ? `<optgroup label="Set up">${setUp.map((n) => `<option${n === customer ? ' selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>` : ''}
+          <optgroup label="${setUp.length ? 'Others' : 'Customers'}">${others.map((n) => `<option${n === customer ? ' selected' : ''}>${esc(n)}</option>`).join('')}</optgroup></select></label>
+        <label>${setup.period === '10day' ? 'Period' : 'Month'} <select name="period">
+          ${list.map((m, i) => `<option value="${m.from}|${m.to}"${periodKey === `${m.from}|${m.to}` ? ' selected' : ''}>${setup.period === '10day' ? `${esc(fmtDate(m.from))} – ${esc(fmtDate(m.to))}` : `${esc(monthLong(m.month))}${i === 0 ? ' (to date)' : ''}`}</option>`).join('')}
+          <option value="custom"${inList ? '' : ' selected'}>From – to…</option></select></label>
+        ${inList ? '' : `<label>From <input type="date" name="from" value="${S.from}"></label><label>To <input type="date" name="to" value="${S.to}"></label>`}
+      </form>
+      ${saved === undefined ? '<p class="warn-text small">Saving a setup needs the database updated: run <b>supabase/ledger-schema.sql</b> once.</p>' : ''}
+      <details class="bill-setup"${all[norm(customer)] && !changed ? '' : ' open'}><summary><b>Bill setup for ${esc(customer)}</b> <span class="muted small">${all[norm(customer)] ? `${setup.split === 'tag' ? 'a page per vehicle tag' : 'one page'} · ${setup.period === '10day' ? 'every 10 days' : 'monthly'} · ${setup.products.map((x) => TAG_PRODUCTS.find((t) => t[0] === x)[1]).join(', ')}` : 'not set up yet'}</span></summary>
+        <div class="setup-grid" id="tag-setup">
+          <fieldset><legend>Split</legend>${radio('split', 'tag', 'A page per vehicle tag', setup.split === 'tag')}${radio('split', 'none', 'One page, no split', setup.split === 'none')}</fieldset>
+          <fieldset><legend>Period</legend>${radio('periodKind', 'month', 'Whole month', setup.period === 'month')}${radio('periodKind', '10day', '10 days (1–10, 11–20, 21–end)', setup.period === '10day')}</fieldset>
+          <fieldset><legend>Products</legend>${TAG_PRODUCTS.map(([k, label]) => `<label class="inline-label"><input type="checkbox" name="product" value="${k}"${setup.products.includes(k) ? ' checked' : ''}> ${label}</label>`).join('')}</fieldset>
+          <fieldset class="wide"><legend>Bill To <span class="muted small">— blank: as on the customer's sheet</span></legend>
+            <label>Name <input name="btName" value="${esc(own.name || '')}" placeholder="${esc(sheet.name)}"></label>
+            <label>Address <textarea name="btAddress" rows="2" placeholder="${esc(sheet.address.join('\n') || 'not on the sheet')}">${esc((own.address || []).join('\n'))}</textarea></label>
+            <label>GSTIN <input name="btGstin" value="${esc(own.gstin || '')}" placeholder="${esc(sheet.gstin || 'not on the sheet')}" autocapitalize="characters"></label></fieldset>
+        </div>
+      </details>
+      ${!bill.vehicles.length && !bill.unread.length && !bill.count ? `<p class="muted">No ${esc(setup.products.join(' / '))} bills for ${esc(customer)} from ${esc(fmtDate(S.from))} to ${esc(fmtDate(S.to))}.</p>` : ''}
+      ${setup.split === 'tag' && bill.vehicles.length ? `<h3 class="sub-h">Vehicles <span class="muted small">· a tag for each (the same tag puts them on the same page)${bill.vehicles.some((v) => v.auto) ? ' · <i>auto</i>: the Vehicle column already says it' : ''}</span></h3>
+        <datalist id="tag-list">${known.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
+        <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle no.</th><th class="r">Bills</th><th class="r">Litres</th><th>Tag</th></tr></thead><tbody>
+        ${bill.vehicles.map((v) => `<tr${setup.tags[v.key] || v.auto ? '' : ' class="warn-row"'}><td class="nowrap"><b>${esc(v.vehicle)}</b></td><td class="r">${v.bills}</td><td class="r">${esc(fmtLitres(v.qty))}</td>
+          <td><input class="tag-in" list="tag-list" data-tag="${esc(v.key)}" value="${esc(setup.tags[v.key] || '')}" placeholder="${v.auto ? esc(`auto: ${v.auto}`) : 'e.g. JSW'}" aria-label="Tag for ${esc(v.vehicle)}"></td></tr>`).join('')}
+        </tbody></table></div>` : ''}
+      <p class="actions"><button class="btn${changed ? '' : ' ghost'}" id="tag-save"${changed && saved !== undefined ? '' : ' disabled'}>${all[norm(customer)] ? 'Save setup' : 'Save this setup'}</button>
+        ${changed && all[norm(customer)] ? '<button class="btn ghost" id="tag-undo">Undo changes</button>' : ''}${changed ? '<span class="warn-text small">Save the setup to make the bill.</span>' : ''}</p>
+      ${bill.unread.length ? `<div class="warn-box"><p><b>${plural(bill.unread.length, 'bill')} without a tag</b>${bill.unread.some((r) => !plateKey(r.vehicle)) ? ' (some have no vehicle no.)' : ''} — tag the vehicle above, or put each bill on a page here (for this bill only):</p>
+        <div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Bill</th><th>Vehicle</th><th class="r">Litres</th><th>Put it in</th></tr></thead><tbody>
+        ${bill.unread.map((r) => `<tr><td>${esc(fmtDate(r.date))}</td><td>${esc(r.bill_no)}</td><td>${esc(r.vehicle || '(blank)')}</td><td class="r">${esc(fmtLitres(r.qty))}</td>
+          <td><select data-pick="${r.id}"><option value="">Choose…</option>${known.map((t) => `<option>${esc(t)}</option>`).join('')}<option value="skip">Leave out</option></select></td></tr>`).join('')}
+        </tbody></table></div></div>` : ''}
+      ${Object.keys(S.picked).length ? `<p class="muted small">${plural(Object.keys(S.picked).length, 'bill')} put on a page by hand${bill.skipped ? ` (${bill.skipped} left out)` : ''} · <a href="#" id="tag-unpick">undo</a></p>` : ''}
+      ${bill.pages.length ? `<div class="kpis">${bill.pages.map((p, i) => `<div class="kpi${i ? '' : ' hero'}"><span class="lbl">${esc([p.cat, setup.products.length > 1 ? p.product : ''].filter(Boolean).join(' · ') || 'All bills')}</span><span class="val">${esc(rupees(p.amount))}</span><span class="sub">${plural(p.rows.length, 'bill')} · ${esc(L(p.qty))}</span></div>`).join('')}</div>` : ''}
+      <p class="actions"><button class="btn" id="tag-pdf"${ready ? '' : ' disabled'}>Download PDF</button>
+        <button class="btn ghost" id="tag-share"${ready ? '' : ' disabled'}>Share</button>
+        ${cannotPrint() ? '' : `<button class="btn ghost" id="tag-print"${ready ? '' : ' disabled'}>Print</button>`}</p>
+      <p class="muted small">${esc(name)}.pdf · Bill To: <b>${esc(billTo.name)}</b>${billTo.address.length ? `, ${esc(billTo.address.join(', '))}` : ''}${billTo.gstin ? ` · GSTIN ${esc(billTo.gstin)}` : ' · <span class="warn-text">no GSTIN — add it in the setup</span>'} · payment details: <b>${esc(bank.bank)}</b> a/c ${esc(bank.account)} (<a href="#/quotes/bank">Bank Details</a>).</p>
+    </section>
+    <section class="scpl-pages" id="tag-pages">${ready ? loadingHtml('Drawing the bill…') : ''}</section>`);
+  const redraw = () => guard(viewTagBill);
+  document.getElementById('tag-form').addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.name === 'period') {
+      if (t.value === 'custom') {
+        const wrap = document.createElement('span');
+        wrap.innerHTML = `<label>From <input type="date" name="from" value="${S.from}"></label> <label>To <input type="date" name="to" value="${S.to}"></label>`;
+        t.closest('label').after(wrap);
+        return;
+      }
+      [S.from, S.to] = t.value.split('|');
+    } else if (t.name === 'from' || t.name === 'to') {
+      S[t.name] = t.value;
+      if (S.to < S.from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    } else if (t.name === 'customer') { S.customer = t.value; S.draft = null; S.from = ''; }
+    S.picked = {};
+    redraw();
+  });
+  // the setup: kept in the draft until saved
+  document.getElementById('tag-setup').addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.name === 'split') setup.split = t.value;
+    else if (t.name === 'periodKind') setup.period = t.value;
+    else if (t.name === 'product') {
+      const on = [...document.querySelectorAll('#tag-setup [name=product]:checked')].map((x) => x.value);
+      if (!on.length) { t.checked = true; toast('Keep at least one product.', 'bad'); return; }
+      setup.products = TAG_PRODUCTS.map((x) => x[0]).filter((k) => on.includes(k));
+    } else if (t.name === 'btName' || t.name === 'btAddress' || t.name === 'btGstin') {
+      const f = document.getElementById('tag-setup');
+      const bt = { name: f.querySelector('[name=btName]').value.trim(), address: f.querySelector('[name=btAddress]').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean), gstin: f.querySelector('[name=btGstin]').value.trim().toUpperCase() };
+      setup.billTo = bt.name || bt.address.length || bt.gstin ? bt : null;
+    } else return;
+    S.picked = {};
+    redraw();
+  });
+  document.querySelectorAll('[data-tag]').forEach((inp) => inp.addEventListener('change', () => {
+    const v = inp.value.trim().replace(/\s+/g, ' ');
+    if (v) setup.tags[inp.dataset.tag] = v; else delete setup.tags[inp.dataset.tag];
+    redraw();
+  }));
+  document.getElementById('tag-undo')?.addEventListener('click', () => { S.draft = null; S.from = ''; redraw(); });
+  document.getElementById('tag-save')?.addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    await state.store.setSetting('bill_setups', { customers: { ...all, [norm(customer)]: setupOf(setup) }, saved_at: new Date().toISOString(), by: state.me ? state.me.email : '' });
+    toast(`Bill setup for ${customer} saved`);
+    await viewTagBill();
+  }));
+  document.querySelectorAll('[data-pick]').forEach((sel) => sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    S.picked[sel.dataset.pick] = sel.value;
+    redraw();
+  }));
+  document.getElementById('tag-unpick')?.addEventListener('click', (e) => { e.preventDefault(); S.picked = {}; redraw(); });
+  if (!ready) return;
+  const fontCss = await scplFonts();
+  const shown = scplBillSvg(bill, { images: { letterhead: IMAGES.letterhead, stamp: IMAGES.stamp }, fontCss, bank, billTo });
+  document.getElementById('tag-pages').innerHTML = shown.map((svg) => `<div class="doc-page">${svg}</div>`).join('');
+  const pdfBlob = async () => {
+    const images = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
+    return pdfFromSvgs(scplBillSvg(bill, { images, fontCss, bank, billTo }), SCPL_PAGE, { scale: 3 });
+  };
+  const run = (id, fn) => { const b = document.getElementById(id); b?.addEventListener('click', () => guard(async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } })); };
+  run('tag-pdf', async () => { download(await pdfBlob(), `${name}.pdf`); toast(`Saved ${name}.pdf`); });
+  run('tag-share', async () => shareOrSave([new File([await pdfBlob()], `${name}.pdf`, { type: 'application/pdf' })], `${name}.pdf`));
+  run('tag-print', async () => printPages(shown, A4));
 }
 
 // The Web Share API needs the files ready before the click, so the pictures

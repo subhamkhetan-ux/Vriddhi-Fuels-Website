@@ -563,7 +563,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp', 'mac_uploads', 'bank_details'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp', 'cn_stamp', 'letter_stamp', 'mac_uploads', 'bank_details', 'bill_setups'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 

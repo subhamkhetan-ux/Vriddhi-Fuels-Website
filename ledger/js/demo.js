@@ -105,6 +105,15 @@ export function demoSeed(today = new Date(), workbook = null) {
     masterSales.push({ product: 'HSD', bill_no: String(n), sale_date: date, vehicle: label, qty: 1200 + (i % 4) * 150, rate: 89.7, amount: Math.round((1200 + (i % 4) * 150) * 89.7 * 100) / 100, customer: 'Demo Carriers Pvt Ltd' });
     if (i % 3 === 0) masterSales.push({ product: 'HSD', bill_no: String(n + 1), sale_date: date, vehicle: 'Consumer', qty: 250 + (i % 5) * 20, rate: 89.7, amount: Math.round((250 + (i % 5) * 20) * 89.7 * 100) / 100, customer: 'Demo Carriers Pvt Ltd' });
   }
+  // a customer billed per site by vehicle (Statements → Split bills by
+  // vehicle): three vehicles over the last 40 days, one bill with no vehicle no.
+  // — fixed numbers, so the rest of the demo stays as it was
+  const SITES = ['OD15AA1111', 'OD15AA1111', 'OD02BB2222', 'OD23CC3333'];
+  for (let i = 40; i >= 2; i -= 3) {
+    const v = SITES[i % 4];
+    const qty = 1500 + (i % 5) * 100;
+    masterSales.push({ product: 'HSD', bill_no: `L${700 + i}`, sale_date: isoDay(today, -i), vehicle: i === 13 ? '' : i === 16 ? 'Plant Yard' : v, qty, rate: 89.9, amount: Math.round(qty * 89.9 * 100) / 100, customer: 'Demo Logistics' });
+  }
   masterSales.forEach((s, i) => { s.seq = i + 2; });
 
   const payments = [];
@@ -141,6 +150,7 @@ export function demoSeed(today = new Date(), workbook = null) {
       { name: 'Crew Two Movers', bulk_group: 'Crew Group_Bulk' },
       { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.', layout: SHEET },
       { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.', layout: SHEET },
+      { name: 'Demo Logistics', ledger: 'Logistics', title: 'Demo Logistics', bill_address: 'Sample Depot, Testpur.', gstin: '21AAAFD0000L1Z5', layout: SHEET },
       { name: 'Demo Carriers Pvt Ltd', ledger: 'Carriers', title: 'Demo Carriers Pvt Ltd', bill_address: 'Sample Yard.', layout: SHEET },
       { name: 'Advance Movers', ledger: 'Advance', title: 'Advance Movers', bill_address: 'Sample Road.', layout: SHEET },
     ],

@@ -155,10 +155,100 @@ export function indian(n) {
 export const numStr = (v) => (Number.isInteger(v) ? String(v) : String(round2(v)));
 export const ddmmyy = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
 export const ddmmyyyy = (d) => `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
+// ---- customer bills, split by vehicle tag (Statements → Customer bills) -------------
+// Any customer, set up once and saved (setting bill_setups):
+//   split    'tag'  — a page per tag (Shivaay Logistics: JSW, 700 Acre, …): each
+//                     vehicle no. is tagged once; a Vehicle column that holds a
+//                     word rather than a vehicle no. ("Transporting", "JSW")
+//                     is its own tag without asking (auto)
+//            'none' — one page with every bill
+//   period   'month' (default) | '10day' (1–10, 11–20, 21–end, as SCPL)
+//   products ['HSD'] (default) — with more than one, a page per tag and product
+//   billTo   {name, address: [..], gstin} — over what the customer's sheet has
+// A bill with no tag (or no vehicle no.) gets one by hand, or is left out.
+export const plateKey = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// an Indian vehicle no. (OD15AF5510, OD2U755, 22BH1234AA) rather than a word
+export const isVehicleNo = (v) => /^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{1,4}$/.test(plateKey(v)) || /^\d{2}BH\d{4}[A-Z]{1,2}$/.test(plateKey(v));
+// a word typed where the vehicle no. goes, as a tag: trimmed, one space
+const autoTag = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+export const SETUP_DEFAULT = { split: 'tag', period: 'month', products: ['HSD'], tags: {}, billTo: null };
+export const setupOf = (saved) => ({ ...SETUP_DEFAULT, ...(saved || {}), tags: { ...((saved && saved.tags) || {}) }, products: (saved && saved.products && saved.products.length) ? [...saved.products] : ['HSD'] });
+
+const PRODUCT_TITLE = { HSD: 'HSD', MS: 'MS', XG: 'XtraGreen' };
+// setup: setupOf(); picked: {saleId: tag | 'skip'}
+// -> { customer, from, to, pages: [{cat, product, byTag, rows, qty, amount}],
+//      vehicles: [{key, vehicle, bills, qty, tag, auto}] (most litres first),
+//      unread, skipped, count, guessed: [] }
+export function tagBill(sales, { customer, from, to, setup = SETUP_DEFAULT, tags = null, picked = {} } = {}) {
+  const st = setupOf(tags ? { ...setup, tags } : setup);
+  const who = norm(customer);
+  const prods = st.products;
+  const mine = (sales || []).filter((x) => prods.includes(x.product) && norm(x.customer) === who && x.sale_date >= from && x.sale_date <= to);
+  const by = new Map();
+  const veh = new Map();
+  const unread = [];
+  let skipped = 0;
+  for (const x of mine) {
+    const key = plateKey(x.vehicle);
+    const auto = key && !isVehicleNo(x.vehicle) ? autoTag(x.vehicle) : '';
+    const row = { id: x.id, date: x.sale_date, bill_no: x.bill_no, product: x.product, vehicle: String(x.vehicle ?? '').trim(), qty: Number(x.qty) || 0, rate: Number(x.rate) || 0, amount: Number(x.amount) || 0 };
+    if (key && st.split === 'tag') {
+      if (!veh.has(key)) veh.set(key, { key, vehicle: row.vehicle, bills: 0, qty: 0, tag: st.tags[key] || '', auto });
+      const v = veh.get(key);
+      v.bills += 1;
+      v.qty = round2(v.qty + row.qty);
+    }
+    let tag = st.split === 'none' ? ' ' : (key ? st.tags[key] || auto : '');
+    if (!tag && picked[x.id]) {
+      if (picked[x.id] === 'skip') { skipped += 1; continue; }
+      tag = picked[x.id];
+    }
+    if (!tag) { unread.push(row); continue; }
+    const page = `${tag}\u0000${prods.length > 1 ? x.product : ''}`;
+    if (!by.has(page)) by.set(page, []);
+    by.get(page).push(row);
+  }
+  const order = (p) => prods.indexOf(p);
+  const pages = [...by.keys()].map((k) => k.split('\u0000')).sort((a, b) => a[0].localeCompare(b[0]) || order(a[1]) - order(b[1])).map(([tag, product]) => {
+    const rows = by.get(`${tag}\u0000${product}`).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : billCmp(a.bill_no, b.bill_no)));
+    return {
+      cat: tag.trim(), product: PRODUCT_TITLE[product || prods[0]] || product || prods[0], byTag: true, rows,
+      qty: round2(rows.reduce((a, r) => a + r.qty, 0)), amount: round2(rows.reduce((a, r) => a + r.amount, 0)),
+    };
+  });
+  return {
+    customer, from, to, pages, unread, skipped, guessed: [],
+    vehicles: [...veh.values()].sort((a, b) => b.qty - a.qty),
+    count: pages.reduce((a, p) => a + p.rows.length, 0),
+  };
+}
+
+// the months to bill: this month (to date) and the eleven before, newest first
+export function billMonths(today, count = 12) {
+  const [y, m] = today.split('-').map(Number);
+  return Array.from({ length: count }, (_, i) => {
+    const t = new Date(Date.UTC(y, m - 1 - i, 1));
+    const from = t.toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    return { from, to: i === 0 ? today : end, month: from.slice(0, 7) };
+  });
+}
+
+// "Shivaay Logistics Bill Nov 2026", or "… Bill 1-15 Nov 2026" for part of a month
+export function tagFileName(customer, from, to) {
+  const d = (x) => Number(x.slice(8, 10));
+  const mon = (x) => `${MON[Number(x.slice(5, 7)) - 1]} ${x.slice(0, 4)}`;
+  const monthEnd = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const whole = from.slice(0, 7) === to.slice(0, 7) && d(from) === 1 && to === monthEnd;
+  const span = whole ? mon(to) : from.slice(0, 7) === to.slice(0, 7) ? `${d(from)}-${d(to)} ${mon(to)}` : `${d(from)} ${MON[Number(from.slice(5, 7)) - 1]}-${d(to)} ${mon(to)}`;
+  return `${String(customer || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()} Bill ${span}`;
+}
+
 // a page's rows as the table's cells (the TOTAL row last)
 export function tableCells(page) {
   return {
-    rows: page.rows.map((r) => [ddmmyy(r.date), String(r.bill_no ?? ''), page.cat, numStr(r.qty), r.rate.toFixed(2), indian(r.amount)]),
+    rows: page.rows.map((r) => [ddmmyy(r.date), String(r.bill_no ?? ''), page.byTag ? r.vehicle : page.cat, numStr(r.qty), r.rate.toFixed(2), indian(r.amount)]),
     total: ['', '', 'TOTAL', page.qty.toFixed(2), '', `₹${indian(page.amount)}`],
   };
 }
@@ -232,10 +322,11 @@ const TABLE_TOP = 281.5;
 const FOOT_Y = 826;                                          // the footer's baseline
 const STAMP = { x: 76, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
 
-export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {} } = {}) {
+export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {}, billTo = null } = {}) {
   const P = SCPL_PAGE;
   const isScpl = norm(bill.customer) === norm(SCPL_CUSTOMER);
-  const to = isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD' };
+  // billTo: {name, address: [lines], gstin} from the customer's sheet (split bills)
+  const to = billTo ? { product: 'HSD', address: [], gstin: '', ...billTo } : isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD' };
   const payment = scplPaymentLines(bank);
   const PAY_H = 2 * 13.8 + 18.4 + payment.length * 16.1 + 8;  // two empty lines, the heading, the lines
   const aligns = ['start', 'start', 'start', 'middle', 'middle', 'end'];
@@ -271,7 +362,9 @@ export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {} } = {})
       out += `<text x="${XR + 47.5}" y="227" font-size="16" font-weight="bold">${esc(ddmmyyyy(bill.to))}</text>`;
       ly += Math.max(1, to.address.length) * 17 - 0.5;
       if (to.gstin) out += `<text x="${X}" y="${ly}" font-size="14" font-style="italic">GSTIN: ${esc(to.gstin)}</text>`;
-      out += `<text x="${XR}" y="262" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Product:</tspan> ${esc(to.product)}</text>`;
+      out += `<text x="${XR}" y="262" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Product:</tspan> ${esc(page.product || to.product)}</text>`;
+      // a split bill: which vehicles this page is for
+      if (page.byTag && page.cat) out += `<text x="${X}" y="${Math.max(262, ly + 18)}" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Vehicles:</tspan> ${esc(page.cat)}</text>`;
       if (chunks.length > 1) out += `<text x="${X + COLS.reduce((a, b) => a + b, 0)}" y="${TABLE_TOP - 6}" font-size="10" text-anchor="end" fill="#555">${esc(page.cat)} · sheet ${ci + 1} of ${chunks.length}</text>`;
       // the table
       let y = TABLE_TOP;
