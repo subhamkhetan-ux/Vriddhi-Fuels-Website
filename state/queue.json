@@ -8410,6 +8410,27 @@
       },
       "queued_at": "2026-11-18T06:45:20.780173+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "4f7cd7ed761627a3",
+      "gmail_msg_id": "1882181261449077349",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "18/11/26",
+      "date_serial": 46344,
+      "amount": 446100.0,
+      "raw_payer": "JAY HANUMAN TRANSPORT",
+      "customer": "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd",
+      "candidates": [
+        "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-18T08:00:53.888132+00:00",
+      "status": "matched"
     }
   ]
 }
