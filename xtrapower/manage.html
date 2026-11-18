@@ -44,7 +44,8 @@
       var(--bg);
     background-attachment: fixed; min-height: 100vh;
   }
-  body.framed { overflow: hidden; }
+  /* a framed tab (Tank stock, Pumps) scrolls inside its frame: the app around it stays put, bounce included */
+  html.framed, body.framed { overflow: hidden; overscroll-behavior: none; height: 100%; }
 
   /* ---- header and tabs ---- */
   .top { position: sticky; top: 0; z-index: 20; }

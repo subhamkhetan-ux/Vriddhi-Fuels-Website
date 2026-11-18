@@ -286,6 +286,39 @@
   const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
 
   // ---- the control bar: what the server is doing with the PC right now ----
+  // While a finger scrolls the page (or it's still gliding after), a redraw
+  // would replace what's under the finger (iOS then stops the scroll dead) or
+  // shift the page under it. The fresh figures wait until it's still: a
+  // fraction of a second, nothing is lost. A tap doesn't count (no move).
+  let touchAt = 0, movedAt = 0, drawTimer = 0;
+  addEventListener("touchstart", () => { touchAt = Date.now(); }, { passive: true });
+  addEventListener("touchmove", () => { movedAt = Date.now(); }, { passive: true });
+  addEventListener("touchend", () => { touchAt = 0; }, { passive: true });
+  addEventListener("touchcancel", () => { touchAt = 0; }, { passive: true });
+  addEventListener("scroll", () => { movedAt = Date.now(); }, { passive: true });
+  const scrolling = () => (touchAt && Date.now() - touchAt < 8000 && movedAt >= touchAt) || Date.now() - movedAt < 500;
+  function drawWhenStill(draw) {
+    clearTimeout(drawTimer);
+    if (!scrolling()) { draw(); return; }
+    drawTimer = setTimeout(() => drawWhenStill(draw), 200);
+  }
+
+  // The proof pictures, kept: a redraw puts the same picture back instead of
+  // loading it again (which left the page shorter for a moment, and jumped).
+  const proofImgs = new Map();
+  function proofImg(src, alt) {
+    let img = proofImgs.get(src);
+    if (!img) {
+      if (proofImgs.size > 40) proofImgs.clear();
+      img = el("img");
+      img.src = src;
+      img.loading = "lazy";
+      proofImgs.set(src, img);
+    }
+    img.alt = alt;
+    return img;
+  }
+
   let pending = "";             // "Starting…" / "Stopping…" until the server says so
   function renderControl(live, prev) {
     const dot = $("dot");
@@ -558,6 +591,7 @@
         const done = { finished: "finished ✓", cancelled: "cancelled", released: "handed over to the decant app", failed: "didn't start" }[prev.phase] || prev.phase;
         box.appendChild(el("div", "lastline", `Last: ${prev.title} · ${done} ${when(prev.at)}`
           + `${(prev.result || []).length ? ` · ${prev.result.map((r) => r.replace(/^(Tank \d+):.*variation ([^ ]+ L) \(([^)]*)\)$/, "$1 $2 ($3)")).join(", ")}` : ""}`));
+        if (prev.phase === "finished" && prev.picture) box.appendChild(resultLinks(prev.picture, ...String(prev.title || "").split(" · ")));
       }
       return;
     }
@@ -870,12 +904,35 @@
       for (const line of a.result) ul.appendChild(el("li", "", line));
       box.appendChild(ul);
     }
+    if (ok) box.appendChild(resultLinks(a.result_picture, a.tt_no || "", a.invoice_no || ""));
     const row = el("div", "row");
     const c = el("button", "up", "Clear now");
     c.addEventListener("click", () => autoAct("clear"));
     row.appendChild(c);
     if (a.clears_in_s != null) row.appendChild(el("span", "note", `Leaves this page by itself in ${Math.max(1, Math.ceil(a.clears_in_s / 60))} min`));
     box.appendChild(row);
+    return box;
+  }
+
+  // The decanting result picture (the decant app's, drawn on the server when it
+  // finished and sent on Telegram): open it, or save it to the phone.
+  function resultLinks(id, ...name) {
+    const box = el("div", "pf ok");
+    if (!id) {
+      box.className = "pf mid";
+      box.textContent = "Drawing the result picture (it comes on Telegram too)…";
+      return box;
+    }
+    const file = ["Decanting result", ...name.filter(Boolean)].join(" ");
+    const src = `api/auto/result?id=${encodeURIComponent(id)}&name=${encodeURIComponent(file)}`;
+    const open = el("a", "", "📊 Result picture");
+    open.href = src;
+    open.target = "_blank";
+    open.rel = "noopener";
+    const save = el("a", "save", "Save");
+    save.href = src;
+    save.download = `${file}.png`;
+    box.append(open, save);
     return box;
   }
 
@@ -1095,11 +1152,7 @@
         link.href = src;
         link.target = "_blank";
         link.rel = "noopener";
-        const img = el("img");
-        img.src = src;
-        img.alt = `Tank ${t.no} stock ${which} on the automation screen`;
-        img.loading = "lazy";
-        link.appendChild(img);
+        link.appendChild(proofImg(src, `Tank ${t.no} stock ${which} on the automation screen`));
         cell.appendChild(link);
         const pf = el("div", `pf ${p.cloud ? "ok" : "mid"}`, p.cloud ? "✓ Proof in the decant app" : "Saving the proof to the decant app…");
         const save = el("a", "save", "Save");
@@ -1182,7 +1235,7 @@
   async function refresh() {
     try {
       state = await api("GET", document.hidden ? "api/state" : "api/state?seen=1");
-      render();
+      drawWhenStill(render);
     } catch (e) {
       setStatus("status", e.message, true);
     }

@@ -384,6 +384,7 @@
     $("tsPane").hidden = t !== "ts";
     $("pmPane").hidden = t !== "pm";
     document.body.classList.toggle("framed", t !== "xp");
+    document.documentElement.classList.toggle("framed", t !== "xp");
     $("where").textContent = { ts: "Tank stock · IOCL automation PC", pm: "Pumps · IOCL automation PC" }[t]
       || "XtraPower CCMS monitor";
     $("monitor").hidden = t !== "xp";            // (the XtraPower monitor's; the framed pages show their own)

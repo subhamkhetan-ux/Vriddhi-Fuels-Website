@@ -51,6 +51,8 @@
   h1 { font: 800 17px/1.15 var(--display); margin: 0; letter-spacing: .3px; }
   .brand small { font-size: 12px; opacity: .95; display: block; }
   .embedded header { display: none; }
+  /* in the app's tab: its bounce at the top and bottom stays in here, not moving the app around it */
+  html.embedded, html.embedded body { overscroll-behavior-y: contain; }
 
   /* ---- surfaces ---- */
   main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
