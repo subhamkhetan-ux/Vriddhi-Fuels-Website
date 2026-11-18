@@ -2,7 +2,7 @@ Attribute VB_Name = "SSFCRecon"
 Option Explicit
 
 '==================================================================
-'  SSFC RECONCILIATION ENGINE  v9  (MAC SAFE)
+'  SSFC RECONCILIATION ENGINE  v9.1  (MAC SAFE)
 '  Run SSFC_Menu.   Subs: ReconcileSSFC, RestoreLastRun, OpenMapping
 '
 '  Reads SSFC's monthly account WITHOUT trusting its layout:
@@ -31,7 +31,12 @@ Option Explicit
 '   - the SSFC Config sheet (keyword -> column) still wins over the
 '     built-in reading, so your own mappings are kept.
 '
-'  Checks and lists in the "SSFC Check" sheet, what SSFC owes you first:
+'  The "SSFC Check" sheet is LIVE (v9.1): SSFC's figures are written as values, yours as
+'  formulas into the Trip Register, HSD Data and Urea DEF - and so are the differences, the
+'  flags (Status columns) and the Rs to claim. Correct the register and the sheet follows,
+'  as the v8 recon sheet did. Run the macro again only after adding or deleting trips.
+'
+'  Checks, what SSFC owes you first:
 '   their arithmetic (fills, row totals, subtotal, net); trips paid /
 '   missing / not in the register; rate (and if it is another route's);
 '   loading weight; unloading weight (shortage risk); diesel litres and
@@ -67,13 +72,6 @@ Private Type STrip
     hasTotal As Boolean
     diesel As Double          ' charged: fill amounts + pump cash
     cash As Double            ' the pump cash: diesel bought for cash (its litres aren't on the statement)
-    hsdL As Double            ' HSD Data: SSFC's fills tagged to the matched trip
-    hsdRs As Double
-    hsdN As Long
-    regL As Double            ' Trip Register P / Q of the matched trip
-    regRs As Double
-    dRs As Double             ' SSFC's Rs - yours
-    dStatus As String         ' "", more, less, moved, register
     litres As Double          ' litres with an amount (Vriddhi litres at Rs 0 are not charged)
     cashOffice As Double
     fillNote As String
@@ -110,7 +108,6 @@ Private Type SBill
     others As String
     srcSheet As String
     srcRow As Long
-    paired As Boolean
 End Type
 Private Type SLd
     veh As String
@@ -118,6 +115,7 @@ Private Type SLd
     days As Double
     wt As Double
     amount As Double
+    trRow As Long             ' the Trip Register row of its trip (0 = none found)
 End Type
 Private Type SFind
     level As String           ' CLAIM / CHECK / NOTE
@@ -145,7 +143,7 @@ Private cY As Long, cAA As Long, cAD As Long, cAK As Long, cAL As Long, cMonth A
 '------------------------------------------------------------------
 Sub SSFC_Menu()
     Dim ch As String
-    ch = InputBox("SSFC RECONCILIATION  v9" & vbLf & vbLf & _
+    ch = InputBox("SSFC RECONCILIATION  v9.1" & vbLf & vbLf & _
                   "1 = Check + post a month (open SSFC's file first)" & vbLf & _
                   "2 = Restore last run (undo)" & vbLf & _
                   "3 = Edit deduction mapping (optional)" & vbLf & vbLf & _
@@ -309,7 +307,7 @@ Sub ReconcileSSFC()
                  IIf(posted, vbLf & "This month already has values posted - they will be replaced (a backup is saved first)." & vbLf, "") & vbLf & _
                  "YES = post Cash Office + deductions into the Trip Register, then check" & vbLf & _
                  "NO  = only check (the Trip Register is not changed)" & vbLf & _
-                 "CANCEL = stop", vbYesNoCancel + vbQuestion, "SSFC v9")
+                 "CANCEL = stop", vbYesNoCancel + vbQuestion, "SSFC v9.1")
     If ans = vbCancel Then GoTo Cleanup
     Application.ScreenUpdating = False
 
@@ -339,16 +337,18 @@ Sub ReconcileSSFC()
     Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.Calculation = calcSave
-    Dim claim As Double, nClaim As Long, nCheck As Long
-    For i = 1 To nF
-        If F(i).level = "CLAIM" Then claim = claim + F(i).amount: nClaim = nClaim + 1
-        If F(i).level = "CHECK" Then nCheck = nCheck + 1
-    Next i
-    ThisWorkbook.Worksheets(RPT_SHEET).Activate
+    ' the totals, from the (live) sheet
+    Dim wsC As Worksheet: Set wsC = ThisWorkbook.Worksheets(RPT_SHEET)
+    Application.Calculate
+    Dim claim As Double, nCheck As Long
+    claim = Num(wsC.Range("A5").Value)
+    nCheck = Num(wsC.Range("B5").Value) + Num(wsC.Range("C5").Value) + Num(wsC.Range("D5").Value) + Num(wsC.Range("E5").Value) + Num(wsC.Range("F5").Value)
+    wsC.Activate
     MsgBox "Done - " & Format(gMonth, "mmmm yyyy") & IIf(ans = vbYes, " posted and checked.", " checked (nothing posted).") & vbLf & vbLf & _
-           "To claim from SSFC: Rs " & Format(claim, "#,##0") & "  (" & nClaim & " findings)" & vbLf & _
+           "To claim from SSFC: Rs " & Format(claim, "#,##0") & vbLf & _
            "To check / ask for proof: " & nCheck & vbLf & vbLf & _
-           "See the '" & RPT_SHEET & "' sheet.", vbInformation, "SSFC v9"
+           "The '" & RPT_SHEET & "' sheet is live: correct the Trip Register, HSD Data or Urea DEF" & vbLf & _
+           "and its flags and totals update. Run this again only after adding or deleting trips.", vbInformation, "SSFC v9.1"
     Exit Sub
 
 Cleanup:
@@ -412,6 +412,8 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
     a = SheetValues(ws, nR, nC)
     If nR < 3 Then Exit Function
     Dim r As Long, c As Long, k As Long
+    Dim gQty(1 To 6) As Long, gRate(1 To 6) As Long, gAmt(1 To 6) As Long, gCash(1 To 6) As Long, nG As Long
+    Dim dates(1 To 40) As Long, nDates As Long
     ' the title (month)
     For r = 1 To IIf(nR < 6, nR, 6)
         For c = 1 To nC
@@ -424,7 +426,9 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
     For r = 1 To nR
         If IsHeaderRow(a, r, nC) Then
             nH = nH + 1
-            If nH > UBound(heads) Then ReDim Preserve heads(1 To nH * 2)
+            If nH > UBound(heads) Then
+                ReDim Preserve heads(1 To nH * 2)
+            End If
             heads(nH) = r
         End If
     Next r
@@ -449,8 +453,6 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
         Dim colVeh As Long, colLr As Long, colLW As Long, colUW As Long, colRate As Long, colTotal As Long, colCO As Long
         Dim colLD As Long, colUD As Long
         colVeh = 0: colLr = 0: colLW = 0: colUW = 0: colRate = 0: colTotal = 0: colCO = 0: colLD = 0: colUD = 0
-        Dim gQty(1 To 6) As Long, gRate(1 To 6) As Long, gAmt(1 To 6) As Long, gCash(1 To 6) As Long, nG As Long
-        Dim dates(1 To 40) As Long, nDates As Long
         nG = 0: nDates = 0
         For c = 1 To 6: gQty(c) = 0: gRate(c) = 0: gAmt(c) = 0: gCash(c) = 0: Next c
         For c = 1 To nC
@@ -522,7 +524,9 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
             If vv <> "" And wt > 0 Then
                 lastTrip = r
                 nT = nT + 1
-                If nT > UBound(T) Then ReDim Preserve T(1 To nT * 2)
+                If nT > UBound(T) Then
+                    ReDim Preserve T(1 To nT * 2)
+                End If
                 With T(nT)
                     .veh = vv: .loadWt = wt: .srcRow = r: .srcSheet = ws.Name
                     If colLr > 0 Then .lr = Trim(CStr(a(r, colLr))) Else .lr = ""
@@ -557,7 +561,9 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
         If vehOfBlock = "" Then vehOfBlock = named
         If vehOfBlock = "" Then GoTo NextBlock
         nV = nV + 1
-        If nV > UBound(V) Then ReDim Preserve V(1 To nV * 2)
+        If nV > UBound(V) Then
+            ReDim Preserve V(1 To nV * 2)
+        End If
         V(nV).veh = vehOfBlock: V(nV).t0 = firstT: V(nV).nT = nT - firstT + 1
         V(nV).hasSub = False: V(nV).hasNet = False
         ' the subtotal row: a number in TOTAL just under the trips, with no words on the row
@@ -595,7 +601,9 @@ Private Function ReadTrips(ws As Worksheet) As Boolean
                                     V(nV).net = amt: V(nV).hasNet = True
                                 Else
                                     nD = nD + 1
-                                    If nD > UBound(D) Then ReDim Preserve D(1 To nD * 2)
+                                    If nD > UBound(D) Then
+                                        ReDim Preserve D(1 To nD * 2)
+                                    End If
                                     D(nD).veh = vehOfBlock: D(nD).label = lab: D(nD).kind = kind: D(nD).amount = Round(amt, 2)
                                 End If
                                 Exit For
@@ -729,7 +737,9 @@ Private Function ReadBills(ws As Worksheet) As Boolean
             Dim amtV As Variant: amtV = a(r, colAmt)
             If vv <> "" And IsNumeric(Replace(CStr(amtV), ",", "")) And CStr(amtV) <> "" Then
                 nB = nB + 1
-                If nB > UBound(B) Then ReDim Preserve B(1 To nB * 2)
+                If nB > UBound(B) Then
+                    ReDim Preserve B(1 To nB * 2)
+                End If
                 With B(nB)
                     .veh = vv: .amount = Round(CDbl(Replace(CStr(amtV), ",", "")), 2): .srcSheet = ws.Name: .srcRow = r
                     If colDesc > 0 Then .desc = Squeeze(CStr(a(r, colDesc))) Else .desc = ""
@@ -742,7 +752,6 @@ Private Function ReadBills(ws As Worksheet) As Boolean
                     .dt = 0
                     If colDate > 0 Then .dt = DateNear(a(r, colDate), gMonth)
                     .others = OtherVehicles(.desc, vv)
-                    .paired = False
                 End With
             End If
         End If
@@ -778,7 +787,9 @@ Private Sub ReadLd(ws As Worksheet)
         If hVeh > 0 Then vv = NormVeh(a(r, hVeh))
         If vv <> "" Then
             nL = nL + 1
-            If nL > UBound(L) Then ReDim Preserve L(1 To nL * 2)
+            If nL > UBound(L) Then
+                ReDim Preserve L(1 To nL * 2)
+            End If
             L(nL).veh = vv
             L(nL).amount = Num(a(r, hAmt))
             If hDays > 0 Then L(nL).days = Num(a(r, hDays))
@@ -894,8 +905,7 @@ Private Sub PostDeductions(wsTR As Worksheet, monthRows As Collection)
                 If NormVeh(wsTR.Cells(rw, cVeh).Value) = D(i).veh And CLng(rw) > lastRw Then lastRw = CLng(rw)
             Next rw
             If lastRw > 0 Then
-                c = ColNumFromLetter(D(i).col)
-                If D(i).col = "AA" Then c = cAA
+                c = ColOfLetter(D(i).col)
                 If c > 0 Then wsTR.Cells(lastRw, c).Value = NZ(wsTR.Cells(lastRw, c)) + D(i).amount
             Else
                 AddFind "CHECK", "register", D(i).veh, D(i).amount, D(i).veh & ": """ & D(i).label & """ Rs " & Format(D(i).amount, "#,##0") & " not posted - the vehicle has no trip in the Trip Register this month"
@@ -908,7 +918,7 @@ End Sub
 '  THE CHECKS
 '==================================================================
 Private Sub RunChecks(wsTR As Worksheet, lastRowTR As Long, monthRows As Collection, posted As Boolean)
-    Dim i As Long, j As Long, k As Long, r As Long, dv As Double, s As String
+    Dim i As Long, j As Long, k As Long, r As Long, dv As Double
     ' ---- their arithmetic ----
     For i = 1 To nV
         Dim rowSum As Double: rowSum = 0
@@ -927,148 +937,34 @@ Private Sub RunChecks(wsTR As Worksheet, lastRowTR As Long, monthRows As Collect
             If Abs(dv) > 1 Then AddFind IIf(dv > 0, "CLAIM", "NOTE"), "math", V(i).veh, IIf(dv > 0, dv, 0), Short(V(i).veh) & ": its trips' totals add up to " & Rs(rowSum) & ", but SSFC's subtotal is " & Rs(V(i).subtotal)
         End If
         If V(i).hasNet Then
-            Dim base As Double, ded As Double
-            If V(i).hasSub Then base = V(i).subtotal Else base = rowSum
+            Dim baseAmt As Double, ded As Double
+            If V(i).hasSub Then baseAmt = V(i).subtotal Else baseAmt = rowSum
             ded = DedSum(V(i).veh, "")
-            dv = Round(base - ded - V(i).net, 2)
-            If Abs(dv) > 1 Then AddFind IIf(dv > 0, "CLAIM", "NOTE"), "math", V(i).veh, IIf(dv > 0, dv, 0), Short(V(i).veh) & ": " & Rs(base) & " - deductions " & Rs(ded) & " = " & Rs(base - ded) & ", but SSFC's NET AMOUNT is " & Rs(V(i).net)
+            dv = Round(baseAmt - ded - V(i).net, 2)
+            If Abs(dv) > 1 Then AddFind IIf(dv > 0, "CLAIM", "NOTE"), "math", V(i).veh, IIf(dv > 0, dv, 0), Short(V(i).veh) & ": " & Rs(baseAmt) & " - deductions " & Rs(ded) & " = " & Rs(baseAmt - ded) & ", but SSFC's NET AMOUNT is " & Rs(V(i).net)
         End If
     Next i
 
-    ' ---- trips: paid right, missing, not in the register ----
+    ' (trips, rate, weights, diesel, DEF, LD and the register's figures are checked live, by
+    '  formulas in the SSFC Check sheet: they follow your corrections to the Trip Register)
     Dim nFixed As Long
     For i = 1 To nT
-        With T(i)
-            If .dateFixed Then nFixed = nFixed + 1
-            If .trRow = 0 Then
-                AddFind "CHECK", "trip", .veh, 0, Short(.veh) & ": SSFC paid a trip loaded " & DM(.loadDate) & " (" & .loadWt & " T" & IIf(.lr <> "", ", LR " & .lr, "") & ") that isn't in your Trip Register - enter it, or ask SSFC whose trip it is"
-            Else
-                r = .trRow
-                Dim ourRate As Double, ourW As Double, ourU As Double, tripNo As String
-                ourRate = NZ(wsTR.Cells(r, cRate)): ourW = NZ(wsTR.Cells(r, cLW)): ourU = NZ(wsTR.Cells(r, cUW))
-                tripNo = CStr(wsTR.Cells(r, cTrip).Value)
-                If ourRate > 0 And .rate > 0 And Abs(ourRate - .rate) > 0.5 Then
-                    dv = Round((ourRate - .rate) * .loadWt, 2)
-                    s = OtherRouteOfRate(.rate, CStr(wsTR.Cells(r, cPort).Value), CStr(wsTR.Cells(r, cDest).Value))
-                    AddFind IIf(dv > 0, "CLAIM", "NOTE"), "rate", .veh, IIf(dv > 0, dv, 0), Short(.veh) & " " & tripNo & " (" & wsTR.Cells(r, cPort).Value & " -> " & wsTR.Cells(r, cDest).Value & "): SSFC paid Rs " & Format(.rate, "#,##0") & "/T, your rate is Rs " & Format(ourRate, "#,##0") & "/T on " & .loadWt & " T" & IIf(s <> "", " - Rs " & Format(.rate, "#,##0") & " is your " & s & " rate: is the route right?", "")
-                End If
-                If Abs(ourW - .loadWt) > 0.011 Then
-                    dv = Round((ourW - .loadWt) * IIf(.rate > 0, .rate, ourRate), 2)
-                    AddFind IIf(dv > 0, "CLAIM", "NOTE"), "trip", .veh, IIf(dv > 0, dv, 0), Short(.veh) & " " & tripNo & ": SSFC paid on " & .loadWt & " T, your register has " & ourW & " T loaded"
-                End If
-                If .hasUnload And ourU > 0 And .unloadWt < ourU - 0.011 Then
-                    AddFind "CHECK", "trip", .veh, 0, Short(.veh) & " " & tripNo & ": SSFC has " & .unloadWt & " T unloaded, your register " & ourU & " T - a shortage SSFC could charge you"
-                End If
-            End If
-        End With
+        If T(i).dateFixed Then nFixed = nFixed + 1
     Next i
     If nFixed > 0 Then AddFind "NOTE", "trip", "", 0, nFixed & " of SSFC's dates were typed month-first or saved day/month swapped - read the right way round"
-    ' register trips this month SSFC didn't pay
-    Dim rw As Variant, paid As Boolean
-    For Each rw In monthRows
-        paid = False
-        For i = 1 To nT
-            If T(i).trRow = CLng(rw) Then paid = True: Exit For
-        Next i
-        If Not paid And NZ(wsTR.Cells(rw, cLW)) > 0 Then
-            AddFind "CHECK", "trip", NormVeh(wsTR.Cells(rw, cVeh).Value), 0, Short(NormVeh(wsTR.Cells(rw, cVeh).Value)) & " " & wsTR.Cells(rw, cTrip).Value & " (loaded " & DM(CDateOr0(wsTR.Cells(rw, cLoadDate).Value)) & ", " & wsTR.Cells(rw, cLW).Value & " T, freight " & Rs(NZ(wsTR.Cells(rw, cBhada))) & ") isn't in this statement - check it is in next month's"
-        End If
-    Next rw
-
-    ' ---- diesel, trip by trip: SSFC's Rs (fills + cash diesel) on each trip against the fills from
-    '      SSFC tagged to that trip in HSD Data (else the register's P / Q). A fill on the next / last
-    '      trip shows as one line: the fill to retag.
-    Dim wsH As Worksheet
-    On Error Resume Next
-    Set wsH = ThisWorkbook.Worksheets("HSD Data")
-    On Error GoTo 0
-    Dim hVeh As Long, hQty As Long, hAmt As Long, hSrc As Long, hTrip As Long, hLast As Long
-    Dim hv As Variant, hq As Variant, ha As Variant, hs As Variant, ht As Variant
-    If Not wsH Is Nothing Then
-        For k = 1 To 30
-            Select Case KeyOf(wsH.Cells(1, k).Value)
-                Case "vehicle", "vehicleno": If hVeh = 0 Then hVeh = k
-                Case "quantity", "qty": If hQty = 0 Then hQty = k
-                Case "amount": If hAmt = 0 Then hAmt = k
-                Case "roname": If hSrc = 0 Then hSrc = k
-                Case "tripid": If hTrip = 0 Then hTrip = k
-            End Select
-        Next k
-        If hVeh > 0 And hQty > 0 And hAmt > 0 And hSrc > 0 And hTrip > 0 Then
-            hLast = wsH.Cells(wsH.Rows.Count, hVeh).End(xlUp).Row
-            If hLast > 2 Then
-                hv = wsH.Range(wsH.Cells(2, hVeh), wsH.Cells(hLast, hVeh)).Value
-                hq = wsH.Range(wsH.Cells(2, hQty), wsH.Cells(hLast, hQty)).Value
-                ha = wsH.Range(wsH.Cells(2, hAmt), wsH.Cells(hLast, hAmt)).Value
-                hs = wsH.Range(wsH.Cells(2, hSrc), wsH.Cells(hLast, hSrc)).Value
-                ht = wsH.Range(wsH.Cells(2, hTrip), wsH.Cells(hLast, hTrip)).Value
-            Else
-                hLast = 0
+    ' a rate SSFC paid that is another route's rate (the rate gap itself is in the live trip table)
+    Dim seen As String, other As String, key As String
+    For i = 1 To nT
+        If T(i).trRow > 0 Then
+            If Abs(NZ(wsTR.Cells(T(i).trRow, cRate)) - T(i).rate) > 0.5 Then
+                other = OtherRouteOfRate(T(i).rate, CStr(wsTR.Cells(T(i).trRow, cPort).Value), CStr(wsTR.Cells(T(i).trRow, cDest).Value))
+                key = "|" & wsTR.Cells(T(i).trRow, cPort).Value & ">" & wsTR.Cells(T(i).trRow, cDest).Value & ">" & T(i).rate & "|"
+                If other <> "" And InStr(seen, key) = 0 Then
+                    seen = seen & key
+                    AddFind "NOTE", "rate", "", 0, "SSFC paid Rs " & Format(T(i).rate, "#,##0") & "/T on " & wsTR.Cells(T(i).trRow, cPort).Value & " -> " & wsTR.Cells(T(i).trRow, cDest).Value & " trips (e.g. " & Short(T(i).veh) & " " & wsTR.Cells(T(i).trRow, cTrip).Value & "): that is your " & other & " rate - is the route right in the register, or did SSFC pay the wrong route?"
+                End If
             End If
         End If
-    End If
-    For i = 1 To nV
-        Dim useHsd As Boolean, tripId As String, tolR As Double, head As String, refName As String
-        useHsd = False
-        For j = V(i).t0 To V(i).t0 + V(i).nT - 1
-            With T(j)
-                .hsdL = 0: .hsdRs = 0: .hsdN = 0: .regL = 0: .regRs = 0: .dRs = 0: .dStatus = ""
-                If .trRow > 0 Then
-                    .regL = NZ(wsTR.Cells(.trRow, cDslL)): .regRs = NZ(wsTR.Cells(.trRow, cDslAmt))
-                    tripId = UCase(Trim(CStr(wsTR.Cells(.trRow, cTrip).Value)))
-                    If hLast > 0 And tripId <> "" Then
-                        For r = 1 To hLast - 1
-                            If UCase(Trim(CStr(ht(r, 1)))) = tripId Then
-                                If NormVeh(hv(r, 1)) = .veh And InStr(UCase(CStr(hs(r, 1))), "SSFC") > 0 Then
-                                    .hsdL = .hsdL + Num(hq(r, 1)): .hsdRs = .hsdRs + Num(ha(r, 1)): .hsdN = .hsdN + 1
-                                End If
-                            End If
-                        Next r
-                    End If
-                    If .hsdN > 0 Then useHsd = True
-                End If
-            End With
-        Next j
-        If useHsd Then refName = "HSD Data" Else refName = "Trip Register"
-        Dim prevJ As Long: prevJ = 0
-        For j = V(i).t0 To V(i).t0 + V(i).nT - 1
-            If T(j).trRow > 0 Then
-                If useHsd Then T(j).dRs = Round(T(j).diesel - T(j).hsdRs, 2) Else T(j).dRs = Round(T(j).diesel - T(j).regRs, 2)
-                ' a fill on the neighbouring trip: one over, the other under by the same Rs
-                If prevJ > 0 Then
-                    If DieselOff(prevJ) And DieselOff(j) And T(prevJ).dStatus = "" And Abs(T(prevJ).dRs + T(j).dRs) <= 100 Then
-                        Dim inS As Long, inY As Long
-                        If T(prevJ).dRs > 0 Then inS = prevJ: inY = j Else inS = j: inY = prevJ
-                        T(prevJ).dStatus = "moved": T(j).dStatus = "moved"
-                        AddFind "CHECK", "diesel", V(i).veh, 0, Short(V(i).veh) & ": diesel worth " & Rs(Abs(T(j).dRs)) & " is on " & wsTR.Cells(T(inS).trRow, cTrip).Value & " in SSFC's statement but on " & wsTR.Cells(T(inY).trRow, cTrip).Value & " in your " & refName & " - retag the fill; the two trips together agree"
-                    End If
-                End If
-                prevJ = j
-            End If
-        Next j
-        For j = V(i).t0 To V(i).t0 + V(i).nT - 1
-            With T(j)
-                If .trRow > 0 And .dStatus = "" Then
-                    head = Short(.veh) & " " & wsTR.Cells(.trRow, cTrip).Value & " (row " & .trRow & ", loaded " & DM(.loadDate) & ", " & .loadWt & " T): SSFC charged " & Format(.litres, "#,##0") & " L" & IIf(.cash > 0, " + " & Rs(.cash) & " cash diesel", "") & " (" & Rs(.diesel) & "); your " & _
-                           IIf(useHsd, "HSD Data has " & Format(.hsdL, "#,##0") & " L (" & Rs(.hsdRs) & ") from SSFC tagged to it", "Trip Register has " & Format(.regL, "#,##0") & " L (" & Rs(.regRs) & ") in SSFC Diesel")
-                    If DieselOff(j) Then
-                        If .dRs > 0 Then
-                            .dStatus = "more"
-                            AddFind "CLAIM", "diesel", .veh, .dRs, head & " - " & Rs(.dRs) & " more charged than you have"
-                        Else
-                            .dStatus = "less"
-                            AddFind "CHECK", "diesel", .veh, 0, head & " - " & Rs(-.dRs) & " more in yours than SSFC charged: a fill entered twice or on the wrong trip, or SSFC will charge it later"
-                        End If
-                    ElseIf useHsd Then
-                        tolR = 100: If Abs(.diesel) * 0.002 > tolR Then tolR = Abs(.diesel) * 0.002
-                        If Abs(.diesel - .regRs) > tolR Then
-                            .dStatus = "register"
-                            AddFind "CHECK", "register", .veh, Abs(.diesel - .regRs), Short(.veh) & " " & wsTR.Cells(.trRow, cTrip).Value & " (row " & .trRow & "): your SSFC Diesel is " & Format(.regL, "#,##0") & " L / " & Rs(.regRs) & "; SSFC charged " & Format(.litres, "#,##0") & " L" & IIf(.cash > 0, " + " & Rs(.cash) & " cash diesel", "") & " (" & Rs(.diesel) & ") and your HSD Data agrees - correct " & ColLetter(cDslL) & " / " & ColLetter(cDslAmt) & " on this trip"
-                        End If
-                    End If
-                End If
-            End With
-        Next j
     Next i
 
     ' ---- deductions that need a paper; RTO entry against the others ----
@@ -1152,109 +1048,31 @@ Private Sub RunChecks(wsTR As Worksheet, lastRowTR As Long, monthRows As Collect
             End If
             If B(i).others <> "" Then AddFind "CHECK", "bill", B(i).veh, B(i).amount, Short(B(i).veh) & ": one bill """ & B(i).desc & """ (" & Rs(B(i).amount) & ") names " & B(i).others & " too, but is charged to " & Short(B(i).veh) & " alone - check it isn't charged to them as well"
         Next i
-        CheckDef
     End If
 
-    ' ---- LD: SSFC's days against the register's dates ----
+    ' ---- LD: each penalty's trip (the days are compared live) ----
+    Dim bestG As Double, g2 As Double
     For i = 1 To nL
-        If L(i).amount > 0 Then
-            Dim bestR As Long, bestG As Double, g2 As Double: bestR = 0: bestG = 1E+30
+        L(i).trRow = 0: bestG = 1E+30
+        If L(i).inv > 0 Then
             For r = TR_HDR_ROWS + 1 To lastRowTR
-                If NormVeh(wsTR.Cells(r, cVeh).Value) = L(i).veh And L(i).inv > 0 Then
+                If NormVeh(wsTR.Cells(r, cVeh).Value) = L(i).veh Then
                     g2 = DayGap(wsTR.Cells(r, cLoadDate).Value, L(i).inv)
-                    If g2 <= 7 And (L(i).wt = 0 Or Abs(NZ(wsTR.Cells(r, cLW)) - L(i).wt) < 0.6) And g2 < bestG Then bestG = g2: bestR = r
+                    If g2 <= 7 And (L(i).wt = 0 Or Abs(NZ(wsTR.Cells(r, cLW)) - L(i).wt) < 0.6) And g2 < bestG Then bestG = g2: L(i).trRow = r
                 End If
             Next r
-            Dim ours As Double: ours = -1
-            If bestR > 0 Then
-                If CDateOr0(wsTR.Cells(bestR, cLoadDate).Value) > 0 And CDateOr0(wsTR.Cells(bestR, cUnloadDate).Value) > 0 Then ours = CDateOr0(wsTR.Cells(bestR, cUnloadDate).Value) - CDateOr0(wsTR.Cells(bestR, cLoadDate).Value)
-            End If
-            If ours >= 0 And L(i).days > ours And L(i).days > 0 Then
-                AddFind "CLAIM", "ld", L(i).veh, Round(L(i).amount / L(i).days * (L(i).days - ours), 2), Short(L(i).veh) & " " & wsTR.Cells(bestR, cTrip).Value & ": LD " & Rs(L(i).amount) & " for " & L(i).days & " days - your register has it loaded " & DM(CDateOr0(wsTR.Cells(bestR, cLoadDate).Value)) & " and unloaded " & DM(CDateOr0(wsTR.Cells(bestR, cUnloadDate).Value)) & ", " & ours & " days"
-            Else
-                AddFind "NOTE", "ld", L(i).veh, 0, Short(L(i).veh) & ": late-delivery (LD) penalty " & Rs(L(i).amount) & " - " & L(i).days & " days" & IIf(ours >= 0, " (your dates: " & ours & " days)", "")
-            End If
         End If
     Next i
-
-    ' ---- after posting: the register's SSFC Net against SSFC's NET AMOUNT ----
-    If posted Then
-        For i = 1 To nV
-            If V(i).hasNet Then
-                Dim regNet As Double: regNet = 0
-                For Each rw In monthRows
-                    If NormVeh(wsTR.Cells(rw, cVeh).Value) = V(i).veh Then regNet = regNet + NZ(wsTR.Cells(rw, cAL))
-                Next rw
-                If Abs(regNet - V(i).net) > 100 Then AddFind "CHECK", "register", V(i).veh, Abs(regNet - V(i).net), Short(V(i).veh) & ": SSFC's NET AMOUNT is " & Rs(V(i).net) & ", your SSFC Net (" & ColLetter(cAL) & ") for the month adds up to " & Rs(regNet) & " - see the rate / weight / diesel lines above, or a trip in another month"
-            End If
-        Next i
-    End If
-End Sub
-
-' DEF: each DEF bill against the Urea DEF sheet's refills bought from SSFC (same vehicle, 3 days)
-Private Sub CheckDef()
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets("Urea DEF")
-    If ws Is Nothing Then Set ws = ThisWorkbook.Worksheets("Urea")
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Sub
-    Dim k As Long, uDate As Long, uVeh As Long, uQty As Long, uAmt As Long, uFrom As Long, last As Long
-    For k = 1 To 30
-        Select Case KeyOf(ws.Cells(1, k).Value)
-            Case "date": If uDate = 0 Then uDate = k
-            Case "vehicle", "vehicleno": If uVeh = 0 Then uVeh = k
-            Case "quantity", "qty": If uQty = 0 Then uQty = k
-            Case "amount": If uAmt = 0 Then uAmt = k
-            Case "purchasedfrom": If uFrom = 0 Then uFrom = k
-        End Select
-    Next k
-    If uDate = 0 Or uVeh = 0 Or uFrom = 0 Then Exit Sub
-    last = ws.Cells(ws.Rows.Count, uVeh).End(xlUp).Row
-    Dim usedU As SDict: Set usedU = New SDict
-    Dim i As Long, r As Long, best As Long, bestG As Double, g As Double, frm As String
-    Dim diffBy As SDict: Set diffBy = New SDict
-    For i = 1 To nB
-        If B(i).isDef And B(i).amount > 0 Then
-            best = 0: bestG = 1E+30
-            For r = 2 To last
-                If Not usedU.Exists(r) Then
-                    frm = UCase(CStr(ws.Cells(r, uFrom).Value))
-                    If IsFromSsfc(frm) And NormVeh(ws.Cells(r, uVeh).Value) = B(i).veh And B(i).dt > 0 Then
-                        g = DayGap(ws.Cells(r, uDate).Value, B(i).dt)
-                        If g <= 3 Then
-                            g = g + Abs(NZ(ws.Cells(r, uAmt)) - B(i).amount) / 1000000#
-                            If g < bestG Then bestG = g: best = r
-                        End If
-                    End If
-                End If
-            Next r
-            If best > 0 Then
-                usedU.Add best, True
-                B(i).paired = True
-                Dim dd As Double: dd = B(i).amount - NZ(ws.Cells(best, uAmt))
-                If Abs(dd) > 1 Then diffBy.SetItem B(i).veh, NZd(diffBy.Item(B(i).veh)) + dd
-            Else
-                ' bought elsewhere that day - and SSFC charged it too?
-                Dim note As String: note = ""
-                For r = 2 To last
-                    If NormVeh(ws.Cells(r, uVeh).Value) = B(i).veh And Not IsFromSsfc(UCase(CStr(ws.Cells(r, uFrom).Value))) And B(i).dt > 0 Then
-                        If DayGap(ws.Cells(r, uDate).Value, B(i).dt) <= 1 Then note = " (your sheet has " & ws.Cells(r, uQty).Value & " L on " & DM(CDateOr0(ws.Cells(r, uDate).Value)) & " bought from " & ws.Cells(r, uFrom).Value & " - charged by SSFC too?)": Exit For
-                    End If
-                Next r
-                AddFind "CLAIM", "def", B(i).veh, B(i).amount, Short(B(i).veh) & ": SSFC charged DEF """ & B(i).desc & """ " & Rs(B(i).amount) & " on " & DM(B(i).dt) & " - no DEF refill from SSFC in your Urea DEF sheet within 3 days of it" & note
-            End If
-        End If
-    Next i
-    Dim key As Variant
-    For Each key In diffBy.Keys
-        If diffBy.Item(key) > 1 Then AddFind "CLAIM", "def", CStr(key), diffBy.Item(key), Short(CStr(key)) & ": for the DEF refills that pair up, SSFC charged " & Rs(diffBy.Item(key)) & " more than your Urea DEF sheet's amounts"
-    Next key
 End Sub
 
 '==================================================================
 '  THE REPORT SHEET
 '==================================================================
+' The SSFC Check sheet. SSFC's figures are written as values (what SSFC billed); yours are
+' FORMULAS into the Trip Register, HSD Data and Urea DEF, and so are the differences, the
+' flags and the Rs to claim - correct the register and the sheet follows. Which register row
+' each SSFC trip is (and each LD penalty's trip) is set when the macro runs: run it again only
+' after adding or deleting trips.
 Private Sub BuildCheckSheet(wsTR As Worksheet, monthRows As Collection, posted As Boolean)
     Dim ws As Worksheet
     On Error Resume Next
@@ -1264,47 +1082,275 @@ Private Sub BuildCheckSheet(wsTR As Worksheet, monthRows As Collection, posted A
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
         ws.Name = RPT_SHEET
     Else
+        ws.Cells.FormatConditions.Delete
         ws.Cells.Clear
+        ws.Columns.Hidden = False
     End If
-    Dim r As Long, i As Long, j As Long
-    Dim claim As Double, nClaim As Long, nCheck As Long
-    For i = 1 To nF
-        If F(i).level = "CLAIM" Then claim = claim + F(i).amount: nClaim = nClaim + 1
-        If F(i).level = "CHECK" Then nCheck = nCheck + 1
-    Next i
+    Dim i As Long, j As Long, r As Long, k As Long, fx As String
+    Dim ms As String: ms = Trim(Str(CLng(gMonth)))
+    ' HSD Data and Urea DEF columns, found by their headings
+    Dim hV As String, hQ As String, hA As String, hS As String, hT As String
+    hV = ColRef("HSD Data", "vehicle|vehicleno"): hQ = ColRef("HSD Data", "quantity|qty"): hA = ColRef("HSD Data", "amount")
+    hS = ColRef("HSD Data", "roname"): hT = ColRef("HSD Data", "tripid")
+    Dim hasH As Boolean: hasH = (hV <> "" And hQ <> "" And hA <> "" And hS <> "" And hT <> "")
+    Dim uName As String: uName = "Urea DEF"
+    If ColRef(uName, "date") = "" Then uName = "Urea"
+    Dim uD As String, uV As String, uA As String, uF As String
+    uD = ColRef(uName, "date"): uV = ColRef(uName, "vehicle|vehicleno"): uA = ColRef(uName, "amount"): uF = ColRef(uName, "purchasedfrom")
+    Dim hasU As Boolean: hasU = (uD <> "" And uV <> "" And uA <> "" And uF <> "")
+
     ws.Range("A1").Value = "SSFC STATEMENT CHECK - " & UCase(Format(gMonth, "mmmm yyyy"))
     ws.Range("A1").Font.Bold = True: ws.Range("A1").Font.Size = 15
     ws.Range("A2").Value = gFile & "   |   run " & Format(Now, "dd-mmm-yyyy hh:mm") & "   |   " & IIf(posted, "posted into the Trip Register (backup in '" & BAK_SHEET & "')", "checked only - nothing posted")
     ws.Range("A2").Font.Italic = True
-    ' the summary
-    Dim fr As Double, ds As Double, co As Double, dd As Double, netSum As Double
-    For i = 1 To nT
-        fr = fr + T(i).loadWt * T(i).rate: ds = ds + T(i).diesel: co = co + T(i).cashOffice
-    Next i
-    For i = 1 To nD
-        dd = dd + D(i).amount
-    Next i
-    For i = 1 To nV
-        netSum = netSum + V(i).net
-    Next i
-    r = 4
-    ws.Cells(r, 1).Resize(1, 8).Value = Array("To claim from SSFC", "Findings to claim", "To check", "Trips", "Freight", "Diesel", "Cash office", "Deductions")
-    ws.Cells(r + 1, 1).Resize(1, 8).Value = Array(claim, nClaim, nCheck, nT, fr, ds, co, dd)
-    ws.Cells(r, 9).Value = "SSFC net": ws.Cells(r + 1, 9).Value = netSum
-    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 9))
-    ws.Range(ws.Cells(r + 1, 1), ws.Cells(r + 1, 9)).Font.Bold = True
-    ws.Cells(r + 1, 1).Font.Color = RGB(192, 0, 0)
-    ws.Range(ws.Cells(r + 1, 5), ws.Cells(r + 1, 9)).NumberFormat = "#,##0": ws.Cells(r + 1, 1).NumberFormat = "#,##0"
+    ws.Range("A3").Value = "LIVE: SSFC's figures are fixed; yours, the differences, the flags and the Rs to claim are formulas - correct the Trip Register / HSD Data / Urea DEF and they update. Run the macro again only after adding or deleting trips."
+    ws.Range("A3").Font.Color = RGB(0, 112, 192)
 
-    ' the findings, what SSFC owes first
-    r = r + 3
-    ws.Cells(r, 1).Value = "FINDINGS": ws.Cells(r, 1).Font.Bold = True: ws.Cells(r, 1).Font.Size = 12
+    ' ---- each trip ----
+    r = 7
+    Section ws, r, "EACH TRIP - SSFC's figures (fixed) against your Trip Register and HSD Data (live)"
+    r = r + 1
+    ws.Cells(r, 1).Resize(1, 28).Value = Array("Vehicle", "LR", "Loaded", "SSFC load T", "SSFC unload T", "SSFC rate", "SSFC diesel Rs", "SSFC litres", "of it cash diesel", "SSFC cash office", _
+        "Register row", "Your trip", "Your load T", "Your unload T", "Your rate", "HSD Data Rs (SSFC fills)", "HSD Data L", "Your P (L)", "Your Q (Rs)", "Your cash office (Y)", _
+        "Rate: short Rs", "Weight: short Rs", "Diesel: SSFC - yours", "P/Q to correct", "Cash office: SSFC - yours", "Fill on next/last trip", "To claim", "Status")
+    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 28))
+    Dim t0 As Long, tN As Long: t0 = r + 1
+    For i = 1 To nT
+        r = r + 1
+        With T(i)
+            ws.Cells(r, 1).Resize(1, 10).Value = Array(.veh, .lr, IIf(.loadDate > 0, .loadDate, ""), .loadWt, IIf(.hasUnload, .unloadWt, ""), .rate, .diesel, .litres, IIf(.cash > 0, .cash, ""), .cashOffice)
+            If .trRow > 0 Then
+                ws.Cells(r, 11).Value = .trRow
+                ws.Cells(r, 12).Formula = "=" & TRCell(cTrip, .trRow)
+                ws.Cells(r, 13).Formula = "=" & TRCell(cLW, .trRow)
+                ws.Cells(r, 14).Formula = "=" & TRCell(cUW, .trRow)
+                ws.Cells(r, 15).Formula = "=" & TRCell(cRate, .trRow)
+                If hasH Then
+                    ws.Cells(r, 16).Formula = "=SUMIFS(" & hA & "," & hT & ",L" & r & "," & hV & ",A" & r & "," & hS & ",""*SSFC*"")"
+                    ws.Cells(r, 17).Formula = "=SUMIFS(" & hQ & "," & hT & ",L" & r & "," & hV & ",A" & r & "," & hS & ",""*SSFC*"")"
+                Else
+                    ws.Cells(r, 16).Value = 0: ws.Cells(r, 17).Value = 0
+                End If
+                ws.Cells(r, 18).Formula = "=" & TRCell(cDslL, .trRow)
+                ws.Cells(r, 19).Formula = "=" & TRCell(cDslAmt, .trRow)
+                ws.Cells(r, 20).Formula = "=" & TRCell(cY, .trRow)
+                ws.Cells(r, 21).Formula = "=ROUND((N(O" & r & ")-F" & r & ")*D" & r & ",2)"
+                ws.Cells(r, 22).Formula = "=ROUND((N(M" & r & ")-D" & r & ")*F" & r & ",2)"
+                ' diesel: against HSD Data's SSFC fills on the trip, else the register's Q
+                ws.Cells(r, 23).Formula = "=ROUND(G" & r & "-IF(Q" & r & ">0,P" & r & ",N(S" & r & ")),2)"
+                ws.Cells(r, 24).Formula = "=IF(AND(Q" & r & ">0,ABS(G" & r & "-N(S" & r & "))>MAX(100,G" & r & "*0.002)),ROUND(G" & r & "-N(S" & r & "),2),0)"
+                ws.Cells(r, 25).Formula = "=ROUND(J" & r & "-N(T" & r & "),2)"
+                ' the same Rs over on this trip and under on the trip before / after it: a fill to retag
+                ws.Cells(r, 26).Formula = "=IF(ABS(W" & r & ")<=MAX(50,G" & r & "*0.001),0,MIN(1," & _
+                    "IF(AND($A" & (r - 1) & "=$A" & r & ",N($K" & (r - 1) & ")>0),IF(ABS(N(W" & (r - 1) & ")+W" & r & ")<=100,1,0),0)+" & _
+                    "IF(AND($A" & (r + 1) & "=$A" & r & ",N($K" & (r + 1) & ")>0),IF(ABS(N(W" & (r + 1) & ")+W" & r & ")<=100,1,0),0)))"
+                ws.Cells(r, 27).Formula = "=IF(U" & r & ">0.5,U" & r & ",0)+IF(V" & r & ">0.5,V" & r & ",0)+IF(AND(Z" & r & "=0,W" & r & ">MAX(50,G" & r & "*0.001)),W" & r & ",0)"
+                fx = "IF(U" & r & ">0.5,""RATE SHORT; "","""")&IF(U" & r & "<-0.5,""your rate is lower; "","""")&IF(V" & r & ">0.5,""WEIGHT SHORT; "","""")" & _
+                    "&IF(AND(N(E" & r & ")>0,N(N" & r & ")>0,N(E" & r & ")<N(N" & r & ")-0.011),""UNLOAD SHORTAGE RISK; "","""")" & _
+                    "&IF(Z" & r & "=1,""DIESEL ON NEXT/LAST TRIP - RETAG; "",IF(W" & r & ">MAX(50,G" & r & "*0.001),""DIESEL: SSFC MORE; "",IF(W" & r & "<-MAX(100,G" & r & "*0.002),""DIESEL: YOURS MORE; "","""")))" & _
+                    "&IF(X" & r & "<>0,""CORRECT P/Q; "","""")&IF(ABS(Y" & r & ")>1,""CASH OFFICE (Y) DIFFERS; "","""")"
+                ws.Cells(r, 29).Formula = "=" & fx
+                ws.Cells(r, 28).Formula = "=IF(AC" & r & "="""",""OK"",LEFT(AC" & r & ",LEN(AC" & r & ")-2))"
+            Else
+                ws.Cells(r, 27).Value = 0
+                ws.Cells(r, 28).Value = "NOT IN REGISTER - enter it, or ask SSFC whose trip it is"
+            End If
+        End With
+    Next i
+    tN = r
+    ws.Columns(29).Hidden = True
+    If tN >= t0 Then
+        ws.Range(ws.Cells(t0, 3), ws.Cells(tN, 3)).NumberFormat = "dd-mmm-yy"
+        ws.Range(ws.Cells(t0, 7), ws.Cells(tN, 7)).NumberFormat = "#,##0"
+        ws.Range(ws.Cells(t0, 16), ws.Cells(tN, 16)).NumberFormat = "#,##0"
+        ws.Range(ws.Cells(t0, 19), ws.Cells(tN, 27)).NumberFormat = "#,##0"
+        StatusColours ws.Range(ws.Cells(t0, 28), ws.Cells(tN, 28))
+        ClaimColours ws.Range(ws.Cells(t0, 27), ws.Cells(tN, 27))
+    End If
+
+    ' ---- register trips this month not in the statement ----
+    Dim rw As Variant, paid As Boolean, u0 As Long, uN As Long
+    r = r + 2
+    Section ws, r, "YOUR TRIPS THIS MONTH NOT IN THE STATEMENT (check they are in next month's)"
+    r = r + 1
+    ws.Cells(r, 1).Resize(1, 7).Value = Array("Register row", "Trip", "Vehicle", "Loaded", "Load T", "Trip Bhada", "Status")
+    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 7))
+    u0 = r + 1
+    For Each rw In monthRows
+        paid = False
+        For i = 1 To nT
+            If T(i).trRow = CLng(rw) Then paid = True: Exit For
+        Next i
+        If Not paid And NZ(wsTR.Cells(rw, cLW)) > 0 Then
+            r = r + 1
+            ws.Cells(r, 1).Value = CLng(rw)
+            ws.Cells(r, 2).Formula = "=" & TRCell(cTrip, CLng(rw))
+            ws.Cells(r, 3).Formula = "=" & TRCell(cVeh, CLng(rw))
+            ws.Cells(r, 4).Formula = "=" & TRCell(cLoadDate, CLng(rw))
+            ws.Cells(r, 5).Formula = "=" & TRCell(cLW, CLng(rw))
+            ws.Cells(r, 6).Formula = "=" & TRCell(cBhada, CLng(rw))
+            ws.Cells(r, 7).Value = "NOT IN THIS STATEMENT"
+            ws.Cells(r, 4).NumberFormat = "dd-mmm-yy": ws.Cells(r, 6).NumberFormat = "#,##0"
+        End If
+    Next rw
+    uN = r
+    If uN < u0 Then r = r + 1: ws.Cells(r, 1).Value = "None - every trip of the month is paid in this statement."
+
+    ' ---- each vehicle: deductions and SSFC Net against the register (live) ----
+    r = r + 2
+    Section ws, r, "EACH VEHICLE - SSFC's deductions and NET (fixed) against your Trip Register for " & Format(gMonth, "mmm yyyy") & " (live)"
+    r = r + 1
+    ws.Cells(r, 1).Resize(1, 10).Value = Array("Vehicle", "SSFC trips", "Your trips", "SSFC deductions (posted heads)", "Yours (" & ColLetter(cAA) & ", " & ColLetter(cAD) & ":" & ColLetter(cAK) & ")", "Yours - SSFC", "SSFC NET", "Your SSFC Net (" & ColLetter(cAL) & ")", "Yours - SSFC", "Status")
+    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 10))
+    Dim v0 As Long, vN As Long: v0 = r + 1
+    Dim crit As String
+    For i = 1 To nV
+        r = r + 1
+        crit = TRCol(cVeh) & ",$A" & r & "," & TRCol(cMonth) & "," & ms
+        ws.Cells(r, 1).Value = V(i).veh
+        ws.Cells(r, 2).Value = V(i).nT
+        ws.Cells(r, 3).Formula = "=COUNTIFS(" & crit & "," & TRCol(cLW) & ","">0"")"
+        ws.Cells(r, 4).Value = DedSum(V(i).veh, "") - DedSum(V(i).veh, "emi")
+        fx = "=SUMIFS(" & TRCol(cAA) & "," & crit & ")"
+        For k = cAD To cAK
+            fx = fx & "+SUMIFS(" & TRCol(k) & "," & crit & ")"
+        Next k
+        ws.Cells(r, 5).Formula = fx
+        ws.Cells(r, 6).Formula = "=ROUND(E" & r & "-D" & r & ",2)"
+        If V(i).hasNet Then
+            ws.Cells(r, 7).Value = V(i).net
+            ws.Cells(r, 9).Formula = "=ROUND(H" & r & "-G" & r & ",2)"
+        End If
+        ws.Cells(r, 8).Formula = "=SUMIFS(" & TRCol(cAL) & "," & crit & ")"
+        ws.Cells(r, 11).Formula = "=IF(C" & r & "<>B" & r & ",""TRIPS DIFFER; "","""")&IF(ABS(F" & r & ")>1,""DEDUCTIONS DIFFER; "","""")&IF(ABS(N(I" & r & "))>100,""NET DIFFERS; "","""")"
+        ws.Cells(r, 10).Formula = "=IF(K" & r & "="""",""OK"",LEFT(K" & r & ",LEN(K" & r & ")-2))"
+    Next i
+    vN = r
+    ws.Columns(11).Hidden = True
+    If vN >= v0 Then
+        ws.Range(ws.Cells(v0, 4), ws.Cells(vN, 9)).NumberFormat = "#,##0"
+        StatusColours ws.Range(ws.Cells(v0, 10), ws.Cells(vN, 10))
+    End If
+
+    ' ---- each deduction head (live) ----
+    r = r + 2
+    Section ws, r, "DEDUCTIONS BY HEAD - SSFC (fixed) against your Trip Register column (live)"
+    r = r + 1
+    ws.Cells(r, 1).Resize(1, 7).Value = Array("Vehicle", "Head", "Column", "SSFC Rs", "Yours", "Yours - SSFC", "Status")
+    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 7))
+    Dim d0 As Long, dN As Long: d0 = r + 1
+    Dim heads As Variant, hc As Long, ssfcAmt As Double, regAmt As Double
+    heads = Array("Fastag", "Maintenance", "Tyre", "Over / unload", "RTO entry", "RTO challan", "Shortage", "Document exp.", "SSFC Misc (other labels)")
+    For i = 1 To nV
+        For k = 0 To 8
+            If k < 8 Then hc = cAD + k Else hc = cAA
+            ssfcAmt = 0
+            For j = 1 To nD
+                If D(j).veh = V(i).veh And D(j).col <> "" Then
+                    If ColOfLetter(D(j).col) = hc Then ssfcAmt = ssfcAmt + D(j).amount
+                End If
+            Next j
+            regAmt = 0
+            For Each rw In monthRows
+                If NormVeh(wsTR.Cells(rw, cVeh).Value) = V(i).veh Then regAmt = regAmt + NZ(wsTR.Cells(rw, hc))
+            Next rw
+            If ssfcAmt <> 0 Or regAmt <> 0 Then
+                r = r + 1
+                ws.Cells(r, 1).Resize(1, 4).Value = Array(V(i).veh, heads(k), ColLetter(hc), ssfcAmt)
+                ws.Cells(r, 5).Formula = "=SUMIFS(" & TRCol(hc) & "," & TRCol(cVeh) & ",$A" & r & "," & TRCol(cMonth) & "," & ms & ")"
+                ws.Cells(r, 6).Formula = "=ROUND(E" & r & "-D" & r & ",2)"
+                ws.Cells(r, 7).Formula = "=IF(ABS(F" & r & ")<=1,""OK"",IF(F" & r & "<0,""LESS IN YOURS - POST IT"",""MORE IN YOURS""))"
+            End If
+        Next k
+    Next i
+    dN = r
+    If dN >= d0 Then
+        ws.Range(ws.Cells(d0, 4), ws.Cells(dN, 6)).NumberFormat = "#,##0"
+        StatusColours ws.Range(ws.Cells(d0, 7), ws.Cells(dN, 7))
+    End If
+
+    ' ---- DEF bills against your Urea DEF sheet (live) ----
+    Dim e0 As Long, eN As Long: e0 = 0: eN = -1
+    If hasU Then
+        r = r + 2
+        Section ws, r, "DEF / ADBLUE - SSFC's bills (fixed) against refills bought from SSFC in your " & uName & " sheet, same vehicle, 3 days either side (live)"
+        r = r + 1
+        ws.Cells(r, 1).Resize(1, 8).Value = Array("Vehicle", "Bill date", "What (as SSFC wrote it)", "SSFC Rs", "Your SSFC refills those days", "Their Rs", "To claim", "Status")
+        Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 8))
+        e0 = r + 1
+        Dim win As String
+        For i = 1 To nB
+            If B(i).isDef And B(i).amount > 0 Then
+                r = r + 1
+                ws.Cells(r, 1).Resize(1, 4).Value = Array(B(i).veh, IIf(B(i).dt > 0, B(i).dt, ""), B(i).desc, B(i).amount)
+                ws.Cells(r, 2).NumberFormat = "dd-mmm-yy"
+                If B(i).dt > 0 Then
+                    win = uV & ",$A" & r & "," & uD & ","">=""&($B" & r & "-3)," & uD & ",""<=""&($B" & r & "+3)," & uF & ","
+                    ws.Cells(r, 5).Formula = "=COUNTIFS(" & win & """*FREIGHT*"")+COUNTIFS(" & win & """*SSFC*"")-COUNTIFS(" & win & """*SSFC*FREIGHT*"")"
+                    ws.Cells(r, 6).Formula = "=SUMIFS(" & uA & "," & win & """*FREIGHT*"")+SUMIFS(" & uA & "," & win & """*SSFC*"")-SUMIFS(" & uA & "," & win & """*SSFC*FREIGHT*"")"
+                    ws.Cells(r, 7).Formula = "=IF(E" & r & "=0,D" & r & ",IF(AND(E" & r & "=1,D" & r & "-F" & r & ">1),D" & r & "-F" & r & ",0))"
+                    ws.Cells(r, 8).Formula = "=IF(E" & r & "=0,""NO REFILL OF YOURS FROM SSFC"",IF(AND(E" & r & "=1,D" & r & "-F" & r & ">1),""SSFC CHARGED MORE"",""OK""))"
+                Else
+                    ws.Cells(r, 7).Value = 0
+                    ws.Cells(r, 8).Value = "NO DATE ON THE BILL - check by hand"
+                End If
+            End If
+        Next i
+        eN = r
+        If eN >= e0 Then
+            ws.Range(ws.Cells(e0, 4), ws.Cells(eN, 7)).NumberFormat = "#,##0"
+            StatusColours ws.Range(ws.Cells(e0, 8), ws.Cells(eN, 8))
+            ClaimColours ws.Range(ws.Cells(e0, 7), ws.Cells(eN, 7))
+        Else
+            r = r + 1: ws.Cells(r, 1).Value = "No DEF bill in this statement."
+        End If
+    End If
+
+    ' ---- LD: SSFC's days against your loading / unloading dates (live) ----
+    Dim l0 As Long, lN As Long: l0 = 0: lN = -1
+    If nL > 0 Then
+        r = r + 2
+        Section ws, r, "LATE DELIVERY (LD) - SSFC's days (fixed) against your loading / unloading dates (live)"
+        r = r + 1
+        ws.Cells(r, 1).Resize(1, 11).Value = Array("Vehicle", "Invoice", "SSFC days", "LD Rs", "Register row", "Your loaded", "Your unloaded", "Your days", "Days over", "To claim", "Status")
+        Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 11))
+        l0 = r + 1
+        For i = 1 To nL
+            If L(i).amount > 0 Then
+                r = r + 1
+                ws.Cells(r, 1).Resize(1, 4).Value = Array(L(i).veh, IIf(L(i).inv > 0, L(i).inv, ""), L(i).days, L(i).amount)
+                If L(i).trRow > 0 Then
+                    ws.Cells(r, 5).Value = L(i).trRow
+                    ws.Cells(r, 6).Formula = "=" & TRCell(cLoadDate, L(i).trRow)
+                    ws.Cells(r, 7).Formula = "=" & TRCell(cUnloadDate, L(i).trRow)
+                    ws.Cells(r, 8).Formula = "=IF(AND(N(F" & r & ")>0,N(G" & r & ")>0),G" & r & "-F" & r & ","""")"
+                    ws.Cells(r, 9).Formula = "=IF(H" & r & "="""",0,MAX(0,C" & r & "-H" & r & "))"
+                    ws.Cells(r, 10).Formula = "=IF(N(C" & r & ")>0,ROUND(D" & r & "/C" & r & "*I" & r & ",2),0)"
+                    ws.Cells(r, 11).Formula = "=IF(H" & r & "="""",""YOUR DATES MISSING"",IF(I" & r & ">0,""SSFC COUNTS MORE DAYS"",""OK""))"
+                Else
+                    ws.Cells(r, 10).Value = 0
+                    ws.Cells(r, 11).Value = "NO TRIP OF YOURS NEAR THE INVOICE DATE"
+                End If
+                ws.Range(ws.Cells(r, 2), ws.Cells(r, 2)).NumberFormat = "dd-mmm-yy"
+                ws.Range(ws.Cells(r, 6), ws.Cells(r, 7)).NumberFormat = "dd-mmm-yy"
+            End If
+        Next i
+        lN = r
+        If lN >= l0 Then
+            StatusColours ws.Range(ws.Cells(l0, 11), ws.Cells(lN, 11))
+            ClaimColours ws.Range(ws.Cells(l0, 10), ws.Cells(lN, 10))
+        End If
+    End If
+
+    ' ---- from SSFC's statement alone (fixed: their arithmetic, EMI, new labels, RTO entry, bills) ----
+    Dim fixedClaim As Double, nFixedCheck As Long
+    r = r + 2
+    Section ws, r, "FROM SSFC's STATEMENT ITSELF (fixed - these don't depend on your books)"
     r = r + 1
     ws.Cells(r, 1).Resize(1, 5).Value = Array("Level", "Area", "Vehicle", "Rs", "Finding")
     Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 5))
     Dim lv As Variant, n As Long
     For Each lv In Array("CLAIM", "CHECK", "NOTE")
-        ' amounts largest first
         Dim idx() As Long, m As Long: ReDim idx(1 To nF + 1): m = 0
         For i = 1 To nF
             If F(i).level = lv Then m = m + 1: idx(m) = i
@@ -1319,65 +1365,21 @@ Private Sub BuildCheckSheet(wsTR As Worksheet, monthRows As Collection, posted A
             If F(i).amount <> 0 Then ws.Cells(r, 4).Value = F(i).amount
             ws.Cells(r, 5).Value = F(i).text
             If lv = "CLAIM" Then
+                fixedClaim = fixedClaim + F(i).amount
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 5)).Interior.Color = RGB(253, 226, 222)
             ElseIf lv = "CHECK" Then
+                nFixedCheck = nFixedCheck + 1
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 5)).Interior.Color = RGB(255, 242, 204)
             Else
                 ws.Range(ws.Cells(r, 1), ws.Cells(r, 5)).Font.Color = RGB(110, 110, 110)
             End If
         Next j
     Next lv
-    If n = 0 Then r = r + 1: ws.Cells(r, 1).Value = "Everything checks out.": ws.Cells(r, 1).Font.Color = RGB(0, 128, 0)
+    If n = 0 Then r = r + 1: ws.Cells(r, 1).Value = "Nothing - their arithmetic, deductions and bills add up.": ws.Cells(r, 1).Font.Color = RGB(0, 128, 0)
 
-    ' each vehicle
+    ' ---- each deduction line and each bill, as SSFC wrote them ----
     r = r + 2
-    ws.Cells(r, 1).Value = "EACH VEHICLE": ws.Cells(r, 1).Font.Bold = True: ws.Cells(r, 1).Font.Size = 12
-    r = r + 1
-    ws.Cells(r, 1).Resize(1, 9).Value = Array("Vehicle", "SSFC trips", "Freight", "Diesel Rs", "Diesel L", "Cash office", "Deductions", "SSFC net", "Your SSFC Net (" & ColLetter(cAL) & ")")
-    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 9))
-    For i = 1 To nV
-        r = r + 1
-        Dim f1 As Double, d1 As Double, l1 As Double, c1 As Double, rn As Double, rw As Variant
-        f1 = 0: d1 = 0: l1 = 0: c1 = 0: rn = 0
-        For j = V(i).t0 To V(i).t0 + V(i).nT - 1
-            f1 = f1 + T(j).loadWt * T(j).rate: d1 = d1 + T(j).diesel: l1 = l1 + T(j).litres: c1 = c1 + T(j).cashOffice
-        Next j
-        For Each rw In monthRows
-            If NormVeh(wsTR.Cells(rw, cVeh).Value) = V(i).veh Then rn = rn + NZ(wsTR.Cells(rw, cAL))
-        Next rw
-        ws.Cells(r, 1).Resize(1, 9).Value = Array(V(i).veh, V(i).nT, f1, d1, l1, c1, DedSum(V(i).veh, ""), IIf(V(i).hasNet, V(i).net, ""), rn)
-        If V(i).hasNet And Abs(rn - V(i).net) > 100 Then ws.Cells(r, 9).Interior.Color = RGB(255, 242, 204)
-    Next i
-    ws.Range(ws.Cells(r - nV + 1, 3), ws.Cells(r, 9)).NumberFormat = "#,##0"
-
-    ' each trip
-    r = r + 2
-    ws.Cells(r, 1).Value = "EACH TRIP (SSFC -> your register)": ws.Cells(r, 1).Font.Bold = True: ws.Cells(r, 1).Font.Size = 12
-    r = r + 1
-    ws.Cells(r, 1).Resize(1, 18).Value = Array("Vehicle", "LR", "Loaded", "Load T", "Unload T", "Rate", "Diesel Rs", "Diesel L", "Cash office", "SSFC total", "Your trip", "Matched by", _
-        "of it cash diesel", "HSD Data L (SSFC fills)", "HSD Data Rs", "Your P (L)", "Your Q (Rs)", "Diesel: SSFC - yours")
-    Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 18))
-    For i = 1 To nT
-        r = r + 1
-        With T(i)
-            ws.Cells(r, 1).Resize(1, 10).Value = Array(.veh, .lr, IIf(.loadDate > 0, .loadDate, ""), .loadWt, IIf(.hasUnload, .unloadWt, ""), .rate, .diesel, .litres, .cashOffice, IIf(.hasTotal, .total, ""))
-            If .trRow > 0 Then
-                ws.Cells(r, 11).Value = wsTR.Cells(.trRow, cTrip).Value & "  (row " & .trRow & ")"
-                ws.Cells(r, 12).Value = .how & IIf(.dateFixed, ", date read swapped", "")
-                ws.Cells(r, 13).Resize(1, 6).Value = Array(IIf(.cash > 0, .cash, ""), IIf(.hsdN > 0, .hsdL, ""), IIf(.hsdN > 0, .hsdRs, ""), .regL, .regRs, _
-                    DieselLabel(.dStatus, .dRs))
-                If .dStatus = "more" Then ws.Cells(r, 18).Font.Color = RGB(192, 0, 0)
-                If .dStatus = "less" Or .dStatus = "moved" Or .dStatus = "register" Then ws.Cells(r, 18).Font.Color = RGB(191, 120, 0)
-            Else
-                ws.Cells(r, 11).Value = "NOT IN REGISTER": ws.Cells(r, 11).Font.Color = RGB(192, 0, 0)
-            End If
-            ws.Cells(r, 3).NumberFormat = "dd-mmm-yy"
-        End With
-    Next i
-
-    ' each deduction line, as SSFC wrote it, and where it went
-    r = r + 2
-    ws.Cells(r, 1).Value = "DEDUCTIONS (as SSFC wrote them)": ws.Cells(r, 1).Font.Bold = True: ws.Cells(r, 1).Font.Size = 12
+    Section ws, r, "DEDUCTIONS (as SSFC wrote them)"
     r = r + 1
     ws.Cells(r, 1).Resize(1, 5).Value = Array("Vehicle", "SSFC's label", "Read as", "Posted to", "Rs")
     Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 5))
@@ -1386,29 +1388,110 @@ Private Sub BuildCheckSheet(wsTR As Worksheet, monthRows As Collection, posted A
         ws.Cells(r, 1).Resize(1, 5).Value = Array(D(i).veh, D(i).label, KindName(D(i).kind), IIf(D(i).col = "", "not posted", D(i).col), D(i).amount)
         If D(i).col = "" Then ws.Cells(r, 4).Font.Color = RGB(192, 0, 0)
     Next i
-
-    ' the bills, DEF marked
     If nB > 0 Then
         r = r + 2
-        ws.Cells(r, 1).Value = "BILLS (SSFC's expense sheet)": ws.Cells(r, 1).Font.Bold = True: ws.Cells(r, 1).Font.Size = 12
+        Section ws, r, "BILLS (SSFC's expense sheet)"
         r = r + 1
         ws.Cells(r, 1).Resize(1, 7).Value = Array("Vehicle", "Date", "What (as SSFC wrote it)", "Head", "Read as", "Rs", "DEF")
         Hdr ws.Range(ws.Cells(r, 1), ws.Cells(r, 7))
         For i = 1 To nB
             r = r + 1
             With B(i)
-                ws.Cells(r, 1).Resize(1, 7).Value = Array(.veh, IIf(.dt > 0, .dt, ""), .desc, .cat, KindName(.kind), .amount, IIf(.isDef, IIf(.paired, "DEF - in your sheet", "DEF - NOT in your sheet"), ""))
+                ws.Cells(r, 1).Resize(1, 7).Value = Array(.veh, IIf(.dt > 0, .dt, ""), .desc, .cat, KindName(.kind), .amount, IIf(.isDef, "DEF", ""))
                 ws.Cells(r, 2).NumberFormat = "dd-mmm-yy"
-                If .isDef And Not .paired Then ws.Cells(r, 7).Font.Color = RGB(192, 0, 0)
             End With
         Next i
     End If
 
-    ws.Columns("A:R").AutoFit
-    ws.Columns("E").ColumnWidth = 110
-    ws.Columns("E").WrapText = False
-    ws.Range("A4:I5").Columns.AutoFit
+    ' ---- the summary on top (live) ----
+    Dim fr As Double, ds As Double, co As Double, dd As Double, netSum As Double
+    For i = 1 To nT
+        fr = fr + T(i).loadWt * T(i).rate: ds = ds + T(i).diesel: co = co + T(i).cashOffice
+    Next i
+    For i = 1 To nD
+        dd = dd + D(i).amount
+    Next i
+    For i = 1 To nV
+        netSum = netSum + V(i).net
+    Next i
+    ws.Range("A4").Resize(1, 12).Value = Array("To claim from SSFC", "Trips to check", "Vehicles to check", "Deduction heads to check", "DEF bills to check", "Statement findings to check", _
+        "Trips", "Freight", "Diesel", "Cash office", "Deductions", "SSFC net")
+    Hdr ws.Range("A4:L4")
+    fx = "=" & Trim(Str(Round(fixedClaim, 2)))
+    If tN >= t0 Then fx = fx & "+SUM(AA" & t0 & ":AA" & tN & ")"
+    If eN >= e0 And e0 > 0 Then fx = fx & "+SUM(G" & e0 & ":G" & eN & ")"
+    If lN >= l0 And l0 > 0 Then fx = fx & "+SUM(J" & l0 & ":J" & lN & ")"
+    ws.Range("A5").Formula = fx
+    ws.Range("B5").Formula = IIf(tN >= t0, "=COUNTIF(AB" & t0 & ":AB" & tN & ",""<>OK"")+" & (uN - u0 + 1), "=" & (uN - u0 + 1))
+    ws.Range("C5").Formula = IIf(vN >= v0, "=COUNTIF(J" & v0 & ":J" & vN & ",""<>OK"")", "=0")
+    ws.Range("D5").Formula = IIf(dN >= d0, "=COUNTIF(G" & d0 & ":G" & dN & ",""<>OK"")", "=0")
+    ws.Range("E5").Formula = IIf(eN >= e0 And e0 > 0, "=COUNTIF(H" & e0 & ":H" & eN & ",""<>OK"")", "=0")
+    ws.Range("F5").Value = nFixedCheck
+    ws.Range("G5").Resize(1, 6).Value = Array(nT, fr, ds, co, dd, netSum)
+    ws.Range("A5:L5").Font.Bold = True
+    ws.Range("A5").NumberFormat = "#,##0": ws.Range("H5:L5").NumberFormat = "#,##0"
+    ClaimColours ws.Range("A5")
+
+    ws.Columns("A:AB").AutoFit
+    ws.Columns("E").ColumnWidth = 22
+    ws.Columns("AB").ColumnWidth = 60
+    ws.Range("A1:A3").WrapText = False
 End Sub
+
+Private Sub Section(ws As Worksheet, ByVal r As Long, ByVal title As String)
+    ws.Cells(r, 1).Value = title
+    ws.Cells(r, 1).Font.Bold = True
+    ws.Cells(r, 1).Font.Size = 12
+End Sub
+
+' a status column: OK green, anything else amber
+Private Sub StatusColours(rg As Range)
+    On Error Resume Next                 ' colours only: never stop a run over them
+    With rg.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""OK""")
+        .Font.Color = RGB(0, 128, 0)
+    End With
+    With rg.FormatConditions.Add(Type:=xlCellValue, Operator:=xlNotEqual, Formula1:="=""OK""")
+        .Interior.Color = RGB(255, 242, 204)
+    End With
+End Sub
+
+' a "to claim" column: red when there is something to claim
+Private Sub ClaimColours(rg As Range)
+    On Error Resume Next                 ' colours only: never stop a run over them
+    With rg.FormatConditions.Add(Type:=xlCellValue, Operator:=xlGreater, Formula1:="=0.5")
+        .Font.Color = RGB(192, 0, 0)
+        .Font.Bold = True
+    End With
+End Sub
+
+' a whole column of another sheet, found by its heading in row 1: "'HSD Data'!$J:$J" ("" if not there)
+Private Function ColRef(ByVal sheetName As String, ByVal keys As String) As String
+    Dim ws As Worksheet, k As Long, key As String
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+    For k = 1 To 40
+        key = KeyOf(ws.Cells(1, k).Value)
+        If key <> "" And InStr("|" & keys & "|", "|" & key & "|") > 0 Then
+            ColRef = "'" & ws.Name & "'!$" & ColLetter(k) & ":$" & ColLetter(k)
+            Exit Function
+        End If
+    Next k
+End Function
+
+Private Function TRCol(ByVal c As Long) As String
+    TRCol = "'" & TR_SHEET & "'!$" & ColLetter(c) & ":$" & ColLetter(c)
+End Function
+
+Private Function TRCell(ByVal c As Long, ByVal r As Long) As String
+    TRCell = "'" & TR_SHEET & "'!$" & ColLetter(c) & "$" & r
+End Function
+
+' a posting column letter -> the Trip Register column it is (AA is the SSFC Misc column, wherever it is)
+Private Function ColOfLetter(ByVal letter As String) As Long
+    If UCase(letter) = "AA" Then ColOfLetter = cAA Else ColOfLetter = ColNumFromLetter(letter)
+End Function
 
 Private Sub Hdr(rg As Range)
     rg.Font.Bold = True
@@ -1835,31 +1918,11 @@ End Function
 '==================================================================
 Private Sub AddFind(ByVal level As String, ByVal area As String, ByVal veh As String, ByVal amount As Double, ByVal text As String)
     nF = nF + 1
-    If nF > UBound(F) Then ReDim Preserve F(1 To nF * 2)
+    If nF > UBound(F) Then
+        ReDim Preserve F(1 To nF * 2)
+    End If
     F(nF).level = level: F(nF).area = area: F(nF).veh = veh: F(nF).amount = Round(amount, 2): F(nF).text = text
 End Sub
-
-Private Function DieselLabel(ByVal st As String, ByVal dRs As Double) As String
-    Select Case st
-        Case "": DieselLabel = "ok"
-        Case "more": DieselLabel = Format(dRs, "#,##0") & "  SSFC more"
-        Case "less": DieselLabel = Format(dRs, "#,##0") & "  yours more"
-        Case "moved": DieselLabel = Format(dRs, "#,##0") & "  fill on the next / last trip"
-        Case "register": DieselLabel = "correct P / Q"
-        Case Else: DieselLabel = st
-    End Select
-End Function
-
-' a trip's diesel off by more than rounding (SSFC more: Rs 50 / 0.1%; yours more: Rs 100 / 0.2%)
-Private Function DieselOff(j As Long) As Boolean
-    Dim tl As Double
-    If T(j).dRs > 0 Then
-        tl = 50: If Abs(T(j).diesel) * 0.001 > tl Then tl = Abs(T(j).diesel) * 0.001
-    Else
-        tl = 100: If Abs(T(j).diesel) * 0.002 > tl Then tl = Abs(T(j).diesel) * 0.002
-    End If
-    DieselOff = Abs(T(j).dRs) > tl
-End Function
 
 Private Function DedSum(ByVal veh As String, ByVal kind As String) As Double
     Dim i As Long
