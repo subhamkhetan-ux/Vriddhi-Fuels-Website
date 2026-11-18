@@ -116,7 +116,9 @@ from the 1st to today against the 1st to the same date last month (a bulk
 sheet's companies together), best first: by *Litres gained* or by *% change*
 (new lifting first), *All / Bulk / Retail*, with the segment's total; always
 this month against last, whatever period is picked above; tap one to open
-its ledger;
+its ledger; **Share** makes it a picture (and PDF) in the app's look — the
+segment's total this month and last with the change, then everyone in the
+list as shown (the filter and the order picked);
 everyone's outstanding, largest first (right under the heading) (ledger customers as on their sheet,
 bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and

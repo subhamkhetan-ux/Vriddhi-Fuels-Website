@@ -44,7 +44,7 @@ import {
   poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, statementLines, unitLabel,
 } from './ledger-view.js';
 import {
-  dMon, dMonY, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyByRateSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
+  dMon, dMonY, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, paceListSvg, qtyByRateSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
 } from './share-svg.js';
 import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
@@ -1103,7 +1103,8 @@ function paceHtml(p, seg, sort, all) {
   const sign = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${litres(Math.abs(n))}`;
   return `
     <div class="row-between"><h3>Lifting pace <span class="muted small">${esc(span(p.cur))} vs ${esc(span(p.prev))} · litres</span></h3>
-      <div class="chips small-chips">${[['diff', 'Litres gained'], ['pct', '% change']].map(([x, n]) => `<button class="chip ${x === sort ? 'on' : ''}" data-psort="${x}">${n}</button>`).join('')}</div></div>
+      ${list.length ? `<button class="btn ghost small" data-pshare>${SHARE_ICON} Share</button>` : ''}</div>
+    <div class="chips small-chips">${[['diff', 'Litres gained'], ['pct', '% change']].map(([x, n]) => `<button class="chip ${x === sort ? 'on' : ''}" data-psort="${x}">${n}</button>`).join('')}</div>
     <div class="chips small-chips">${[['all', 'All'], ['bulk', 'Bulk'], ['retail', 'Retail']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-pseg="${x}">${n}</button>`).join('')}</div>
     ${list.length ? `<p class="small pace-total">${seg === 'all' ? 'All customers' : seg === 'bulk' ? 'Bulk customers' : 'Retail customers'}: <b>${litres(tot.cur)}</b> this month vs ${litres(tot.prev)} by this date last month ${chg(tot.cur, tot.prev)}</p>
     <ol class="rank">${shown.map((e, i) => {
@@ -1227,7 +1228,23 @@ async function renderDashboard(box) {
   const paceBox = box.querySelector('#dash-pace');
   const pui = state.paceUi || (state.paceUi = { seg: 'all', sort: 'diff', all: false });
   const paintPace = () => {
-    paceBox.innerHTML = paceHtml(liftingPaces(data, localToday(), { sort: pui.sort }), pui.seg, pui.sort, pui.all);
+    const pace = liftingPaces(data, localToday(), { sort: pui.sort });
+    paceBox.innerHTML = paceHtml(pace, pui.seg, pui.sort, pui.all);
+    // the picture: everyone in the list as shown (this filter, this order)
+    paceBox.querySelector('[data-pshare]')?.addEventListener('click', () => {
+      const label = { all: '', retail: 'Retail', bulk: 'Bulk' }[pui.seg];
+      const shown = { ...pace, list: pace.list.filter((e) => pui.seg === 'all' || e.kind === pui.seg) };
+      const sortLabel = pui.sort === 'pct' ? 'by % change' : 'by litres gained';
+      const draw = async () => {
+        const { images, fontCss } = await shareImages();
+        return paceListSvg({ pace: shown, label, sortLabel, asOn: localToday() }, { images, fontCss });
+      };
+      const base = `Lifting Pace${label ? ` ${label}` : ''} ${dmyDash(localToday())}`;
+      sharePictures('Lifting pace', async () => {
+        const { svg, size } = await draw();
+        return [new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' })];
+      }, { pdf: async () => { const { svg, size } = await draw(); await longPdf(svg, size, base); } });
+    });
     paceBox.querySelectorAll('[data-pseg]').forEach((b) => b.addEventListener('click', () => { pui.seg = b.dataset.pseg; paintPace(); }));
     paceBox.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { pui.sort = b.dataset.psort; paintPace(); }));
     paceBox.querySelector('[data-pall]')?.addEventListener('click', () => { pui.all = !pui.all; paintPace(); });

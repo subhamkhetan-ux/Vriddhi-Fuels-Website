@@ -652,6 +652,55 @@ ${T(w - pad - 20, y + 42, rupees(o.balance), { size: 22, weight: 800, anchor: 'e
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${defs(fontCss)}${backdrop(w, h)}${out}</svg>`, size: { width: w, height: h } };
 }
 
+// ---- everyone's lifting pace (Home → Lifting pace → Share) -----------------------------------
+// pace: dash.js liftingPaces() (list already filtered and in the order shown);
+// label: All / Bulk / Retail; sortLabel: how it is ordered. Litres only.
+export function paceListSvg({ pace, label = '', sortLabel = '', asOn }, { images = {}, fontCss = '' } = {}) {
+  const w = CARD_WIDTH;
+  const pad = 56;
+  const span = (r) => `${Number(r.from.slice(8, 10))}–${Number(r.to.slice(8, 10))} ${MON[Number(r.to.slice(5, 7)) - 1]}`;
+  const change = (cur, prev) => {
+    if (!prev) return cur ? { text: 'none last month', fill: C.muted } : { text: '', fill: C.muted };
+    const pc = Math.round(((cur - prev) / prev) * 100);
+    if (!pc) return { text: 'same pace', fill: C.muted };
+    return pc > 0 ? { text: `▲ ${pc}%`, fill: C.good } : { text: `▼ ${Math.abs(pc)}%`, fill: C.bad };
+  };
+  const list = pace.list;
+  const tot = list.reduce((a, e) => ({ cur: a.cur + e.cur, prev: a.prev + e.prev }), { cur: 0, prev: 0 });
+  let y = 48;
+  let out = brandRow(w, pad, y, `Lifting pace${label ? ` · ${label}` : ''}`, asOn, images);
+  y += 172;
+  const tc = change(tot.cur, tot.prev);
+  out += hero(pad, y, w - 2 * pad, 200, `THIS MONTH · ${span(pace.cur).toUpperCase()} · ${list.length} CUSTOMER${list.length === 1 ? '' : 'S'}`,
+    qtyText(tot.cur) || '0 L', [[`LAST MONTH · ${span(pace.prev).toUpperCase()}`, qtyText(tot.prev) || '0 L'], ['CHANGE', tc.text || '—']]);
+  y += 228;
+  out += T(pad, y + 6, `Litres, ${span(pace.cur)} against ${span(pace.prev)}${sortLabel ? `  ·  ${sortLabel}` : ''}`, { size: 18, fill: C.muted, max: w - 2 * pad });
+  y += 30;
+  const max = Math.max(1, ...list.map((e) => Math.max(e.cur, e.prev)));
+  const rowH = 84;
+  const barX = pad + 70;
+  const barW = w - 2 * pad - 70 - 330;
+  list.forEach((e, i) => {
+    const c = change(e.cur, e.prev);
+    const diff = Math.round((e.cur - e.prev) * 100) / 100;
+    const tag = e.kind === 'bulk' ? 'BULK' : 'RETAIL';
+    const name = fit(e.name, barW + 10 - textWidth(tag, 13, 700) - 24, 20, 700);
+    out += `${i % 2 ? R(pad, y, w - 2 * pad, rowH, { rx: 14, opacity: 0.035 }) : ''}
+${T(pad + 20, y + 36, String(i + 1), { size: 18, weight: 700, fill: C.faint })}
+<text x="${barX}" y="${y + 30}" font-size="20" font-weight="700" fill="${C.ink}">${esc(name)}<tspan dx="12" dy="-1" font-size="13" fill="${e.kind === 'bulk' ? '#9085e9' : C.muted}" letter-spacing="1">${tag}</tspan></text>
+${R(barX, y + 44, barW, 7, { rx: 3.5, opacity: 0.06 })}${e.cur ? R(barX, y + 44, Math.max(4, barW * (e.cur / max)), 7, { rx: 3.5, fill: C.amber, opacity: 0.95 }) : ''}
+${R(barX, y + 56, barW, 7, { rx: 3.5, opacity: 0.06 })}${e.prev ? R(barX, y + 56, Math.max(4, barW * (e.prev / max)), 7, { rx: 3.5, fill: '#fff', opacity: 0.3 }) : ''}
+${T(w - pad - 20, y + 32, qtyText(e.cur) || '0 L', { size: 22, weight: 800, anchor: 'end' })}
+${T(w - pad - 20, y + 54, `vs ${qtyText(e.prev) || '0 L'}  ·  ${diff > 0 ? '+' : diff < 0 ? '−' : ''}${qtyText(Math.abs(diff)) || '0 L'}`, { size: 14, fill: C.muted, anchor: 'end' })}
+${T(w - pad - 20, y + 75, c.text, { size: 15, weight: 800, anchor: 'end', fill: c.fill })}`;
+    y += rowH;
+  });
+  y += 24;
+  out += `${R(pad, y, w - 2 * pad, 1.5, { opacity: 0.1 })}${T(pad, y + 40, 'Vriddhi Fuels  ·  HSD, MS and XtraGreen billed  ·  orange this month, grey last month', { size: 15, fill: C.faint, max: w - 2 * pad })}`;
+  const h = y + 72;
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${defs(fontCss)}${backdrop(w, h)}${out}</svg>`, size: { width: w, height: h } };
+}
+
 // a statement cut to one month: that month's entries, its opening and closing
 export function monthSlice(st, ym) {
   const m = st.months.find((x) => x.month === ym);
