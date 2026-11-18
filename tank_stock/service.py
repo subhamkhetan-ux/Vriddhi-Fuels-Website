@@ -1396,12 +1396,10 @@ class Handler(BaseHTTPRequestHandler):
     def station(self) -> Station:
         return self.server.station           # type: ignore[attr-defined]
 
-    def _send(self, status, body: bytes, ctype: str, headers=()):
+    def _send(self, status, body: bytes, ctype: str):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        for k, v in headers:
-            self.send_header(k, v)
         for k, v in SECURITY_HEADERS:
             self.send_header(k, v)
         self.end_headers()
@@ -1460,15 +1458,6 @@ class Handler(BaseHTTPRequestHandler):
             if not jpeg:
                 return self._json(404, {"error": "No picture for that."})
             return self._send(200, jpeg, "image/jpeg")
-        if url.path == "/api/auto/result":
-            # a finished decantation's result picture (the decant app's), drawn on the server
-            sid = parse_qs(url.query).get("id", [""])[0]
-            png = self.station.auto.result_picture(sid)
-            if not png:
-                return self._json(404, {"error": "No result picture for that decantation."})
-            name = "".join(ch for ch in parse_qs(url.query).get("name", [""])[0] if ch.isalnum() or ch in " -_.")[:80]
-            return self._send(200, png, "image/png",
-                              [("Content-Disposition", f'inline; filename="{(name or "Decanting result").strip()}.png"')])
         if url.path == "/api/picture":
             try:
                 query = parse_qs(url.query)
