@@ -110,7 +110,9 @@ export async function sampleTally(store, today) {
   }
   bulk.forEach((b, gi) => {
     const first = (b.data.members || [])[0];
-    (b.data.sales || []).forEach((s, i) => {
+    const n = (b.data.sales || []).length;
+    (b.data.sales || []).forEach((s, j) => {
+      const i = n - 1 - j;                                          // counted from the latest bill, so the planted ones stay recent
       if (gi === 0 && i === 0) {                                    // left out of Tally
         planted.push({ account: `g:${b.code}`, type: 'appOnly', number: s.bill_no, effect: -Number(s.amount) });
         return;
