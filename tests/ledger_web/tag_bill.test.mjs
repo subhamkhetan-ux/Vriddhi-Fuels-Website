@@ -53,3 +53,35 @@ test("the pages: the customer's Bill To, the tag, the vehicle no. in the table",
   for (const t of ['Shivaay Logistics', 'Jharsuguda.', 'GSTIN: 21AERFS8379H1ZD', '01-10-2026', '31-10-2026', '>OD15AF5510<', '>OD23U0755<']) assert.ok(svgs[1].includes(t), t);
   assert.doesNotMatch(svgs[1], /Steels/);
 });
+
+test('isVehicleNo: a vehicle no. or a word typed in its place', async () => {
+  const { isVehicleNo } = await import('../../ledger/js/scpl.js');
+  for (const v of ['OD15AF5510', 'od 02 bu-0840', 'OD23U755', '22BH1234AA']) assert.equal(isVehicleNo(v), true, v);
+  for (const v of ['Transporting', 'Consumer', 'JSW', '700 Acre', '']) assert.equal(isVehicleNo(v), false, v);
+});
+
+test('a setup: auto tags from words, one page, several products', async () => {
+  const { setupOf } = await import('../../ledger/js/scpl.js');
+  assert.deepEqual(setupOf(null), { split: 'tag', period: 'month', products: ['HSD'], tags: {}, billTo: null });
+  const more = [...sales, sale(9, '2026-10-20', '300', 'JSW Plant', 600), sale(10, '2026-10-21', '301', 'OD15AF5510', 40, { product: 'MS' })];
+  // a word in the Vehicle column is its own tag, without saving anything
+  const a = tagBill(more, { customer: C, from: '2026-10-01', to: '2026-10-31', setup: { tags } });
+  assert.deepEqual(a.pages.map((p) => p.cat), ['700 Acre', 'JSW', 'JSW Plant']);
+  assert.equal(a.vehicles.find((v) => v.key === 'JSWPLANT').auto, 'JSW Plant');
+  // a saved tag wins over the word
+  assert.deepEqual(tagBill(more, { customer: C, from: '2026-10-01', to: '2026-10-31', setup: { tags: { ...tags, JSWPLANT: 'JSW' } } }).pages.map((p) => p.cat), ['700 Acre', 'JSW']);
+  // one page: every HSD bill, nothing to tag
+  const one = tagBill(more, { customer: C, from: '2026-10-01', to: '2026-10-31', setup: { split: 'none' } });
+  assert.equal(one.pages.length, 1);
+  assert.equal(one.pages[0].cat, '');
+  assert.equal(one.pages[0].rows.length, 6);
+  assert.equal(one.unread.length, 0);
+  assert.equal(one.vehicles.length, 0);
+  // HSD and MS: a page per tag and product, each with its product
+  const both = tagBill(more, { customer: C, from: '2026-10-01', to: '2026-10-31', setup: { tags, products: ['HSD', 'MS'] }, picked: { 4: 'JSW', 5: 'skip' } });
+  assert.deepEqual(both.pages.map((p) => `${p.cat}|${p.product}`), ['700 Acre|HSD', 'JSW|HSD', 'JSW|MS', 'JSW Plant|HSD']);
+  const svgs = scplBillSvg(both, { billTo: { name: C } });
+  assert.match(svgs[2], /Product:<\/tspan> MS/);
+  // one page leaves the Vehicles line out
+  assert.doesNotMatch(scplBillSvg(one, { billTo: { name: C } })[0], /Vehicles:/);
+});

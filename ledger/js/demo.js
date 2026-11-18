@@ -112,7 +112,7 @@ export function demoSeed(today = new Date(), workbook = null) {
   for (let i = 40; i >= 2; i -= 3) {
     const v = SITES[i % 4];
     const qty = 1500 + (i % 5) * 100;
-    masterSales.push({ product: 'HSD', bill_no: `L${700 + i}`, sale_date: isoDay(today, -i), vehicle: i === 11 ? '' : v, qty, rate: 89.9, amount: Math.round(qty * 89.9 * 100) / 100, customer: 'Demo Logistics' });
+    masterSales.push({ product: 'HSD', bill_no: `L${700 + i}`, sale_date: isoDay(today, -i), vehicle: i === 13 ? '' : i === 16 ? 'Plant Yard' : v, qty, rate: 89.9, amount: Math.round(qty * 89.9 * 100) / 100, customer: 'Demo Logistics' });
   }
   masterSales.forEach((s, i) => { s.seq = i + 2; });
 
