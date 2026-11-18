@@ -627,15 +627,20 @@ ${T(w - pad - 28, yy + 43, qtyText(r.qty), { size: 26, weight: 700, anchor: 'end
 }
 
 // ---- everyone's outstanding ------------------------------------------------------------
-// list: [{name, kind, balance}] (largest first); total; asOn; label (All / Retail / Bulk)
-export function outstandingListSvg({ list, total, asOn, label = '' }, { images = {}, fontCss = '' } = {}) {
+// list: [{name, kind, balance}] (largest first); total; asOn; label (All / Retail / Bulk);
+// advance: what customers have paid ahead (positive) — the hero then shows
+// the net outstanding (due less advances), with both beside it
+export function outstandingListSvg({ list, total, asOn, label = '', advance = 0 }, { images = {}, fontCss = '' } = {}) {
   const w = CARD_WIDTH;
   const pad = 56;
   let y = 48;
   let out = brandRow(w, pad, y, `Outstanding today${label ? ` · ${label}` : ''}`, asOn, images);
   y += 172;
-  out += hero(pad, y, w - 2 * pad, 180, `TOTAL OUTSTANDING · ${list.length} CUSTOMER${list.length === 1 ? '' : 'S'}`, rupees(total), []);
-  y += 210;
+  const adv = Math.round(Number(advance) || 0);
+  out += adv > 0
+    ? hero(pad, y, w - 2 * pad, 200, 'NET OUTSTANDING · AFTER ADVANCES', rupees(total - adv), [[`DUE · ${list.length} CUSTOMER${list.length === 1 ? '' : 'S'}`, rupees(total)], ['LESS PAID IN ADVANCE', `− ${rupees(adv)}`]])
+    : hero(pad, y, w - 2 * pad, 180, `TOTAL OUTSTANDING · ${list.length} CUSTOMER${list.length === 1 ? '' : 'S'}`, rupees(total), []);
+  y += adv > 0 ? 230 : 210;
   const max = Math.max(1, ...list.map((o) => o.balance));
   list.forEach((o, i) => {
     out += `${i % 2 ? R(pad, y, w - 2 * pad, 64, { rx: 14, opacity: 0.035 }) : ''}
