@@ -155,10 +155,78 @@ export function indian(n) {
 export const numStr = (v) => (Number.isInteger(v) ? String(v) : String(round2(v)));
 export const ddmmyy = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
 export const ddmmyyyy = (d) => `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
+// ---- bills split by vehicle tag (Statements → Split bills by vehicle) ------------
+// A customer like Shivaay Logistics billed separately for each site it serves
+// (JSW, 700 Acre, …): every vehicle no. is given a tag once (saved), and the
+// period's HSD bills go on one page per tag. A bill whose vehicle has no tag
+// (or no vehicle no.) must be given one for this bill, or left out.
+export const plateKey = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+// tags: {plateKey: tag}; picked: {saleId: tag | 'skip'}
+// -> { customer, from, to, pages: [{cat: tag, byTag, rows, qty, amount}] (tags A–Z),
+//      vehicles: [{key, vehicle, bills, qty, tag}] (most litres first),
+//      unread: [rows with no tag], skipped, count, guessed: [] }
+export function tagBill(sales, { customer, from, to, tags = {}, picked = {} } = {}) {
+  const who = norm(customer);
+  const mine = (sales || []).filter((x) => x.product === 'HSD' && norm(x.customer) === who && x.sale_date >= from && x.sale_date <= to);
+  const by = new Map();
+  const veh = new Map();
+  const unread = [];
+  let skipped = 0;
+  for (const x of mine) {
+    const key = plateKey(x.vehicle);
+    const row = { id: x.id, date: x.sale_date, bill_no: x.bill_no, vehicle: String(x.vehicle ?? '').trim(), qty: Number(x.qty) || 0, rate: Number(x.rate) || 0, amount: Number(x.amount) || 0 };
+    if (key) {
+      if (!veh.has(key)) veh.set(key, { key, vehicle: row.vehicle, bills: 0, qty: 0, tag: tags[key] || '' });
+      const v = veh.get(key);
+      v.bills += 1;
+      v.qty = round2(v.qty + row.qty);
+    }
+    let tag = key ? tags[key] : '';
+    if (!tag && picked[x.id]) {
+      if (picked[x.id] === 'skip') { skipped += 1; continue; }
+      tag = picked[x.id];
+    }
+    if (!tag) { unread.push(row); continue; }
+    if (!by.has(tag)) by.set(tag, []);
+    by.get(tag).push(row);
+  }
+  const pages = [...by.keys()].sort((a, b) => a.localeCompare(b)).map((cat) => {
+    const rows = by.get(cat).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : billCmp(a.bill_no, b.bill_no)));
+    return { cat, byTag: true, rows, qty: round2(rows.reduce((a, r) => a + r.qty, 0)), amount: round2(rows.reduce((a, r) => a + r.amount, 0)) };
+  });
+  return {
+    customer, from, to, pages, unread, skipped, guessed: [],
+    vehicles: [...veh.values()].sort((a, b) => b.qty - a.qty),
+    count: pages.reduce((a, p) => a + p.rows.length, 0),
+  };
+}
+
+// the months to bill: this month (to date) and the eleven before, newest first
+export function billMonths(today, count = 12) {
+  const [y, m] = today.split('-').map(Number);
+  return Array.from({ length: count }, (_, i) => {
+    const t = new Date(Date.UTC(y, m - 1 - i, 1));
+    const from = t.toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    return { from, to: i === 0 ? today : end, month: from.slice(0, 7) };
+  });
+}
+
+// "Shivaay Logistics Bill Nov 2026", or "… Bill 1-15 Nov 2026" for part of a month
+export function tagFileName(customer, from, to) {
+  const d = (x) => Number(x.slice(8, 10));
+  const mon = (x) => `${MON[Number(x.slice(5, 7)) - 1]} ${x.slice(0, 4)}`;
+  const monthEnd = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const whole = from.slice(0, 7) === to.slice(0, 7) && d(from) === 1 && to === monthEnd;
+  const span = whole ? mon(to) : from.slice(0, 7) === to.slice(0, 7) ? `${d(from)}-${d(to)} ${mon(to)}` : `${d(from)} ${MON[Number(from.slice(5, 7)) - 1]}-${d(to)} ${mon(to)}`;
+  return `${String(customer || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()} Bill ${span}`;
+}
+
 // a page's rows as the table's cells (the TOTAL row last)
 export function tableCells(page) {
   return {
-    rows: page.rows.map((r) => [ddmmyy(r.date), String(r.bill_no ?? ''), page.cat, numStr(r.qty), r.rate.toFixed(2), indian(r.amount)]),
+    rows: page.rows.map((r) => [ddmmyy(r.date), String(r.bill_no ?? ''), page.byTag ? r.vehicle : page.cat, numStr(r.qty), r.rate.toFixed(2), indian(r.amount)]),
     total: ['', '', 'TOTAL', page.qty.toFixed(2), '', `₹${indian(page.amount)}`],
   };
 }
@@ -232,10 +300,11 @@ const TABLE_TOP = 281.5;
 const FOOT_Y = 826;                                          // the footer's baseline
 const STAMP = { x: 76, y: 743, w: 146.4, h: 59.6 };          // the stamp's picture, above the footer
 
-export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {} } = {}) {
+export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {}, billTo = null } = {}) {
   const P = SCPL_PAGE;
   const isScpl = norm(bill.customer) === norm(SCPL_CUSTOMER);
-  const to = isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD' };
+  // billTo: {name, address: [lines], gstin} from the customer's sheet (split bills)
+  const to = billTo ? { product: 'HSD', address: [], gstin: '', ...billTo } : isScpl ? SCPL_TEMPLATE : { name: bill.customer, address: [], gstin: '', product: 'HSD' };
   const payment = scplPaymentLines(bank);
   const PAY_H = 2 * 13.8 + 18.4 + payment.length * 16.1 + 8;  // two empty lines, the heading, the lines
   const aligns = ['start', 'start', 'start', 'middle', 'middle', 'end'];
@@ -272,6 +341,8 @@ export function scplBillSvg(bill, { images = {}, fontCss = '', bank = {} } = {})
       ly += Math.max(1, to.address.length) * 17 - 0.5;
       if (to.gstin) out += `<text x="${X}" y="${ly}" font-size="14" font-style="italic">GSTIN: ${esc(to.gstin)}</text>`;
       out += `<text x="${XR}" y="262" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Product:</tspan> ${esc(to.product)}</text>`;
+      // a split bill: which vehicles this page is for
+      if (page.byTag) out += `<text x="${X}" y="${Math.max(262, ly + 18)}" font-size="16" font-weight="bold"><tspan fill="${ORANGE}">Vehicles:</tspan> ${esc(page.cat)}</text>`;
       if (chunks.length > 1) out += `<text x="${X + COLS.reduce((a, b) => a + b, 0)}" y="${TABLE_TOP - 6}" font-size="10" text-anchor="end" fill="#555">${esc(page.cat)} · sheet ${ci + 1} of ${chunks.length}</text>`;
       // the table
       let y = TABLE_TOP;

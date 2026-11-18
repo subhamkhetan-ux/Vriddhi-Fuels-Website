@@ -937,6 +937,9 @@ def test_credit_notes_and_their_log(pg):
     pg.ok(call("ledger_setting_set", "bank_details", {"details": {"account": "000111222333", "ifsc": "ABCD0123456"}}), **as_owner)
     assert pg.owner(call("ledger_setting_get", "bank_details"))["details"]["ifsc"] == "ABCD0123456"
     assert "Unknown setting" in pg.fails(call("ledger_setting_set", "bank_detail", {"x": 1}), **as_owner)
+    # each vehicle no.'s tag for split bills (Shivaay Logistics: JSW, 700 Acre, …)
+    pg.ok(call("ledger_setting_set", "vehicle_tags", {"customers": {"shivaay logistics": {"OD15AF5510": "JSW"}}}), **as_owner)
+    assert pg.owner(call("ledger_setting_get", "vehicle_tags"))["customers"]["shivaay logistics"]["OD15AF5510"] == "JSW"
     pg.ok(call("ledger_cn_delete", 2), **as_owner)
     assert [r["cn_no"] for r in pg.owner(call("ledger_cn_list"))] == ["BNK/001"]
     assert "No credit note" in pg.fails(call("ledger_cn_delete", 2), **as_owner)
