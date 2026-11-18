@@ -111,6 +111,12 @@ FY / Custom* (any From..To, up to two years) and see today's outstanding (at the
 product's litres, sales and earnings; litres and earnings per day (per month
 for long periods); the best customers (sort by litres, sales or earnings;
 retail / bulk; tap one for the product split, payments and outstanding);
+the **lifting pace** — every credit customer's litres (HSD, MS, XtraGreen)
+from the 1st to today against the 1st to the same date last month (a bulk
+sheet's companies together), best first: by *Litres gained* or by *% change*
+(new lifting first), *All / Bulk / Retail*, with the segment's total; always
+this month against last, whatever period is picked above; tap one to open
+its ledger;
 everyone's outstanding, largest first (right under the heading) (ledger customers as on their sheet,
 bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and

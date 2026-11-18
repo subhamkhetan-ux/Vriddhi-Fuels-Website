@@ -81,6 +81,20 @@ export function demoSeed(today = new Date(), workbook = null) {
     if (i === 4) rows.push({ product: 'OTHER', bill_no: 'LUBE/017', sale_date: date, vehicle: '', qty: 1, rate: 450, amount: 450, customer: 'Sample Roadlines', item: 'Engine oil 1L' });
   }
   lastRows.push(sale('HSD', isoDay(today, -1), 'Fresh Traders', 150));
+  // last month's lifting (Home → Lifting pace has something to compare):
+  // fixed litres and bill numbers, so the rest of the demo stays as it was
+  const prevRate = { HSD: 90.12, MS: 100.88 };
+  const prevSale = (date, customer, qty, product = 'HSD', extra = {}) => ({
+    product, bill_no: `P${masterSales.length + 900}`, sale_date: date, vehicle: plate(), qty,
+    rate: prevRate[product], amount: Math.round(qty * prevRate[product] * 100) / 100, customer, ...extra,
+  });
+  for (let i = days + 1; i <= days + 30; i++) {
+    const date = isoDay(today, -i);
+    if (i % 2) masterSales.push(prevSale(date, 'Demo Power Ltd', 3000 + (i % 3) * 400, 'HSD', { po_mode: 'fixed', po_fixed: 'DP/25/0990' }));
+    if (i % 3 === 0) masterSales.push(prevSale(date, 'Twin Steel Ltd', 2600, 'HSD', { unit: i % 2 ? 'UNIT 2' : 'UNIT 1' }));
+    if (i % 4 === 0) masterSales.push(prevSale(date, 'Sample Roadlines', 260));
+    if (i % 5 === 0) masterSales.push(prevSale(date, 'Example Infra', 30, 'MS'));
+  }
   // a customer billed every 10 days, split by the Vehicle label (Statements →
   // SCPL Bill): fixed numbers, so the rest of the demo stays as it was; one
   // label with a typo and one the app can't read

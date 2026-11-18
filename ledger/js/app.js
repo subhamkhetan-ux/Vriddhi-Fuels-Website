@@ -9,7 +9,7 @@ import { fromQueue } from './payin.js';
 import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate, stackedBars,
 } from './charts.js';
-import { analyse, dateRange, daysBetween, dayRsp, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { analyse, dateRange, daysBetween, dayRsp, FUELS, liftingPaces, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { CATS as SCPL_CATS, SCPL_CUSTOMER, SCPL_FONTS, SCPL_PAGE, scplBill, scplBillSvg, scplCustomers, scplDefaultRange, scplFileName, scplFontCss, scplPeriods } from './scpl.js';
 import { MIN_PASSWORD, passwordError, passwordProblem } from './password.js';
 import { BANK_DEFAULT, BANK_FIELDS, bankBoardSvg, bankProblems, cleanBank } from './bank-board.js';
@@ -1030,6 +1030,7 @@ function dashboardHtml(a, per, key) {
     </section>
 
     <section class="card" id="dash-customers"></section>
+    <section class="card" id="dash-pace"></section>
 
 
     <section class="card">
@@ -1083,6 +1084,37 @@ function customersHtml(a, sort, seg, all) {
         ${c.kind === 'bulk' || c.ledger ? `<p class="small"><a href="${acctHref(c)}">Open ledger →</a></p>` : ''}
       </div></li>`).join('')}</ol>` : '<p class="muted">No sales in this period.</p>'}
     ${list.length > 10 ? `<p><button class="btn ghost small" data-call>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}`;
+}
+
+// Lifting pace: every credit customer's litres this month to date against
+// last month to the same date, best first (litres gained, or % change)
+function paceHtml(p, seg, sort, all) {
+  const list = p.list.filter((e) => seg === 'all' || e.kind === seg);
+  const shown = all ? list : list.slice(0, 10);
+  const span = (r) => `${Number(r.from.slice(8, 10))}–${Number(r.to.slice(8, 10))} ${monthName(r.to.slice(0, 7)).slice(0, 3)}`;
+  const max = Math.max(1, ...list.map((e) => Math.max(e.cur, e.prev)));
+  const tot = list.reduce((a, e) => ({ cur: a.cur + e.cur, prev: a.prev + e.prev }), { cur: 0, prev: 0 });
+  const chg = (cur, prev) => {
+    if (!prev) return cur ? '<span class="pace-chg muted">none last month</span>' : '';
+    const pc = Math.round(((cur - prev) / prev) * 100);
+    if (!pc) return '<span class="pace-chg muted">same pace</span>';
+    return `<span class="pace-chg ${pc > 0 ? 'good-text' : 'bad-text'}">${pc > 0 ? '▲' : '▼'} ${Math.abs(pc)}%</span>`;
+  };
+  const sign = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${litres(Math.abs(n))}`;
+  return `
+    <div class="row-between"><h3>Lifting pace <span class="muted small">${esc(span(p.cur))} vs ${esc(span(p.prev))} · litres</span></h3>
+      <div class="chips small-chips">${[['diff', 'Litres gained'], ['pct', '% change']].map(([x, n]) => `<button class="chip ${x === sort ? 'on' : ''}" data-psort="${x}">${n}</button>`).join('')}</div></div>
+    <div class="chips small-chips">${[['all', 'All'], ['bulk', 'Bulk'], ['retail', 'Retail']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-pseg="${x}">${n}</button>`).join('')}</div>
+    ${list.length ? `<p class="small pace-total">${seg === 'all' ? 'All customers' : seg === 'bulk' ? 'Bulk customers' : 'Retail customers'}: <b>${litres(tot.cur)}</b> this month vs ${litres(tot.prev)} by this date last month ${chg(tot.cur, tot.prev)}</p>
+    <ol class="rank">${shown.map((e, i) => {
+    const href = e.kind === 'bulk' || e.ledger ? acctHref(e) : '';
+    const inner = `<span class="n">${i + 1}</span>
+        <span class="who"><b>${esc(e.name)}</b> ${TAG[e.kind]}
+          <span class="pace-bars"><span class="pace-bar now" style="width:${Math.max(e.cur ? 2 : 0, (e.cur / max) * 100)}%"></span><span class="pace-bar was" style="width:${Math.max(e.prev ? 2 : 0, (e.prev / max) * 100)}%"></span></span></span>
+        <span class="amt"><b>${litres(e.cur)}</b><small>vs ${litres(e.prev)} · ${sign(e.diff)}</small>${chg(e.cur, e.prev)}</span>`;
+    return `<li>${href ? `<a class="rank-row" href="${href}">${inner}</a>` : `<div class="rank-row static">${inner}</div>`}</li>`;
+  }).join('')}</ol>` : `<p class="muted">No ${seg === 'all' ? '' : `${seg} `}customer has lifted anything this month or by this date last month.</p>`}
+    ${list.length > 10 ? `<p><button class="btn ghost small" data-pall>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}`;
 }
 
 const advanceList = (a, seg) => a.advance.filter((o) => seg === 'all' || o.kind === seg).sort((x, y) => x.balance - y.balance);
@@ -1191,8 +1223,18 @@ async function renderDashboard(box) {
       }, { pdf: async () => { const { svg, size } = await draw(); await longPdf(svg, size, base); } });
     });
   };
+  // lifting pace: always this month to date against last month to the same date
+  const paceBox = box.querySelector('#dash-pace');
+  const pui = state.paceUi || (state.paceUi = { seg: 'all', sort: 'diff', all: false });
+  const paintPace = () => {
+    paceBox.innerHTML = paceHtml(liftingPaces(data, localToday(), { sort: pui.sort }), pui.seg, pui.sort, pui.all);
+    paceBox.querySelectorAll('[data-pseg]').forEach((b) => b.addEventListener('click', () => { pui.seg = b.dataset.pseg; paintPace(); }));
+    paceBox.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { pui.sort = b.dataset.psort; paintPace(); }));
+    paceBox.querySelector('[data-pall]')?.addEventListener('click', () => { pui.all = !pui.all; paintPace(); });
+  };
   paintCustomers();
   paintOutstanding();
+  paintPace();
   box.querySelector('#dash-months').innerHTML = monthsHtml(fy);
   box.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => {
     state.dashPeriod = b.dataset.period;

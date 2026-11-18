@@ -211,3 +211,50 @@ export function periods(today) {
     earliest: [fyStart, lastStart, addDays(today, -29)].sort()[0],
   };
 }
+
+// ---- lifting pace (Home → Lifting pace) -------------------------------------
+// Every credit customer's litres (HSD, MS, XtraGreen) this month from the 1st
+// to today against last month from the 1st to the same date (last month's
+// end when it is shorter); a bulk sheet's companies together, as elsewhere on
+// Home. data: store.dashboard() from at least last month's 1st.
+//   -> { cur: {from, to}, prev: {from, to}, list: [{id, name, kind, ledger,
+//        cur, prev, diff, change (fraction; null with nothing last month)}] }
+// Sorted best first: by litres gained (sort 'diff') or by % change ('pct',
+// new lifting — nothing last month — first); a customer with neither month
+// is left out.
+export function paceWindows(today) {
+  const [y, m, d] = today.split('-').map(Number);
+  const iso = (yy, mm, dd) => `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  const py = m === 1 ? y - 1 : y;
+  const pm = m === 1 ? 12 : m - 1;
+  const prevLen = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  return { day: d, cur: { from: iso(y, m, 1), to: today }, prev: { from: iso(py, pm, 1), to: iso(py, pm, Math.min(d, prevLen)) } };
+}
+
+export function liftingPaces(data, today, { sort = 'diff' } = {}) {
+  const w = paceWindows(today);
+  const cust = new Map((data.customers || []).map(([k, name, ledger, group]) => [k, { name, ledger, group }]));
+  const groupName = new Map((data.groups || []).map(([code, title]) => [code, shortGroup(code, title)]));
+  const by = new Map();
+  for (const [d, p, k, qty0] of data.sales || []) {
+    if (!FUELS.includes(p)) continue;
+    const inCur = d >= w.cur.from && d <= w.cur.to;
+    const inPrev = d >= w.prev.from && d <= w.prev.to;
+    if (!inCur && !inPrev) continue;
+    const c = cust.get(k);
+    const id = c && c.group ? `g:${c.group}` : `c:${k}`;
+    if (!by.has(id)) {
+      by.set(id, c && c.group ? { id, name: groupName.get(c.group) || c.group, kind: 'bulk', cur: 0, prev: 0 }
+        : { id, name: c ? c.name : k, kind: 'retail', ledger: c ? c.ledger : null, cur: 0, prev: 0 });
+    }
+    const e = by.get(id);
+    if (inCur) e.cur += Number(qty0) || 0;
+    else e.prev += Number(qty0) || 0;
+  }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const list = [...by.values()].map((e) => ({ ...e, cur: r2(e.cur), prev: r2(e.prev), diff: r2(e.cur - e.prev), change: e.prev ? (e.cur - e.prev) / e.prev : null }))
+    .filter((e) => e.cur || e.prev);
+  const pct = (e) => (e.change == null ? Infinity : e.change);
+  list.sort(sort === 'pct' ? (a, b) => pct(b) - pct(a) || b.cur - a.cur : (a, b) => b.diff - a.diff || b.cur - a.cur);
+  return { day: w.day, cur: w.cur, prev: w.prev, list };
+}
