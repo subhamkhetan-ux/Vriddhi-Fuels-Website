@@ -1135,6 +1135,8 @@ function outstandingHtml(a, seg, all) {
   return `
     <div class="row-between"><h3>Outstanding today</h3><span class="row-end"><b class="total">${money(total, { exact: true })}</b>${list.length ? `<button class="btn ghost small" data-olist>${SHARE_ICON} Share list</button>` : ''}</span></div>
     <div class="chips small-chips">${[['all', 'All'], ['retail', 'Retail'], ['bulk', 'Bulk']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-oseg="${x}">${n}</button>`).join('')}</div>
+    ${adv.length ? `<div class="net-out"><span><b>Net outstanding</b><small>${money(total, { exact: true })} due − ${money(-advTotal, { exact: true })} paid in advance</small></span>
+      <b class="net-amt">${money(total + advTotal, { exact: true })}</b></div>` : ''}
     ${shown.length ? `<ol class="rank">${shown.map((o, i) => `
       <li class="with-share"><a class="rank-row" href="${acctHref(o)}" title="Open the ledger"><span class="n">${i + 1}</span>
         <span class="who"><b>${esc(o.name)}</b> ${TAG[o.kind]}<span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (o.balance / max) * 100)}%"></span></span></span>
@@ -1215,7 +1217,8 @@ async function renderDashboard(box) {
       const label = { all: '', retail: 'Retail', bulk: 'Bulk' }[ui.oseg];
       const draw = async () => {
         const { images, fontCss } = await shareImages();
-        return outstandingListSvg({ list, total: list.reduce((x, o) => x + o.balance, 0), asOn: localToday(), label }, { images, fontCss });
+        const advance = -advanceList(a, ui.oseg).reduce((x, o) => x + o.balance, 0);
+        return outstandingListSvg({ list, total: list.reduce((x, o) => x + o.balance, 0), advance, asOn: localToday(), label }, { images, fontCss });
       };
       const base = `Outstanding${label ? ` ${label}` : ''} ${dmyDash(localToday())}`;
       sharePictures('Outstanding today', async () => {

@@ -119,7 +119,9 @@ this month against last, whatever period is picked above; tap one to open
 its ledger; **Share** makes it a picture (and PDF) in the app's look — the
 segment's total this month and last with the change, then everyone in the
 list as shown (the filter and the order picked);
-everyone's outstanding, largest first (right under the heading) (ledger customers as on their sheet,
+everyone's outstanding, largest first (right under the heading), with the
+**Net outstanding** on top when anyone has paid in advance — due less the
+advances, for the segment picked (the shared list picture leads with it too) (ledger customers as on their sheet,
 bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and
 the day's RSP per product. Tap or hover any chart for its numbers.
