@@ -286,6 +286,39 @@
   const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
 
   // ---- the control bar: what the server is doing with the PC right now ----
+  // While a finger scrolls the page (or it's still gliding after), a redraw
+  // would replace what's under the finger (iOS then stops the scroll dead) or
+  // shift the page under it. The fresh figures wait until it's still: a
+  // fraction of a second, nothing is lost. A tap doesn't count (no move).
+  let touchAt = 0, movedAt = 0, drawTimer = 0;
+  addEventListener("touchstart", () => { touchAt = Date.now(); }, { passive: true });
+  addEventListener("touchmove", () => { movedAt = Date.now(); }, { passive: true });
+  addEventListener("touchend", () => { touchAt = 0; }, { passive: true });
+  addEventListener("touchcancel", () => { touchAt = 0; }, { passive: true });
+  addEventListener("scroll", () => { movedAt = Date.now(); }, { passive: true });
+  const scrolling = () => (touchAt && Date.now() - touchAt < 8000 && movedAt >= touchAt) || Date.now() - movedAt < 500;
+  function drawWhenStill(draw) {
+    clearTimeout(drawTimer);
+    if (!scrolling()) { draw(); return; }
+    drawTimer = setTimeout(() => drawWhenStill(draw), 200);
+  }
+
+  // The proof pictures, kept: a redraw puts the same picture back instead of
+  // loading it again (which left the page shorter for a moment, and jumped).
+  const proofImgs = new Map();
+  function proofImg(src, alt) {
+    let img = proofImgs.get(src);
+    if (!img) {
+      if (proofImgs.size > 40) proofImgs.clear();
+      img = el("img");
+      img.src = src;
+      img.loading = "lazy";
+      proofImgs.set(src, img);
+    }
+    img.alt = alt;
+    return img;
+  }
+
   let pending = "";             // "Starting…" / "Stopping…" until the server says so
   function renderControl(live, prev) {
     const dot = $("dot");
@@ -1095,11 +1128,7 @@
         link.href = src;
         link.target = "_blank";
         link.rel = "noopener";
-        const img = el("img");
-        img.src = src;
-        img.alt = `Tank ${t.no} stock ${which} on the automation screen`;
-        img.loading = "lazy";
-        link.appendChild(img);
+        link.appendChild(proofImg(src, `Tank ${t.no} stock ${which} on the automation screen`));
         cell.appendChild(link);
         const pf = el("div", `pf ${p.cloud ? "ok" : "mid"}`, p.cloud ? "✓ Proof in the decant app" : "Saving the proof to the decant app…");
         const save = el("a", "save", "Save");
@@ -1182,7 +1211,7 @@
   async function refresh() {
     try {
       state = await api("GET", document.hidden ? "api/state" : "api/state?seen=1");
-      render();
+      drawWhenStill(render);
     } catch (e) {
       setStatus("status", e.message, true);
     }

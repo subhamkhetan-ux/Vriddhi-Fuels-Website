@@ -18,6 +18,22 @@
   };
   let state = null;
   let timer = null;
+  // While a finger scrolls the page (or it's still gliding after), a redraw
+  // would replace what's under the finger (iOS then stops the scroll dead) or
+  // shift the page under it. The fresh figures wait until it's still: a
+  // fraction of a second, nothing is lost. A tap doesn't count (no move).
+  let touchAt = 0, movedAt = 0, drawTimer = 0;
+  addEventListener("touchstart", () => { touchAt = Date.now(); }, { passive: true });
+  addEventListener("touchmove", () => { movedAt = Date.now(); }, { passive: true });
+  addEventListener("touchend", () => { touchAt = 0; }, { passive: true });
+  addEventListener("touchcancel", () => { touchAt = 0; }, { passive: true });
+  addEventListener("scroll", () => { movedAt = Date.now(); }, { passive: true });
+  const scrolling = () => (touchAt && Date.now() - touchAt < 8000 && movedAt >= touchAt) || Date.now() - movedAt < 500;
+  function drawWhenStill(draw) {
+    clearTimeout(drawTimer);
+    if (!scrolling()) { draw(); return; }
+    drawTimer = setTimeout(() => drawWhenStill(draw), 200);
+  }
   let open = null;          // the pump whose sheet is open
   let shownPreset = "";     // the preset the sheet's preset part was drawn for
 
@@ -339,7 +355,7 @@
     try {
       if (!document.hidden) {
         state = await api("GET", "api/pumps?seen=1");
-        render();
+        drawWhenStill(render);
       }
     } catch (e) {
       $("feedText").textContent = "Can't reach the server";
