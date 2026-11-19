@@ -8586,6 +8586,48 @@
       },
       "queued_at": "2026-11-19T10:45:24.397976+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "a9ec7d6995aa7ab9",
+      "gmail_msg_id": "1882284337421601568",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/11/26",
+      "date_serial": 46345,
+      "amount": 795200.0,
+      "raw_payer": "BKD LOGISTICS PVT LTD",
+      "customer": "Bkd Logistics Private Limited",
+      "candidates": [
+        "Bkd Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-19T11:15:28.838093+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "b58caf4cd38807ba",
+      "gmail_msg_id": "1882284433144637474",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/11/26",
+      "date_serial": 46345,
+      "amount": 596403.0,
+      "raw_payer": "VIRENDRA LOGISTICS PVT",
+      "customer": "Virendra Logistics Private Limited",
+      "candidates": [
+        "Virendra Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-19T11:15:28.838914+00:00",
+      "status": "matched"
     }
   ]
 }
