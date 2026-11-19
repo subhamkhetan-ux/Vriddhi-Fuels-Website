@@ -8544,6 +8544,48 @@
       },
       "queued_at": "2026-11-19T09:45:24.923044+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "aa9c4c57bef3bd0a",
+      "gmail_msg_id": "1882282930299508710",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/11/26",
+      "date_serial": 46345,
+      "amount": 795200.0,
+      "raw_payer": "MAA KARNI EARTHMOVER P",
+      "customer": "Maa Karni Earthmover Private Limited",
+      "candidates": [
+        "Maa Karni Earthmover Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-19T10:45:24.396896+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "bcf689540260c859",
+      "gmail_msg_id": "1882283123308941779",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/11/26",
+      "date_serial": 46345,
+      "amount": 795200.0,
+      "raw_payer": "BHASKAR EARTHMOVER PVT",
+      "customer": "Bhaskar Earthmover Private Limited",
+      "candidates": [
+        "Bhaskar Earthmover Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-19T10:45:24.397976+00:00",
+      "status": "matched"
     }
   ]
 }
