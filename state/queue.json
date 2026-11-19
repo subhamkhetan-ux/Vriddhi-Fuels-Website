@@ -8481,6 +8481,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-19T03:15:28.688796+00:00"
+    },
+    {
+      "entry_id": "a7cff6f1ac8c5c77",
+      "gmail_msg_id": "1882271886750516681",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/11/26",
+      "date_serial": 46345,
+      "amount": 2385612.0,
+      "raw_payer": "ORISSA METALIKS",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-19T08:00:23.667480+00:00",
+      "status": "matched"
     }
   ]
 }
