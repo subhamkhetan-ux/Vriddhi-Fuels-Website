@@ -8746,7 +8746,9 @@
       "queued_at": "2026-11-20T07:15:39.010758+00:00",
       "error": "could not extract: payer",
       "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 10,931.00 Account: XX1010 Date: 20-NOV-2026 Reference Details: FD Redeem Interest -XXXXXXXXXX8045/2 Available Balance: INR 21,75,446.41 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n ",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-20T12:30:24.408533+00:00"
     },
     {
       "entry_id": "fba55e70c3b2f8e6",
@@ -8775,7 +8777,9 @@
       "queued_at": "2026-11-20T07:15:39.020334+00:00",
       "error": "could not extract: payer",
       "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 21,53,683.20 Account: XX1010 Date: 20-NOV-2026 Reference Details: FD Redeem Principal -XXXXXXXXXX8045/2 Available Balance: INR 21,75,446.41 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n ",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-20T12:30:24.408533+00:00"
     },
     {
       "entry_id": "444769ac342db172",
