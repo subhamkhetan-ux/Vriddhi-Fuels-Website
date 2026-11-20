@@ -8718,6 +8718,64 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-20T03:15:30.584963+00:00"
+    },
+    {
+      "entry_id": "31ae04eb6e4650fd",
+      "gmail_msg_id": "1882360140607173762",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/11/2026",
+      "date_serial": 46346,
+      "amount": 10931.0,
+      "raw_payer": "© HDFC Bank \r",
+      "customer": null,
+      "candidates": [
+        "Pine Labs Nodal Account",
+        "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd",
+        "Swastik Mining and Allied Services",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Hm Power and Cables Private Limited",
+        "M/s-Capital Engineering Services",
+        "Rm3d Mining and Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-20T07:15:39.010758+00:00",
+      "error": "could not extract: payer",
+      "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 10,931.00 Account: XX1010 Date: 20-NOV-2026 Reference Details: FD Redeem Interest -XXXXXXXXXX8045/2 Available Balance: INR 21,75,446.41 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n ",
+      "status": "review"
+    },
+    {
+      "entry_id": "fba55e70c3b2f8e6",
+      "gmail_msg_id": "1882360142495960599",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/11/2026",
+      "date_serial": 46346,
+      "amount": 2153683.2,
+      "raw_payer": "© HDFC Bank \r",
+      "customer": null,
+      "candidates": [
+        "Pine Labs Nodal Account",
+        "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd",
+        "Swastik Mining and Allied Services",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Hm Power and Cables Private Limited",
+        "M/s-Capital Engineering Services",
+        "Rm3d Mining and Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-20T07:15:39.020334+00:00",
+      "error": "could not extract: payer",
+      "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 21,53,683.20 Account: XX1010 Date: 20-NOV-2026 Reference Details: FD Redeem Principal -XXXXXXXXXX8045/2 Available Balance: INR 21,75,446.41 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n ",
+      "status": "review"
     }
   ]
 }
