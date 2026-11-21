@@ -99,6 +99,11 @@ def _pair_contras(items):
     return pairs, leftovers
 
 
+# Where a payment to IOCL that the PAD doesn't show is parked: it is money out of the
+# bank that no ledger can claim yet, so it sits where it is easy to see until IOCL
+# credits it (then the IOCL journal takes over) or refunds it.
+SUSPENSE_LEDGER = "Suspense"
+
 _IFSC_FULL = re.compile(r"[A-Z]{4}0[A-Z0-9]{6}")
 
 
@@ -289,7 +294,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None, io
     ``iocl_pad`` (what the IOCL app saved from the PAD) lets payments to IOCL be
     checked: those the PAD shows are skipped (the PAD tool posts them); one the
     PAD covers but does not show — money gone from the bank, not credited in SAP —
-    is posted as a Payment to the IOCL ledger with a remark. Without a PAD every
+    is posted as a Payment to the Suspense ledger with a remark. Without a PAD every
     payment to IOCL is skipped, as before.
     """
     aliases = aliases or {}
@@ -315,8 +320,8 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None, io
             if iocl_checked.get(id(r)) == "missing":
                 flagged.add(id(r))
                 classified[i] = (a, r, C.Classification(
-                    C.PAYMENT, c.counter_ledger, c.counterparty_raw, "iocl-not-in-pad",
-                    [c.counter_ledger]))
+                    C.PAYMENT, SUSPENSE_LEDGER, c.counterparty_raw, "iocl-not-in-pad",
+                    [SUSPENSE_LEDGER]))
 
     # A stable key per line. Two identical lines (same day, amount, narration —
     # e.g. two equal charges) get distinct keys so dropping/resolving one never

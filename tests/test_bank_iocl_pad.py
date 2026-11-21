@@ -2,7 +2,7 @@
 
 A payment the PAD shows is skipped (the IOCL tool posts it). One the PAD covers but
 does not show — money gone from the bank, not credited in SAP — is posted to the
-IOCL ledger with a remark, so the books match the bank. Real shape: 20-Nov-2026, two
+Suspense ledger with a remark, so the books match the bank. Real shape: 20-Nov-2026, two
 Rs 36,00,000 RTGS payments, only one of them on the PAD.
 """
 
@@ -88,7 +88,7 @@ def _run(rows_by_account, pad=PAD, **kw):
     return BR.process(rows_by_account, [], {}, iocl_pad=pad, **kw)
 
 
-def test_a_payment_missing_from_the_pad_is_posted_to_iocl_with_a_remark():
+def test_a_payment_missing_from_the_pad_is_parked_in_suspense_with_a_remark():
     od = [_pay(_rtgs("2026112000501344"), 3600000.0)]
     ca = [_pay(_rtgs("2026112000502005"), 3600000.0)]
     other = _pay("MMT/IMPS/631811538099/ChandanSahu/CBIN0281623", 3000.0, i=1)      # staff -> Salary
@@ -96,12 +96,12 @@ def test_a_payment_missing_from_the_pad_is_posted_to_iocl_with_a_remark():
     flagged = [e for e in summary["entries"] if e.get("flag")]
     assert len(flagged) == 1
     (e,) = flagged
-    assert (e["type"], e["account"], e["counter_ledger"], e["amount"]) == ("Payment", ICICI_OD, IOCL, "3600000.00")
+    assert (e["type"], e["account"], e["counter_ledger"], e["amount"]) == ("Payment", ICICI_OD, "Suspense", "3600000.00")
     assert e["narration"].startswith("PAID TO IOCL - NOT IN SAP/PAD (PAD TO 20-11-26)")
     assert "ICICR42026112000501344" in e["narration"]                # the bank's own words follow
     assert e["voucher_no"] == "BPI/20261120/01"                       # its own series
     xml = next(v for v in vouchers if "BPI/20261120/01" in v)
-    assert "<NARRATION>PAID TO IOCL" in xml and IOCL in xml and "<LEDGERNAME>ICICI OD A/c - 046805005893</LEDGERNAME>" in xml
+    assert "<NARRATION>PAID TO IOCL" in xml and "<LEDGERNAME>Suspense</LEDGERNAME>" in xml and IOCL not in xml and "<LEDGERNAME>ICICI OD A/c - 046805005893</LEDGERNAME>" in xml
     # the payment the PAD shows is still left to the PAD tool; the other payment is untouched
     assert summary["skipped_iocl"] == 1 and summary["accounted_ok"]
     assert {k: summary["iocl"][k] for k in ("checked", "in_pad", "missing", "unchecked")} == \
@@ -124,7 +124,7 @@ def test_a_saved_pick_cannot_override_the_pad_check():
              BR.entry_key(ICICI, ca.date, ca.amount, ca.narration): IOCL}
     _, _, summary = _run([(ICICI_OD, [od]), (ICICI, [ca])], resolved=picks)
     (e,) = summary["entries"]
-    assert e["flag"] and e["counter_ledger"] == IOCL                 # remark kept, IOCL ledger kept
+    assert e["flag"] and e["counter_ledger"] == "Suspense"           # remark kept, parked in Suspense
     assert summary["skipped_iocl"] == 1                              # the credited one still skipped
 
 

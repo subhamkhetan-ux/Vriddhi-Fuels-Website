@@ -41,11 +41,12 @@ counterparties that become aliases.
    tool posts them as ECollection journals. If the IOCL app has processed a PAD,
    each one is checked against the PAD (by its UTR, else by amount and date): a
    payment the PAD covers but does **not** show — money left the bank, IOCL has not
-   credited it in SAP — is posted as a Bank Payment to the IOCL ledger with the
-   remark `PAID TO IOCL - NOT IN SAP/PAD …`, numbered `BPI/<date>/<n>`. When a later
-   PAD shows it, the bank file stops including it, the page reminds you to delete
-   the earlier voucher (the IOCL journal now covers it), and a refund arrives as an
-   ordinary receipt to resolve.
+   credited it in SAP — is posted as a Bank Payment to the **Suspense** ledger
+   (`run.SUSPENSE_LEDGER`) with the remark `PAID TO IOCL - NOT IN SAP/PAD …`,
+   numbered `BPI/<date>/<n>`; the bank and every ledger balance, and the item is
+   easy to find. When a later PAD shows it, the bank file stops including it and
+   the page reminds you to move or clear the Suspense entry (the IOCL journal now
+   covers it); a refund arrives as an ordinary receipt to resolve.
 3. **Payment rules** — narration keywords (`CBDT`, `SALARY`,
    credit card, electricity) → fixed ledgers.
 4. **Receipt** — the remitter, parsed from the narration and resolved to a
