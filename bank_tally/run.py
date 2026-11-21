@@ -18,6 +18,7 @@ A statement is ``(bank_ledger, rows)`` where ``rows`` come from
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import re
 
@@ -172,6 +173,61 @@ def _link_by_txn_id(classified):
     return out
 
 
+def _utr_keys(text) -> set:
+    """Long bank references in a narration, spelled so the bank's and IOCL's
+    versions of the same payment agree: the last 14 digits. An RTGS shows as
+    ICICR42026112000502005 on the bank side and ICIC26112000502005 on the PAD;
+    a NEFT UTR (IN42632358696771) is the same 14 digits on both."""
+    keys = set()
+    # A reference starts with letters (a bank code); a bare number is an account or
+    # a customer's own reference, which would only ever make two payments look different.
+    for tok in re.findall(r"[A-Z]{2,}[A-Z0-9]{10,}", (text or "").upper()):
+        digits = re.sub(r"\D", "", tok)
+        if len(digits) >= 12:
+            keys.add(digits[-14:])
+    return keys
+
+
+def check_iocl_payments(items, pad):
+    """Which payments to IOCL does the PAD show? ``items`` is
+    ``[(id, date, amount, narration)]``; ``pad`` is what the IOCL app saved:
+    ``{"first", "last", "lines": [{"date", "amount", "text"}]}``. Returns
+    ``{id: "in_pad" | "missing" | "unchecked"}``.
+
+    A payment is matched to a PAD line by its reference and amount first (two
+    payments of the same amount on one day — one credited, one not — are told
+    apart that way); only a payment with no reference, or a PAD line with none,
+    falls back to the same amount within 2 days. A line is used once. "missing" =
+    the PAD covers that date and has nothing for it; outside the PAD's dates the
+    answer is "unchecked"."""
+    lines = [{"date": dt.date.fromisoformat(x["date"]), "amount": round(float(x["amount"]), 2),
+              "keys": _utr_keys(x.get("text")), "taken": False} for x in pad.get("lines", [])]
+    first, last = dt.date.fromisoformat(pad["first"]), dt.date.fromisoformat(pad["last"])
+    out, rest = {}, []
+    for it in sorted(items, key=lambda x: (x[1] or dt.date.min, x[0])):
+        _id, date, amount, narr = it
+        keys = _utr_keys(narr)
+        hit = next((ln for ln in lines if not ln["taken"] and keys & ln["keys"]
+                    and abs(ln["amount"] - round(amount, 2)) < 0.005), None)
+        if hit:
+            hit["taken"] = True
+            out[_id] = "in_pad"
+        else:
+            rest.append(it)
+    for _id, date, amount, narr in rest:
+        keys = _utr_keys(narr)
+        near = [ln for ln in lines if not ln["taken"] and date
+                and abs(ln["amount"] - round(amount, 2)) < 0.005
+                and abs((ln["date"] - date).days) <= 2
+                and (not keys or not ln["keys"])]          # two different references = two payments
+        if near:
+            min(near, key=lambda ln: abs((ln["date"] - date).days))["taken"] = True
+            out[_id] = "in_pad"
+        else:
+            out[_id] = "missing" if date and first <= date <= last else "unchecked"
+    return out
+
+
 def merge_statements(statements):
     """Combine statements of the same account into one (oldest first) and drop
     lines repeated across them — two downloads of overlapping periods, or the
@@ -219,7 +275,7 @@ def merge_statements(statements):
 BANK_LEDGERS = C._BANK_LEDGERS
 
 
-def process(statements, customers, aliases=None, dropped=None, resolved=None):
+def process(statements, customers, aliases=None, dropped=None, resolved=None, iocl_pad=None):
     """Return ``(vouchers, review, summary)``.
 
     ``vouchers`` is the XML for every generated voucher NOT in ``dropped``.
@@ -230,6 +286,11 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     unpaired-transfer rows, which ignore aliases, can still be resolved by hand).
     ``summary["entries"]`` lists every generated voucher (dropped or not) with a
     stable key, for the app's drop/restore list.
+    ``iocl_pad`` (what the IOCL app saved from the PAD) lets payments to IOCL be
+    checked: those the PAD shows are skipped (the PAD tool posts them); one the
+    PAD covers but does not show — money gone from the bank, not credited in SAP —
+    is posted as a Payment to the IOCL ledger with a remark. Without a PAD every
+    payment to IOCL is skipped, as before.
     """
     aliases = aliases or {}
     dropped = set(dropped or ())
@@ -243,6 +304,19 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             classified.append((bank_ledger, r, C.classify(
                 r, customers, aliases, statement_ledger=bank_ledger)))
     classified = _link_by_txn_id(classified)
+    flagged, iocl_checked = set(), {}
+    if iocl_pad:
+        iocl_checked = check_iocl_payments(
+            [(id(r), r.date, r.amount, r.narration) for _a, r, c in classified
+             if c.skip and not r.is_credit], iocl_pad)
+        remark = (f"PAID TO IOCL - NOT IN SAP/PAD (PAD TO "
+                  f"{dt.date.fromisoformat(iocl_pad['last']):%d-%m-%y}) - AWAITING IOCL CREDIT OR REFUND | ")
+        for i, (a, r, c) in enumerate(classified):
+            if iocl_checked.get(id(r)) == "missing":
+                flagged.add(id(r))
+                classified[i] = (a, r, C.Classification(
+                    C.PAYMENT, c.counter_ledger, c.counterparty_raw, "iocl-not-in-pad",
+                    [c.counter_ledger]))
 
     # A stable key per line. Two identical lines (same day, amount, narration —
     # e.g. two equal charges) get distinct keys so dropping/resolving one never
@@ -270,8 +344,9 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
                 index if index is not None else 0)
 
     def add_entry(vtype, xml, account, date, amount, direction, narration,
-                  counter, index, srclines=1, key=None):
+                  counter, index, srclines=1, key=None, flag=None):
         entries.append({
+            "flag": flag,
             "key": key or entry_key(account, date, amount, narration),
             "type": vtype,
             "account": account,
@@ -297,7 +372,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     handled, resolved_legs, reclass = set(), set(), {}
     for acct, row, cl in classified:
         k = keys[id(row)]
-        if k not in resolved or cl.skip:
+        if k not in resolved or cl.skip or id(row) in flagged:
             continue
         led = resolved[k]
         if led == acct:
@@ -388,13 +463,19 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             continue
         if cl.skip:
             skipped_iocl += 1
+            state = iocl_checked.get(id(row))
             skipped.append({
+                "key": keys[id(row)],
                 "account": acct,
                 "date": row.date.strftime("%d-%m-%Y") if row.date else "",
                 "amount": f"{row.amount:.2f}",
                 "direction": "credit" if row.is_credit else "debit",
                 "narration": row.narration or "",
-                "reason": cl.skip_reason or "already posted by the IOCL PAD tool",
+                "reason": ("in the PAD — posted by the IOCL PAD tool" if state == "in_pad" else
+                           f"outside the PAD's dates ({iocl_pad['first']} to {iocl_pad['last']}) — "
+                           "not checked" if state == "unchecked" else
+                           cl.skip_reason or "already posted by the IOCL PAD tool"),
+                "in_pad": state == "in_pad",
             })
             continue
         if cl.counter_ledger is None:
@@ -407,10 +488,11 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
                       row.narration, cl.counter_ledger, row.index,
                       key=keys[id(row)])
         else:
-            xml = G.make_payment(ymd, row.amount, acct, cl.counter_ledger, row.narration)
+            narr = (remark + (row.narration or "")) if id(row) in flagged else row.narration
+            xml = G.make_payment(ymd, row.amount, acct, cl.counter_ledger, narr)
             add_entry("Payment", xml, acct, row.date, row.amount, "debit",
-                      row.narration, cl.counter_ledger, row.index,
-                      key=keys[id(row)])
+                      narr, cl.counter_ledger, row.index, key=keys[id(row)],
+                      flag="iocl-not-in-pad" if id(row) in flagged else None)
 
     # Emit in bank-statement order (date, statement, row position) so the export
     # mirrors the account rather than grouping by voucher type.
@@ -422,9 +504,13 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     _PREFIX = {"Receipt": "BR", "Payment": "BP", "Contra": "BC"}
     seq: dict = {}
     for e in entries:
-        k = (e["type"], e["_ymd"])
+        # Payments to IOCL that the PAD doesn't show get their own series (BPI/…): they
+        # are easy to find in Tally, and when the PAD later shows them and they leave
+        # the export, the other payments of that day keep their numbers.
+        prefix = "BPI" if e.get("flag") else _PREFIX[e["type"]]
+        k = (prefix, e["_ymd"])
         seq[k] = seq.get(k, 0) + 1
-        num = f'{_PREFIX[e["type"]]}/{e["_ymd"]}/{seq[k]:02d}'
+        num = f'{prefix}/{e["_ymd"]}/{seq[k]:02d}'
         e["xml"] = G.add_voucher_number(e["xml"], num)
         e["voucher_no"] = num
 
@@ -466,6 +552,11 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort", "_ymd")}
                     for e in entries],
         "skipped": skipped,
+        # How the payments to IOCL were handled (the page shows this line).
+        "iocl": ({"checked": True, "first": iocl_pad["first"], "last": iocl_pad["last"],
+                  **{s: sum(1 for v in iocl_checked.values() if v == s)
+                     for s in ("in_pad", "missing", "unchecked")}}
+                 if iocl_pad else {"checked": False, "skipped": skipped_iocl}),
     }
     return vouchers, review, summary
 

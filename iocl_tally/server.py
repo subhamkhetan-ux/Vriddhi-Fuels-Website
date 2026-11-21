@@ -462,6 +462,15 @@ def generate(text: str, invoices_dir: str, start_tt: int) -> dict:
     tt_state = {"next_tt": start_tt, "issued": {}}
     records, vouchers, review, summary = R.process(text, invoices_dir, tt_state=tt_state)
     R.write_outputs(OUT_DIR, vouchers, review, company(data))
+    # The Bank app reads this to tell which payments to IOCL the PAD actually shows.
+    dates = [r.date for r in records if r.date]
+    if dates:
+        data["pad"] = {
+            "first": min(dates).isoformat(), "last": max(dates).isoformat(),
+            "lines": [{"date": r.date.isoformat(), "amount": round(r.amount, 2),
+                       "text": " ".join((r.item_text or "").split())[:160]}
+                      for r in records if r.category == "COLLECTION" and r.date]}
+        save_data(data)
     _LAST_COLLECTIONS[:] = [
         {"date": r.date.strftime("%d-%m-%Y") if r.date else "",
          "item_text": r.item_text, "amount": f"{r.amount:.2f}",
