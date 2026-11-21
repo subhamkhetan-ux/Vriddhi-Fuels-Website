@@ -1,6 +1,8 @@
-/* Vriddhi Fuels — Tanker Loading: pictures to send a customer.
+/* Vriddhi Fuels — Tanker Loading: pictures to send or keep.
    A trip slip (one sale: tanker, when, invoices) and a trip statement (a
-   customer's trips over a period), drawn on a canvas in the app's colours,
+   customer's trips over a period) for a customer, and the day summary (what
+   was loaded and sold on a business day, per tanker) for ourselves, drawn on
+   a canvas in the app's colours,
    shared as PNG or as a PDF (written here, no library). Takes the figures
    ready to print; the litres on them are always the invoiced ones. */
 (function(){
@@ -158,10 +160,10 @@
     txt(ctx, BIZ.address + "  ·  ☎ " + BIZ.phone + "  ·  GSTIN " + BIZ.gstin, W / 2, H + 41, "600 21px " + SANS, C.stripInk, "center", W - 96);
     return H + 64;
   }
-  function footer(ctx, W, H, im, right){
+  function footer(ctx, W, H, im, right, msg){
     ctx.fillStyle = C.line; ctx.fillRect(64, H - 120, W - 128, 2);
     if (im) { const s = 56 / Math.max(im.width, im.height); ctx.drawImage(im, 64, H - 92, im.width * s, im.height * s); }
-    txt(ctx, "Thank you for your business — " + BIZ.name, 136, H - 64, "700 24px " + DISPLAY, C.ink, "left", W - 136 - 260);
+    txt(ctx, msg || "Thank you for your business — " + BIZ.name, 136, H - 64, "700 24px " + DISPLAY, C.ink, "left", W - 136 - 260);
     txt(ctx, "Generated " + dateShort(Date.now()) + ", " + time(Date.now()), 136, H - 32, "500 21px " + SANS, C.faint);
     if (right) txt(ctx, right, W - 64, H - 64, "500 22px " + SANS, C.faint, "right");
   }
@@ -377,6 +379,126 @@
     return Math.round(r * 10) / 10;
   }
 
+  /* What a business day loaded and sold, per tanker. events: the day's
+     records ({plate, kind: "load" | "dispatch", total, ts, remark}); plates:
+     the tankers to list even with nothing on them, in this order; exclude:
+     tankers left out altogether. Loaded = the litres of the loadings; sold =
+     the litres sent for sale. Pure (no DOM): tested on its own. */
+  function dayTotals(events, plates, exclude){
+    const norm = p => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const ex = new Set((exclude || []).map(norm)), by = new Map();
+    const get = p => {
+      const k = norm(p);
+      if (!by.has(k)) by.set(k, { plate: p, loadings: 0, loaded: 0, trips: 0, sold: 0 });
+      return by.get(k);
+    };
+    (plates || []).forEach(p => { if (!ex.has(norm(p))) get(p); });
+    const sales = [];
+    (events || []).forEach(e => {
+      if (ex.has(norm(e.plate))) return;
+      const r = get(e.plate), q = +e.total || 0;
+      if ((e.kind || "load") === "dispatch") { r.trips++; r.sold += q; sales.push({ ts: e.ts, plate: e.plate, customer: String(e.remark || ""), litres: q }); }
+      else { r.loadings++; r.loaded += q; }
+    });
+    const r2 = n => Math.round(n * 100) / 100, rows = [...by.values()].map(r => ({ ...r, loaded: r2(r.loaded), sold: r2(r.sold) }));
+    sales.sort((a, b) => a.ts - b.ts);
+    const sum = k => rows.reduce((a, r) => a + r[k], 0);
+    return { rows: rows, sales: sales, totals: { loadings: sum("loadings"), loaded: r2(sum("loaded")), trips: sum("trips"), sold: r2(sum("sold")) } };
+  }
+
+  /* The day summary, on A4 pages: the business day, tiles of what was loaded
+     and sold, a table per tanker (loadings, litres loaded, trips, litres
+     sold, with the total), then every sale (when, tanker, sold to, litres),
+     carried over to further pages as needed. d = { dark, dayLabel, ref,
+     ended (text), rows, sales, totals } from dayTotals. These are our own
+     figures: the litres sold are the litres sent for sale. */
+  function daySummary(d){
+    return ready().then(im => {
+      C = d.dark ? DARK : LIGHT;
+      const W = 1240, H = 1754, X = 64, ROW = 62, bottom = H - 170;
+      const rows = d.rows || [], sales = d.sales || [], T = d.totals || { loadings: 0, loaded: 0, trips: 0, sold: 0 };
+      const pages = [];
+      let ctx, y;
+      const newPage = first => {
+        const c = canvas(W, H); ctx = c.getContext("2d"); pages.push(c);
+        y = header(ctx, W, "Day summary", im, d.ref) + 76;
+        if (!first) { txt(ctx, (d.dayLabel || "") + " · day summary, continued", X, y, "700 28px " + SANS, C.muted, "left", W - 2 * X); y += 56; }
+      };
+      const hf = "700 22px " + SANS, num = v => v ? nf(v) : "—";
+      const head = (cols, labels) => {
+        rr(ctx, X, y, W - 2 * X, 56, 16); ctx.fillStyle = C.thead; ctx.fill();
+        cols.forEach((x, k) => txt(ctx, labels[k][0], x, y + 37, hf, "#fff", labels[k][1] || "left"));
+        y += 56;
+      };
+      newPage(true);
+      txt(ctx, "BUSINESS DAY", X, y, "700 24px " + SANS, C.muted); y += 62;
+      txt(ctx, d.dayLabel || "—", X, y, "800 56px " + DISPLAY, C.ink, "left", W - 2 * X); y += 46;
+      if (d.ended) { txt(ctx, d.ended + "  ·  Product: " + PRODUCT, X, y, "600 26px " + SANS, C.muted, "left", W - 2 * X); y += 24; }
+      y += 28;
+      // what was loaded, what was sold
+      const tw = (W - 2 * X - 24) / 2;
+      [["LOADED", nf(T.loaded) + " L", T.loadings + " loading" + (T.loadings === 1 ? "" : "s"), C.good],
+       ["SOLD", nf(T.sold) + " L", T.trips + " trip" + (T.trips === 1 ? "" : "s") + " sent for sale", C.orange]].forEach((t, k) => {
+        const tx = X + k * (tw + 24);
+        rr(ctx, tx, y, tw, 168, 24); ctx.fillStyle = C.soft; ctx.fill();
+        txt(ctx, t[0], tx + 32, y + 48, "700 22px " + SANS, C.muted);
+        txt(ctx, t[1], tx + 32, y + 112, "800 56px " + DISPLAY, t[3], "left", tw - 64);
+        txt(ctx, t[2], tx + 32, y + 148, "600 24px " + SANS, C.muted, "left", tw - 64);
+      });
+      y += 168 + 52;
+
+      // per tanker
+      txt(ctx, "BY TANKER", X, y, "700 24px " + SANS, C.muted); y += 22;
+      const tc = [X + 22, X + 500, X + 730, X + 880, W - X - 22];      // (room for 3,76,478 in each litres column)
+      head(tc, [["TANKER"], ["LOADINGS", "right"], ["LOADED (L)", "right"], ["TRIPS", "right"], ["SOLD (L)", "right"]]);
+      rows.forEach((r, k) => {
+        if (y + ROW > bottom) { newPage(false); head(tc, [["TANKER"], ["LOADINGS", "right"], ["LOADED (L)", "right"], ["TRIPS", "right"], ["SOLD (L)", "right"]]); }
+        if (k % 2) { ctx.fillStyle = C.soft; ctx.fillRect(X, y, W - 2 * X, ROW); }
+        const by = y + 42, mute = v => v ? C.ink : C.faint;
+        txt(ctx, r.plate, tc[0], by, "600 26px " + MONO, C.ink);
+        txt(ctx, num(r.loadings), tc[1], by, "600 26px " + SANS, mute(r.loadings), "right");
+        txt(ctx, num(r.loaded), tc[2], by, "700 28px " + DISPLAY, mute(r.loaded), "right");
+        txt(ctx, num(r.trips), tc[3], by, "600 26px " + SANS, mute(r.trips), "right");
+        txt(ctx, num(r.sold), tc[4], by, "700 28px " + DISPLAY, mute(r.sold), "right");
+        y += ROW;
+      });
+      if (y + ROW > bottom) newPage(false);
+      ctx.fillStyle = C.ink; ctx.fillRect(X, y, W - 2 * X, 3);
+      const ty = y + 44;
+      txt(ctx, "Total", tc[0], ty, "800 28px " + DISPLAY, C.ink);
+      txt(ctx, nf(T.loadings), tc[1], ty, "800 28px " + DISPLAY, C.ink, "right");
+      txt(ctx, nf(T.loaded), tc[2], ty, "800 30px " + DISPLAY, C.ink, "right");
+      txt(ctx, nf(T.trips), tc[3], ty, "800 28px " + DISPLAY, C.ink, "right");
+      txt(ctx, nf(T.sold), tc[4], ty, "800 30px " + DISPLAY, C.ink, "right");
+      y += ROW + 40;
+
+      // every sale
+      if (!sales.length) {
+        if (y + 60 > bottom) newPage(false);
+        txt(ctx, T.loadings ? "No tanker was sent for sale on this day." : "No loadings or sales were recorded on this day.", X, y + 24, "500 26px " + SANS, C.muted);
+      } else {
+        if (y + 22 + 56 + ROW > bottom) newPage(false);
+        txt(ctx, "SENT FOR SALE", X, y, "700 24px " + SANS, C.muted); y += 22;
+        const sc = [X + 22, X + 330, X + 560, W - X - 22];
+        const sh = [["WHEN"], ["TANKER"], ["SOLD TO"], ["LITRES", "right"]];
+        head(sc, sh);
+        sales.forEach((r, k) => {
+          if (y + ROW > bottom) { newPage(false); head(sc, sh); }
+          if (k % 2) { ctx.fillStyle = C.soft; ctx.fillRect(X, y, W - 2 * X, ROW); }
+          const by = y + 42;
+          txt(ctx, new Date(r.ts).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + ", " + time(r.ts), sc[0], by, "600 25px " + SANS, C.muted);
+          txt(ctx, r.plate, sc[1], by, "600 26px " + MONO, C.ink);
+          txt(ctx, r.customer || "—", sc[2], by, "600 26px " + SANS, r.customer ? C.ink : C.faint, "left", sc[3] - sc[2] - 190);
+          txt(ctx, nf(r.litres), sc[3], by, "700 28px " + DISPLAY, C.ink, "right");
+          y += ROW;
+        });
+        ctx.fillStyle = C.ink; ctx.fillRect(X, y, W - 2 * X, 3);
+      }
+      pages.forEach((c, p) => footer(c.getContext("2d"), W, H, im, pages.length > 1 ? "Page " + (p + 1) + " of " + pages.length : "", BIZ.name + " · day summary"));
+      return pages;
+    });
+  }
+
   function blob(c, type, q){ return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("Couldn't make the picture")), type, q)); }
   function png(c){ return blob(c, "image/png"); }
 
@@ -423,5 +545,5 @@
     return Promise.resolve("downloaded");
   }
 
-  window.Slip = { trip: trip, statement: statement, png: png, pdf: pdf, share: share, density15: density15 };
+  window.Slip = { trip: trip, statement: statement, daySummary: daySummary, dayTotals: dayTotals, png: png, pdf: pdf, share: share, density15: density15 };
 })();

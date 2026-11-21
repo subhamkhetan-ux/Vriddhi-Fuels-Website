@@ -32,3 +32,46 @@ test('density at 15 °C: outside the tables, or not a number, there is no answer
   assert.equal(density15(NaN, 30), null);
   assert.equal(density15(830, NaN), null);
 });
+
+// (slip.js runs in its own vm context: results are copied out so deepEqual compares plain values)
+const plain = (x) => JSON.parse(JSON.stringify(x));
+
+test('day totals: loaded and sold per tanker, with the total', () => {
+  const dayTotals = (...a) => plain(box.window.Slip.dayTotals(...a));
+  const ev = [
+    { plate: 'OR15R5510', kind: 'load', total: 900, ts: 1 },
+    { plate: 'OR15R5510', kind: 'load', total: 282, ts: 2 },
+    { plate: 'OR15R5510', kind: 'dispatch', total: 11946, ts: 5, remark: 'Shyam Metalics' },
+    { plate: 'OD23A3710', kind: 'load', total: 3000.5, ts: 3 },
+    { plate: 'OD23A3710', kind: 'dispatch', total: 11955, ts: 4, remark: 'SMC Unit 2' },
+    { plate: 'OD23A3710', total: 100, ts: 6 },                       // no kind: a loading
+  ];
+  const r = dayTotals(ev, ['OR15R1110', 'OD23A3710', 'OR15R5510'], []);
+  assert.deepEqual(r.rows.map((x) => x.plate), ['OR15R1110', 'OD23A3710', 'OR15R5510']);   // the tankers' own order, idle ones too
+  assert.deepEqual(r.rows[0], { plate: 'OR15R1110', loadings: 0, loaded: 0, trips: 0, sold: 0 });
+  assert.deepEqual(r.rows[1], { plate: 'OD23A3710', loadings: 2, loaded: 3100.5, trips: 1, sold: 11955 });
+  assert.deepEqual(r.rows[2], { plate: 'OR15R5510', loadings: 2, loaded: 1182, trips: 1, sold: 11946 });
+  assert.deepEqual(r.totals, { loadings: 4, loaded: 4282.5, trips: 2, sold: 23901 });
+  assert.deepEqual(r.sales.map((x) => [x.plate, x.customer, x.litres]), [['OD23A3710', 'SMC Unit 2', 11955], ['OR15R5510', 'Shyam Metalics', 11946]]);   // in time order
+});
+
+test('day totals: a tanker left out is left out of rows, sales and totals; plates are matched loosely', () => {
+  const dayTotals = (...a) => plain(box.window.Slip.dayTotals(...a));
+  const ev = [
+    { plate: 'OD15AF5510', kind: 'load', total: 950, ts: 1 },
+    { plate: 'OD15AF5510', kind: 'dispatch', total: 950, ts: 2, remark: 'x' },
+    { plate: 'OR 15 R 5510', kind: 'load', total: 100, ts: 3 },
+  ];
+  const r = dayTotals(ev, ['OD15AF5510', 'OR15R5510'], ['od15 af 5510']);
+  assert.deepEqual(r.rows.map((x) => x.plate), ['OR15R5510']);       // one row for both spellings
+  assert.equal(r.rows[0].loaded, 100);
+  assert.deepEqual(r.totals, { loadings: 1, loaded: 100, trips: 0, sold: 0 });
+  assert.equal(r.sales.length, 0);
+});
+
+test('day totals: a day with nothing on it', () => {
+  const dayTotals = (...a) => plain(box.window.Slip.dayTotals(...a));
+  const r = dayTotals([], ['OR15R5510'], []);
+  assert.deepEqual(r.totals, { loadings: 0, loaded: 0, trips: 0, sold: 0 });
+  assert.deepEqual(dayTotals(null, null, null).rows, []);
+});
