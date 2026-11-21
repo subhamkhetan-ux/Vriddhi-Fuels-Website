@@ -2697,12 +2697,18 @@ function openDaySummary(){
   const s=prevDaySummary(); if(!s) return;
   const p=s.day.split("-").map(Number), wd=new Date(p[0],p[1]-1,p[2]).toLocaleDateString("en-IN",{weekday:"short"});
   const lab=keyLabel(s.day), T=s.totals, endD=new Date(s.closedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"});
-  const fp=x=>Object.assign({}, x, { plate:fmtPlate(x.plate) });
+  let tagsOk=true;
   openSlip({ head:"Day summary", sub:lab+" · loaded "+fmt(T.loaded)+" L · sold "+fmt(T.sold)+" L",
-    note:"The last business day: litres loaded and litres sent for sale, per tanker, with each sale. "+SUM_EXCLUDE.join(", ")+" is left out. For our own records — not for customers.",
+    note:()=>"By tanker: the litres loaded, and each sale with the customer it went to and the invoice no(s) tagged on it — “Invoice to follow” where none is tagged yet"
+      +(tagsOk ? "" : " (the invoice tags couldn't be read just now)")+". "+SUM_EXCLUDE.join(", ")+" is left out. For our own records — not for customers.",
     name:"Day-summary-"+s.day.replace(/-/g,""),
-    make:()=>Slip.daySummary({ dark:slipDark(), dayLabel:wd+", "+lab, ref:dmy(s.day), ended:"Ended "+endD+", "+timeLabel(s.closedAt),
-      rows:s.rows.map(fp), sales:s.sales.map(fp), totals:T }) });
+    // the tagged bills (the invoice check's tags, no ledger needed) are read fresh each time the picture is made
+    make:()=>Backend.loadTags().then(tg=>Array.isArray(tg) ? tg : (tagsOk=false, null), ()=>(tagsOk=false, null)).then(tags=>{
+      const nos=id=>tags ? tags.filter(t=>t.trip_id===id).sort((a,b)=>String(a.bill_no).localeCompare(String(b.bill_no),"en",{numeric:true})).map(t=>String(t.bill_no)) : null;
+      const fix=x=>Object.assign({}, x, { plate:fmtPlate(x.plate), sales:x.sales.map(a=>Object.assign({}, a, { plate:fmtPlate(a.plate), invoices:nos(a.id) })) });
+      return Slip.daySummary({ dark:slipDark(), dayLabel:wd+", "+lab, ref:dmy(s.day), ended:"Ended "+endD+", "+timeLabel(s.closedAt),
+        rows:s.rows.map(fix), totals:T });
+    }) });
 }
 function renderTankers(){
   if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }

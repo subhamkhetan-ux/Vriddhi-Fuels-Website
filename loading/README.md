@@ -79,9 +79,12 @@ date is on the card): per tanker the **litres loaded** (with the number of
 loadings) and the **litres sent for sale** (with the number of trips), the
 totals, and when the day ended. **OD15AF5510** is left out, as in *Loaded
 now*. Everyone sees the card; **📤 Save as image / PDF** (admins only) makes
-a one- or few-page A4 picture on the letterhead, in the app's light or dark
-look: the business day, tiles for loaded and sold, the per-tanker table with
-its total, then every sale (when, tanker, sold to, litres). The litres sold
+an A4 picture (more pages on a busy day) on the letterhead, in the app's
+light or dark look: the business day, tiles for loaded and sold, and one
+table by tanker — the litres **loaded**, then a line for each sale of the
+tanker: the litres **sold**, **sold to** which customer, and the **invoice
+no(s)** tagged on it (*Invoice to follow* when none is tagged yet; read from
+the invoice check's tags, no ledger needed), with the totals. The litres sold
 are the litres *sent for sale* — these are our own records, not for
 customers (the customer pictures below show invoiced litres).
 
