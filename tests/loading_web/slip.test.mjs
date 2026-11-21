@@ -48,9 +48,10 @@ test('day totals: loaded and sold per tanker, with the total', () => {
   ];
   const r = dayTotals(ev, ['OR15R1110', 'OD23A3710', 'OR15R5510'], []);
   assert.deepEqual(r.rows.map((x) => x.plate), ['OR15R1110', 'OD23A3710', 'OR15R5510']);   // the tankers' own order, idle ones too
-  assert.deepEqual(r.rows[0], { plate: 'OR15R1110', loadings: 0, loaded: 0, trips: 0, sold: 0 });
-  assert.deepEqual(r.rows[1], { plate: 'OD23A3710', loadings: 2, loaded: 3100.5, trips: 1, sold: 11955 });
-  assert.deepEqual(r.rows[2], { plate: 'OR15R5510', loadings: 2, loaded: 1182, trips: 1, sold: 11946 });
+  assert.deepEqual(r.rows[0], { plate: 'OR15R1110', loadings: 0, loaded: 0, trips: 0, sold: 0, sales: [] });
+  const sale = (ts, plate, customer, litres) => ({ ts, plate, customer, litres });          // (these records have no id)
+  assert.deepEqual(r.rows[1], { plate: 'OD23A3710', loadings: 2, loaded: 3100.5, trips: 1, sold: 11955, sales: [sale(4, 'OD23A3710', 'SMC Unit 2', 11955)] });
+  assert.deepEqual(r.rows[2], { plate: 'OR15R5510', loadings: 2, loaded: 1182, trips: 1, sold: 11946, sales: [sale(5, 'OR15R5510', 'Shyam Metalics', 11946)] });
   assert.deepEqual(r.totals, { loadings: 4, loaded: 4282.5, trips: 2, sold: 23901 });
   assert.deepEqual(r.sales.map((x) => [x.plate, x.customer, x.litres]), [['OD23A3710', 'SMC Unit 2', 11955], ['OR15R5510', 'Shyam Metalics', 11946]]);   // in time order
 });
@@ -74,4 +75,18 @@ test('day totals: a day with nothing on it', () => {
   const r = dayTotals([], ['OR15R5510'], []);
   assert.deepEqual(r.totals, { loadings: 0, loaded: 0, trips: 0, sold: 0 });
   assert.deepEqual(dayTotals(null, null, null).rows, []);
+});
+
+test('day totals: a tanker sent for sale twice keeps both sales, in time order, with their ids', () => {
+  const dayTotals = (...a) => plain(box.window.Slip.dayTotals(...a));
+  const ev = [
+    { id: 'b', plate: 'OR15R5510', kind: 'dispatch', total: 11946, ts: 20, remark: 'SMC Unit 2' },
+    { id: 'a', plate: 'OR15R5510', kind: 'dispatch', total: 4000, ts: 10, remark: 'Shyam Metalics' },
+    { id: 'l', plate: 'OR15R5510', kind: 'load', total: 3982, ts: 5 },
+  ];
+  const r = dayTotals(ev, ['OR15R5510'], []);
+  assert.equal(r.rows.length, 1);
+  assert.deepEqual(r.rows[0].sales.map((x) => [x.id, x.customer, x.litres]), [['a', 'Shyam Metalics', 4000], ['b', 'SMC Unit 2', 11946]]);
+  assert.equal(r.rows[0].trips, 2);
+  assert.equal(r.rows[0].sold, 15946);
 });
