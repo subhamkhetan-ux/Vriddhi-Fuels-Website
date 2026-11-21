@@ -37,13 +37,21 @@ counterparties that become aliases.
    days (`run._link_by_txn_id`). An account that has been closed (`CLOSED_AFTER`
    in `classify.py`, e.g. the HDFC OD after 18-Nov-2026) stops making its bank's
    IFSC ambiguous for later dates.
-2. **Payment rules** — narration keywords (`INDIAN OIL` / `IOCL` — skipped, the
-   PAD tool posts them — `CBDT`, `SALARY`,
+2. **Payments to IOCL** (`INDIAN OIL` / `IOCL`) are skipped, because the IOCL PAD
+   tool posts them as ECollection journals. If the IOCL app has processed a PAD,
+   each one is checked against the PAD (by its UTR, else by amount and date): a
+   payment the PAD covers but does **not** show — money left the bank, IOCL has not
+   credited it in SAP — is posted as a Bank Payment to the IOCL ledger with the
+   remark `PAID TO IOCL - NOT IN SAP/PAD …`, numbered `BPI/<date>/<n>`. When a later
+   PAD shows it, the bank file stops including it, the page reminds you to delete
+   the earlier voucher (the IOCL journal now covers it), and a refund arrives as an
+   ordinary receipt to resolve.
+3. **Payment rules** — narration keywords (`CBDT`, `SALARY`,
    credit card, electricity) → fixed ledgers.
-3. **Receipt** — the remitter, parsed from the narration and resolved to a
+4. **Receipt** — the remitter, parsed from the narration and resolved to a
    customer ledger by the proven payments matcher (`agent/matcher.py`) with
    learned aliases; unresolved names go to **review**.
-4. Anything else → **review**, where the owner picks the ledger once and it is
+5. Anything else → **review**, where the owner picks the ledger once and it is
    remembered as an alias.
 
 Narration parsing is **bank-specific** — the format differs sharply between HDFC

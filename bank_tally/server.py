@@ -10,6 +10,7 @@ remembered as an alias), then download the import XML. Nothing leaves the machin
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import json
 import os
 import sys
@@ -35,6 +36,9 @@ COMMITTED_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipp
 COMMITTED_ALIASES = os.path.join(_ROOT, "state", "bank_aliases.json")
 CUSTOMERS = os.path.join(_ROOT, "state", "customers.json")
 OUT_DIR = os.path.join(_HERE, "out")
+# The IOCL app saves the PAD's ECollection lines here, so payments to IOCL can be
+# checked against what IOCL actually credited.
+IOCL_DATA = os.path.join(_ROOT, "iocl_tally", "data.json")
 
 _STATEMENTS: list = []      # last-uploaded (ledger, rows), so resolve can re-run
 
@@ -399,11 +403,46 @@ def ledger_suggestions() -> list:
 _LAST: dict = {}      # last run's summary+review, for the audit CSV
 
 
+def load_iocl_pad() -> dict | None:
+    """The PAD the IOCL app last processed (dates + ECollection lines), or None."""
+    pad = _load_json(IOCL_DATA, {}).get("pad")
+    try:
+        dt.date.fromisoformat(pad["first"]), dt.date.fromisoformat(pad["last"])
+        return pad if isinstance(pad["lines"], list) else None
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
+def _track_iocl_flagged(summary: dict) -> None:
+    """Remember which payments went out as "not in the PAD", and say so when one of
+    them later IS in the PAD: the IOCL tool then posts it, so the earlier Bank
+    Payment in Tally has to be deleted or it counts twice. The reminder stays
+    until it is dismissed (``/api/iocl-ack``)."""
+    d = _load_json(DATA_PATH, {})
+    flagged = d.get("iocl_flagged", {})
+    now = {e["key"]: {"date": e["date"], "amount": e["amount"], "voucher_no": e["voucher_no"]}
+           for e in summary["entries"] if e.get("flag")}
+    summary["iocl"]["now_in_pad"] = [
+        {**flagged[s["key"]], "key": s["key"], "narration": s["narration"]}
+        for s in summary["skipped"] if s["in_pad"] and s["key"] in flagged]
+    if {**flagged, **now} != flagged:
+        d["iocl_flagged"] = {**flagged, **now}
+        _save_data(d)
+
+
+def ack_iocl_flagged(key: str) -> None:
+    """Dismiss the "now in the PAD — delete the earlier voucher" reminder."""
+    d = _load_json(DATA_PATH, {})
+    if d.get("iocl_flagged", {}).pop(key, None) is not None:
+        _save_data(d)
+
+
 def _process_and_write():
     global _LAST
     vouchers, review, summary = R.process(
         _STATEMENTS, customers(), load_aliases(),
-        dropped=load_dropped(), resolved=load_resolved())
+        dropped=load_dropped(), resolved=load_resolved(), iocl_pad=load_iocl_pad())
+    _track_iocl_flagged(summary)
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers, company()))
@@ -551,6 +590,9 @@ class Handler(BaseHTTPRequestHandler):
             key = (body.get("key") or "").strip()
             if key:
                 toggle_dropped(key, bool(body.get("drop", True)))
+            return self._json(_process_and_write())
+        if route == "/api/iocl-ack":
+            ack_iocl_flagged((body.get("key") or "").strip())
             return self._json(_process_and_write())
         if route == "/api/rerun":
             return self._json(_process_and_write())

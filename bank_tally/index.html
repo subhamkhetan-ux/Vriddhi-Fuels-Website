@@ -168,6 +168,7 @@
     <div class="stats" id="stats"></div>
     <div id="counts" style="margin-top:10px"></div>
     <div id="reconcile" class="warnbox okbox"></div>
+    <div id="ioclNote" class="sub" style="margin-top:8px"></div>
     <div class="row">
       <a class="btn primary" id="dlXml" href="/download/bank_import.xml">⬇ bank_import.xml</a>
       <a class="btn" id="dlAudit" href="/download/audit.csv">⬇ audit (CSV)</a>
@@ -393,6 +394,14 @@ function render(res){
     ` + ${s.n_review} review + ${s.n_dropped} dropped + ${s.skipped_iocl} IOCL-skipped `+
     `→ <b>${s.lines_accounted}</b> lines accounted.`+
     (ok?' Every line is accounted for.':' MISMATCH — tell Claude.');
+  const io=s.iocl||{};
+  $("#ioclNote").innerHTML =
+    (io.checked
+      ? `IOCL payments checked against the PAD (${esc(io.first)} → ${esc(io.last)}): <b>${io.in_pad}</b> in the PAD (skipped — the IOCL tool posts them)`+
+        (io.missing?` · <b style="color:var(--warn)">${io.missing} NOT in the PAD — posted with a remark (vouchers BPI/…)</b>`:``)+
+        (io.unchecked?` · ${io.unchecked} outside the PAD's dates (skipped, not checked)`:``)
+      : (io.skipped?`<span style="color:var(--warn)">⚠ ${io.skipped} payment(s) to IOCL were skipped without being checked — process the PAD in the IOCL app first, then drop the statements again, so a payment IOCL has not credited is caught.</span>`:""))+
+    (io.now_in_pad||[]).map(n=>`<div style="color:var(--warn);margin-top:4px">⚠ ${esc(n.date)} ₹${money(n.amount)} was exported as ${esc(n.voucher_no)} ("not in the PAD") and IS in the PAD now — the IOCL journal covers it, so delete that Bank Payment in Tally. <button class="btn sm" onclick="ackIocl('${n.key}')">Done</button></div>`).join("");
   $("#dlXml").href="/download/bank_import.xml?"+Date.now();
   $("#dlAudit").href="/download/audit.csv?"+Date.now();
   $("#exportNote").textContent = s.n_review ? "Resolve the "+s.n_review+" below, then re-download — import into Tally on a backup company first."
@@ -421,9 +430,12 @@ function renderEntries(){
       <td>${esc((e.account||'').split(' - ')[0])}</td><td>${esc(e.date)}</td>
       <td>${esc(e.type)}<div class="sub" style="color:var(--faint)">${esc(e.direction)}</div></td>
       <td class="num">${money(e.amount)}</td>
-      <td><b>${esc(e.counter_ledger)}</b><div class="narr">${esc(e.narration)}</div></td>
+      <td><b>${esc(e.counter_ledger)}</b>${e.flag?' <span style="color:var(--warn)">· not in the IOCL PAD</span>':''}<div class="narr">${esc(e.narration)}</div></td>
       <td><button class="btn sm" onclick="dropEntry('${e.key}',${e.dropped?'false':'true'})">${e.dropped?'Restore':'Drop'}</button></td>
     </tr>`).join("") || `<tr><td colspan="6" class="empty">No matching entries</td></tr>`;
+}
+async function ackIocl(key){
+  try{ render(await api("/api/iocl-ack",{key})); }catch(e){ toast("Failed: "+e.message); }
 }
 async function dropEntry(key,drop){
   try{ render(await api("/api/drop",{key,drop})); toast(drop?"Dropped — you'll key this by hand":"Restored"); }
