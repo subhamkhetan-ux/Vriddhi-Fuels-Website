@@ -360,7 +360,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         const unit = poKey(x.unit);
         const k = `${x.group_code}|${unit}|${poKey(po)}`;
         const cur = src.get(k);
-        if (!cur || (x.seq || 0) < cur.seq) src.set(k, { group_code: x.group_code, unit, po_no: po, allotted: x.allotted || 0, seq: x.seq || 0 });
+        if (!cur || (x.seq || 0) < cur.seq) src.set(k, { group_code: x.group_code, unit, po_no: po, allotted: x.allotted || 0, seq: x.seq || 0, use_from: x.use_from || null });
       }
       const rank = new Map();
       for (const x of [...src.values()].sort((a, b) => a.seq - b.seq || a.po_no.localeCompare(b.po_no))) {
@@ -378,10 +378,10 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       for (const x of src.values()) {
         const q = db.pos.find((y) => keyOf(y) === `${x.group_code}|${x.unit}|${poKey(x.po_no)}`);
         if (q) {
-          if (q.allotted !== x.allotted || q.seq !== x.rn || q.po_no !== x.po_no || q.source !== 'master_ledger') posUpdated += 1;
-          Object.assign(q, { po_no: x.po_no, allotted: x.allotted, seq: x.rn, source: 'master_ledger' });
+          if (q.allotted !== x.allotted || q.seq !== x.rn || q.po_no !== x.po_no || (q.use_from || null) !== x.use_from || q.source !== 'master_ledger') posUpdated += 1;
+          Object.assign(q, { po_no: x.po_no, allotted: x.allotted, seq: x.rn, use_from: x.use_from, source: 'master_ledger' });
         } else {
-          db.pos.push({ id: nextId('pos'), group_code: x.group_code, unit: x.unit, po_no: x.po_no, allotted: x.allotted, seq: x.rn, note: '', source: 'master_ledger', created_at: now() });
+          db.pos.push({ id: nextId('pos'), group_code: x.group_code, unit: x.unit, po_no: x.po_no, allotted: x.allotted, seq: x.rn, use_from: x.use_from, note: '', source: 'master_ledger', created_at: now() });
           posNew += 1;
         }
       }
@@ -476,14 +476,16 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     async savePo(po) {
       const no = trim(po.po_no);
       const allotted = po.allotted === '' || po.allotted == null ? 0 : Number(po.allotted);
+      const useFrom = 'use_from' in po ? (po.use_from ? String(po.use_from).slice(0, 10) : null) : undefined;
       if (!no) fail('Enter the PO number.');
       if (!(allotted >= 0)) fail('Allotted litres can\'t be negative.');
+      if (useFrom && !/^\d{4}-\d{2}-\d{2}$/.test(useFrom)) fail('Use From must be a date.');
       if (po.id) {
         const cur = db.pos.find((q) => q.id === po.id) || fail('PO not found.');
         if (db.pos.some((q) => q.id !== cur.id && q.group_code === cur.group_code && q.unit === cur.unit && poKey(q.po_no) === poKey(no))) {
           fail(`PO ${no} is already in this list.`);
         }
-        Object.assign(cur, { po_no: no, allotted, note: po.note ?? cur.note });
+        Object.assign(cur, { po_no: no, allotted, note: po.note ?? cur.note, ...(useFrom !== undefined ? { use_from: useFrom } : {}) });
         return clone(cur);
       }
       const group = trim(po.group_code);
@@ -494,7 +496,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       }
       const max = Math.max(0, ...db.pos.filter((q) => q.group_code === group && q.unit === unit).map((q) => q.seq));
       const row = {
-        id: nextId('pos'), group_code: group, unit, po_no: no, allotted, seq: max + 1, note: po.note || '',
+        id: nextId('pos'), group_code: group, unit, po_no: no, allotted, seq: max + 1, use_from: useFrom || null, note: po.note || '',
         source: 'app', created_at: now(),
       };
       db.pos.push(row);

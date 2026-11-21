@@ -14,6 +14,10 @@
 // later, smaller bill can still fit, and a PO typed in (po_mode 'fixed') is
 // kept as it is and still uses up that PO's litres.
 //
+// Use From (the trackers' date column): a PO is only for bills dated on or
+// after it, so adding a PO never changes the PO of a bill already made —
+// as the sheets' formula. A PO without one is for every bill.
+//
 // Unit-wise lists (SMC): a bill needs a Unit first. "UNIT 1" bills use the
 // first list, any other unit the second — as in
 //   IF($J="UNIT 1", <UNIT 1 list>, <UNIT 2 list>)
@@ -45,7 +49,7 @@ export function billOrder(a, b) {
 
 // kind: 'po' | 'po_units'; units: ['UNIT 1', 'UNIT 2'] for 'po_units'
 // rule: 'pick' | 'first' (see above)
-// pos:   [{id, unit, po_no, allotted, seq}]
+// pos:   [{id, unit, po_no, allotted, seq, use_from?}]
 // bills: [{qty, unit, po_mode, po_fixed, ...}] already in order (see billOrder)
 // Returns {bills: [{po, how, choices?}] (same order), registers: [{unit, pos: [...]}]}
 //   how: 'auto' | 'fixed' | 'choose' (more than one PO fits: pick one —
@@ -82,9 +86,11 @@ export function allocate({ kind, units = [], pos = [], bills = [], rule = 'first
       how = 'needs-unit';
     } else {
       const fits = [];
+      const day = String(b.date || '').slice(0, 10);
       for (const p of listFor(unit)) {
         const key = poKey(p.po_no);
         if (!key || fits.some((x) => poKey(x) === key)) continue;
+        if (p.use_from && day && day < String(p.use_from).slice(0, 10)) continue;   // not yet in use on that day
         const left = num(p.allotted) - (used.get(unit + '\u0000' + key) || 0);
         if (qty > 0 && round3(left) >= qty) {
           fits.push(String(p.po_no).trim());
@@ -160,7 +166,10 @@ export function poListChanges(current, incoming, groups) {
     const q = have.get(k);
     const l = list(x.group_code, x.unit);
     if (!q) { l.added.push({ po_no: x.po_no, allotted: x.allotted }); continue; }
+    const was = q.use_from ? String(q.use_from).slice(0, 10) : '';
+    const now = x.use_from ? String(x.use_from).slice(0, 10) : '';
     if ((Number(q.allotted) || 0) !== x.allotted) l.changed.push({ po_no: x.po_no, from: Number(q.allotted) || 0, to: x.allotted });
+    else if (was !== now) l.changed.push({ po_no: x.po_no, useFrom: { from: was, to: now } });
     else if (q.seq !== x.rn) l.moved += 1;
   }
   return [...lists.values()].filter((l) => l.added.length || l.removed.length || l.changed.length || l.moved)

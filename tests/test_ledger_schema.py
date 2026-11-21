@@ -307,7 +307,7 @@ def test_reupload_policies(pg):
     p["customers"].append({"name": "Walk In Cash", "ledger": "Walkin"})
     p["payments"] = p["payments"][:1]
     p["pos"][0]["allotted"] = 9999                                  # already in the app
-    p["pos"].append({"group_code": "Demo_Bulk", "unit": "", "po_no": "PO-C", "allotted": 700, "seq": 3})
+    p["pos"].append({"group_code": "Demo_Bulk", "unit": "", "po_no": "PO-C", "allotted": 700, "seq": 3, "use_from": "2026-11-21"})
     p["opening"][0]["amount"] = 2600
     res = pg.owner(call("ledger_import_master", "Master Ledger v2.xlsm", p))
     assert res["sales_new"] == 0 and res["sales_updated"] == 6
@@ -327,6 +327,8 @@ def test_reupload_policies(pg):
     # the PO lists follow the workbook: its litres, its order, and a PO added in the app is gone
     assert [(p["po_no"], float(p["allotted"])) for p in pos] == \
         [("PO-A", 9999), ("PO-B", 3000), ("PO-C", 700)]
+    # the tracker's Use From comes with it (none on PO-A / PO-B: every bill)
+    assert [p["use_from"] for p in pos] == [None, None, "2026-11-21"]
     assert pg.ok("select amount from ledger_opening;") == "2600"
 
 
@@ -436,6 +438,13 @@ def test_po_editing(pg):
     saved = pg.owner(call("ledger_po_save", {"id": first["id"], "po_no": "PO-A1", "allotted": 4000}))
     assert saved["po_no"] == "PO-A1" and float(saved["allotted"]) == 4000
     pg.ok(call("ledger_po_delete", saved["id"]), user=OWNER, email="owner@example.com")
+    assert order() == ["PO-C", "PO-B"]
+    # Use From: set when added, kept when an edit leaves it out, cleared with ""
+    uf = pg.owner(call("ledger_po_save", {"group_code": "Demo_Bulk", "po_no": "UF-1", "allotted": 10, "use_from": "2026-11-21"}))
+    assert uf["use_from"] == "2026-11-21"
+    assert pg.owner(call("ledger_po_save", {"id": uf["id"], "po_no": "UF-1", "allotted": 20}))["use_from"] == "2026-11-21"
+    assert pg.owner(call("ledger_po_save", {"id": uf["id"], "po_no": "UF-1", "allotted": 20, "use_from": ""}))["use_from"] is None
+    pg.ok(call("ledger_po_delete", uf["id"]), user=OWNER, email="owner@example.com")
     assert order() == ["PO-C", "PO-B"]
 
 

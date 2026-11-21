@@ -152,6 +152,10 @@ create table if not exists public.ledger_po (
   created_at timestamptz not null default now()
 );
 create unique index if not exists ledger_po_uidx on public.ledger_po (group_code, unit, upper(po_no));
+-- Use From (the *_Bulk trackers' date column): a PO is only for bills dated
+-- on or after it, so adding a PO never changes the PO of a bill already
+-- made. Null: every bill.
+alter table public.ledger_po add column if not exists use_from date;
 
 -- Month-opening balances (the Outstanding sheet's monthly table).
 create table if not exists public.ledger_opening (
@@ -800,14 +804,14 @@ begin
   --    in the sheet's order with its allotted litres. POs added in the app,
   --    or no longer on the sheet, are removed. A bill's own Unit / PO choice
   --    is left alone (a PO no longer listed simply stops being picked).
-  select coalesce(jsonb_agg(jsonb_build_object('group_code', r.group_code, 'unit', r.unit, 'po_no', r.po_no, 'allotted', r.allotted, 'rn', r.rn)), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('group_code', r.group_code, 'unit', r.unit, 'po_no', r.po_no, 'allotted', r.allotted, 'use_from', r.use_from, 'rn', r.rn)), '[]'::jsonb)
   into v_po_src
   from (select d.*, row_number() over (partition by d.group_code, d.unit order by d.seq, d.po_no)::int as rn from (
     select distinct on (x.group_code, upper(btrim(coalesce(x.unit, ''))), upper(btrim(x.po_no)))
            x.group_code, upper(btrim(coalesce(x.unit, ''))) as unit, btrim(x.po_no) as po_no,
-           coalesce(x.allotted, 0) as allotted, coalesce(x.seq, 0) as seq
+           coalesce(x.allotted, 0) as allotted, coalesce(x.seq, 0) as seq, x.use_from
     from jsonb_to_recordset(coalesce(p_payload -> 'pos', '[]'::jsonb))
-         as x(group_code text, unit text, po_no text, allotted numeric, seq int)
+         as x(group_code text, unit text, po_no text, allotted numeric, seq int, use_from date)
     where btrim(coalesce(x.po_no, '')) <> ''
       and exists (select 1 from ledger_bulk_groups g where g.code = x.group_code)
     order by x.group_code, upper(btrim(coalesce(x.unit, ''))), upper(btrim(x.po_no)), x.seq
@@ -819,15 +823,16 @@ begin
                     where s.group_code = p.group_code and s.unit = p.unit and upper(s.po_no) = upper(p.po_no));
   get diagnostics v_po_del = row_count;
 
-  update ledger_po p set po_no = s.po_no, allotted = s.allotted, seq = s.rn, source = 'master_ledger'
-  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int)
+  update ledger_po p set po_no = s.po_no, allotted = s.allotted, seq = s.rn, use_from = s.use_from, source = 'master_ledger'
+  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int, use_from date)
   where s.group_code = p.group_code and s.unit = p.unit and upper(s.po_no) = upper(p.po_no)
-    and (p.allotted is distinct from s.allotted or p.seq <> s.rn or p.po_no <> s.po_no or p.source <> 'master_ledger');
+    and (p.allotted is distinct from s.allotted or p.seq <> s.rn or p.po_no <> s.po_no
+         or p.use_from is distinct from s.use_from or p.source <> 'master_ledger');
   get diagnostics v_po_upd = row_count;
 
-  insert into ledger_po (group_code, unit, po_no, allotted, seq, source)
-  select s.group_code, s.unit, s.po_no, s.allotted, s.rn, 'master_ledger'
-  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int)
+  insert into ledger_po (group_code, unit, po_no, allotted, seq, use_from, source)
+  select s.group_code, s.unit, s.po_no, s.allotted, s.rn, s.use_from, 'master_ledger'
+  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int, use_from date)
   where not exists (select 1 from ledger_po p
                     where p.group_code = s.group_code and p.unit = s.unit and upper(p.po_no) = upper(s.po_no));
   get diagnostics v_po_new = row_count;
@@ -961,7 +966,8 @@ begin
   );
 end $$;
 
--- Add or edit a PO: {id?, group_code, unit, po_no, allotted, note}
+-- Add or edit a PO: {id?, group_code, unit, po_no, allotted, use_from?, note}
+-- (use_from left out on an edit: kept as it is; '' / null: every bill)
 create or replace function public.ledger_po_save(p_po jsonb)
 returns jsonb language plpgsql set search_path = public as $$
 declare
@@ -971,6 +977,7 @@ declare
   v_unit  text := upper(btrim(coalesce(p_po ->> 'unit', '')));
   v_no    text := btrim(coalesce(p_po ->> 'po_no', ''));
   v_allot numeric := coalesce(nullif(p_po ->> 'allotted', '')::numeric, 0);
+  v_use   date := nullif(p_po ->> 'use_from', '')::date;
 begin
   perform ledger_assert_member();
   if v_no = '' then raise exception 'Enter the PO number.'; end if;
@@ -979,13 +986,14 @@ begin
     if not exists (select 1 from ledger_bulk_groups where code = v_group) then
       raise exception 'Unknown bulk ledger "%".', v_group;
     end if;
-    insert into ledger_po (group_code, unit, po_no, allotted, seq, note, source)
+    insert into ledger_po (group_code, unit, po_no, allotted, seq, use_from, note, source)
     values (v_group, v_unit, v_no, v_allot,
             coalesce((select max(seq) from ledger_po where group_code = v_group and unit = v_unit), 0) + 1,
-            coalesce(p_po ->> 'note', ''), 'app')
+            v_use, coalesce(p_po ->> 'note', ''), 'app')
     returning * into r;
   else
-    update ledger_po set po_no = v_no, allotted = v_allot, note = coalesce(p_po ->> 'note', note)
+    update ledger_po set po_no = v_no, allotted = v_allot, note = coalesce(p_po ->> 'note', note),
+                         use_from = case when p_po ? 'use_from' then v_use else use_from end
     where id = v_id
     returning * into r;
     if r.id is null then raise exception 'PO not found.'; end if;

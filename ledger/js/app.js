@@ -2391,7 +2391,7 @@ function poChangesHtml(changes) {
     <div class="table-wrap"><table class="compact"><thead><tr><th>PO list</th><th>Added</th><th>Litres changed</th><th>Removed</th></tr></thead><tbody>
     ${changes.map((l) => `<tr><td>${name(l)}${l.moved ? ` <span class="muted small">(${plural(l.moved, 'PO')} moved in the order)</span>` : ''}</td>
       <td>${l.added.map((x) => `${esc(x.po_no)} <span class="muted">${fmtLitres(x.allotted)} L</span>`).join('<br>') || '—'}</td>
-      <td>${l.changed.map((x) => `${esc(x.po_no)} <span class="muted">${fmtLitres(x.from)} → ${fmtLitres(x.to)} L</span>`).join('<br>') || '—'}</td>
+      <td>${l.changed.map((x) => `${esc(x.po_no)} <span class="muted">${x.useFrom ? `use from ${x.useFrom.from ? fmtDate(x.useFrom.from) : 'any date'} → ${x.useFrom.to ? fmtDate(x.useFrom.to) : 'any date'}` : `${fmtLitres(x.from)} → ${fmtLitres(x.to)} L`}</span>`).join('<br>') || '—'}</td>
       <td>${l.removed.map((x) => `${esc(x.po_no)}${x.source === 'app' ? ' <span class="tag warn">added in app</span>' : ''}`).join('<br>') || '—'}</td></tr>`).join('')}
     </tbody></table></div></div>`;
 }
@@ -2503,21 +2503,22 @@ async function viewPoGroup(code) {
     ? 'As the sheet\'s PO No. formula: a diesel bill gets a PO by itself when only one PO has enough litres left; when more than one has, you pick one (Excel shows “Select PO ▼”); a PO picked or typed on the sheet comes in with the upload.'
     : 'As the sheet\'s PO No. formula: a diesel bill gets the first PO in the list with enough litres left.'}</p>
       ${g.toPick ? `<p class="warn-text">${plural(g.toPick, 'bill')} to pick a PO for — more than one PO has enough litres left. Pick one on each bill below (or in Excel's “Select PO ▼” and upload).</p>` : ''}
-      ${g.noPo ? `<p class="warn-text">${plural(g.noPo, 'bill')} got no PO because no PO has enough litres left. Add a new PO below and they're assigned straight away.</p>` : ''}
+      ${g.noPo ? `<p class="warn-text">${plural(g.noPo, 'bill')} got no PO because no PO has enough litres left. Add a new PO below — its Use From starts at the first of them, so they're assigned straight away.</p>` : ''}
       ${g.needsUnit ? `<p class="warn-text">${plural(g.needsUnit, 'bill')} need a unit before they can get a PO.</p>` : ''}
     </section>
-    ${g.registers.map((r) => registerCard(g, r)).join('')}
     <section class="card">
       <h3>Add a PO</h3>
-      <p class="muted small">The Master Ledger is the source of truth for PO lists: the next <b>Upload Master Ledger</b> replaces this list with the *_Bulk sheet's — so add a PO to the sheet too, or it goes at the next upload.</p>
       <form id="po-add" class="row-form">
         <label>PO number <input name="po_no" required autocomplete="off"></label>
         <label>Allotted litres <input name="allotted" type="number" min="0" step="any" required inputmode="decimal"></label>
         ${units.length ? `<label>Unit <select name="unit">${units.map((u) => `<option>${esc(u)}</option>`).join('')}</select></label>` : ''}
+        <label>Use from <input name="use_from" type="date" value="${esc(useFromDefault(g, units[0] || ''))}"></label>
         <button class="btn" type="submit">Add PO</button>
       </form>
-      <p class="muted small">New POs go to the end of the list.${g.group.po_rule === 'pick' ? '' : ' Bills use POs in list order, so move a PO up to have it used first.'}</p>
+      <p class="muted small" id="po-use-hint">${esc(useFromHint(g, units[0] || ''))}</p>
+      <p class="muted small">As the sheet's <b>Use From</b>: a PO is only for bills on or after that date, so bills that already have a PO keep it. Add the PO to the *_Bulk sheet too (with the same Use From) — the next <b>Upload Master Ledger</b> replaces this list with the sheet's.${g.group.po_rule === 'pick' ? '' : ' Bills use POs in list order, so move a PO up to have it used first.'}</p>
     </section>
+    ${g.registers.map((r) => registerCard(g, r)).join('')}
     <section class="card">
       <h3>Bills <span class="muted">(newest first)</span></h3>
       <p class="muted small">Diesel bills get a PO as the sheet's formula gives it. Petrol and XtraGreen bills keep the PO typed on the Bulk sheet, or the one you pick with <b>Change</b> — and those litres count against that PO.</p>
@@ -2533,10 +2534,15 @@ async function viewPoGroup(code) {
     e.preventDefault();
     const form = e.target;
     guard(async () => {
-      await state.store.savePo({ group_code: code, unit: form.unit ? form.unit.value : '', po_no: form.po_no.value, allotted: form.allotted.value });
+      await state.store.savePo({ group_code: code, unit: form.unit ? form.unit.value : '', po_no: form.po_no.value, allotted: form.allotted.value, use_from: form.use_from.value || null });
       toast(`PO ${form.po_no.value.trim()} added.`);
       await reload();
     });
+  });
+  // the unit picked: its own Use From suggestion
+  document.querySelector('#po-add [name=unit]')?.addEventListener('change', (e) => {
+    document.querySelector('#po-add [name=use_from]').value = useFromDefault(g, e.target.value);
+    document.getElementById('po-use-hint').textContent = useFromHint(g, e.target.value);
   });
   main().querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => {
     state.billFilter = b.dataset.filter;
@@ -2564,6 +2570,26 @@ async function viewPoGroup(code) {
   })));
 }
 
+// A new PO's Use From: the first diesel bill still without a PO (so it gets
+// one), else the day after the last bill that has one (so no bill that has a
+// PO changes — as the sheet asks), else today. unit: its list on SMC-style.
+function useFromWhy(g, unit) {
+  const mine = g.rows.filter((r) => (!r.product || r.product === 'HSD') && (!unit || poKey(r.unit) === poKey(unit)));
+  const day = (r) => String(r.date || '').slice(0, 10);
+  const lastWith = mine.filter((r) => r.po).map(day).sort().pop() || '';
+  const firstNo = mine.filter((r) => r.how === 'no-po' && day(r) >= lastWith).map(day).sort()[0] || '';
+  if (firstNo) return { date: firstNo, why: 'no-po' };
+  if (lastWith) return { date: addDays(lastWith, 1), why: 'after', last: lastWith };
+  return { date: localToday(), why: 'today' };
+}
+const useFromDefault = (g, unit) => useFromWhy(g, unit).date;
+function useFromHint(g, unit) {
+  const w = useFromWhy(g, unit);
+  if (w.why === 'no-po') return `Use from ${fmtDate(w.date)} — the first ${unit ? `${unit} ` : ''}bill still without a PO.`;
+  if (w.why === 'after') return `Use from ${fmtDate(w.date)} — the day after the last ${unit ? `${unit} ` : ''}bill with a PO (${fmtDate(w.last)}), so no bill changes its PO.`;
+  return 'Use from today.';
+}
+
 // How PO lists are shown: 'no' — by PO number, Z→A (PO-10 above PO-9);
 // 'left' — most litres left first, then Z→A. # is still the order the bills
 // use them in (the first PO with litres left), which ↑ / ↓ change.
@@ -2586,7 +2612,7 @@ function registerCard(g, r) {
       <div class="prow head" role="row"><span role="columnheader">#</span><span role="columnheader">PO number</span><span class="r" role="columnheader">Allotted</span><span class="r" role="columnheader">Used</span><span class="r" role="columnheader">Left</span><span role="columnheader">Status</span><span role="columnheader"><span class="sr">Actions</span></span></div>
       ${sortedPos(r.pos).map(({ p, i }) => `<div class="prow" role="row" data-po-row="${p.id}">
         <span class="p-n" role="cell" title="Bills use the POs in this order">${i + 1}</span>
-        <span class="p-no" role="cell"><b>${esc(p.po_no)}</b></span>
+        <span class="p-no" role="cell"><b>${esc(p.po_no)}</b>${p.use_from ? `<small class="muted p-from">from ${fmtDate(String(p.use_from).slice(0, 10))}</small>` : ''}</span>
         <span class="p-al r" role="cell"><span class="lbl-sm">Allotted </span>${fmtLitres(p.allotted)}</span>
         <span class="p-us r" role="cell"><span class="lbl-sm">Used </span>${fmtLitres(p.used)}</span>
         <span class="p-le r" role="cell"><span class="lbl-sm">Left </span><b>${fmtLitres(p.balance)}</b></span>
@@ -2622,12 +2648,13 @@ async function poAction(btn, g, reload) {
   row.innerHTML = `<form class="row-form" data-edit-po>
     <label>PO number <input name="po_no" value="${esc(po.po_no)}" required></label>
     <label>Allotted litres <input name="allotted" type="number" min="0" step="any" value="${esc(po.allotted)}" required></label>
+    <label>Use from <input name="use_from" type="date" value="${esc(po.use_from ? String(po.use_from).slice(0, 10) : '')}"></label>
     <button class="btn small" type="submit">Save</button> <button class="btn ghost small" type="button" data-cancel>Cancel</button></form>`;
   row.querySelector('[data-cancel]').addEventListener('click', reload);
   row.querySelector('form').addEventListener('submit', (e) => {
     e.preventDefault();
     guard(async () => {
-      await state.store.savePo({ id, po_no: e.target.po_no.value, allotted: e.target.allotted.value });
+      await state.store.savePo({ id, po_no: e.target.po_no.value, allotted: e.target.allotted.value, use_from: e.target.use_from.value || null });
       toast('PO saved.');
       await reload();
     });

@@ -348,10 +348,19 @@ function readBulk(ws, code, gst, date1904, warn) {
       const m = text(ws, 0, c).match(/UNIT\s*\d+/i);
       if (m) unit = poKey(m[0].replace(/\s+/, ' '));
     }
+    // "Use From" (the date of the first bill a PO may cover): right after
+    // Allotted, or after the list's Status column (SMC) — before the next list
+    let useCol = -1;
+    for (let k = c + 2; k < Math.min(width, c + 8); k++) {
+      if (k > c + 1 && label(text(ws, 3, k)) === 'po no') break;
+      if (label(text(ws, 3, k)).startsWith('use from')) { useCol = k; break; }
+    }
     const pos = [];
     for (let r = 4; r < 54; r++) {
       const po = text(ws, r, c);
-      if (po) pos.push({ group_code: code, unit, po_no: po, allotted: cellNumber(ws[addr(r, c + 1)]) ?? 0, seq: r - 3 });
+      if (!po) continue;
+      const useFrom = useCol >= 0 ? cellDate(ws[addr(r, useCol)], date1904) : null;
+      pos.push({ group_code: code, unit, po_no: po, allotted: cellNumber(ws[addr(r, c + 1)]) ?? 0, seq: r - 3, ...(useFrom ? { use_from: useFrom } : {}) });
     }
     registers.push({ col: c, unit, pos });
   }
