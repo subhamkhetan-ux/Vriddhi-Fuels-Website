@@ -211,23 +211,143 @@ def test_same_bank_txn_id_pairs_the_two_legs_whatever_the_narration():
     assert not review and summary["accounted_ok"]
 
 
-@pytest.mark.parametrize("case", ["amount", "date", "same_side", "same_account", "three"])
-def test_txn_id_link_needs_an_exact_two_leg_match(case):
+def _linked(stmts):
+    classified = [(a, r, C.classify(r, [], statement_ledger=a)) for a, rows in stmts for r in rows]
+    return [cl.tier for _a, _r, cl in BR._link_by_txn_id(classified)]
+
+
+@pytest.mark.parametrize("case", ["amount", "late", "early", "same_side", "same_account", "three"])
+def test_reference_link_needs_an_exact_two_leg_match(case):
     w = _txn("PAYMENT TO ACME", "S1", withdrawal=1000)
     d = _txn("ACME REFUND", "S1", deposit=1000)
     stmts = [(ICICI_OD, [w]), (ICICI, [d])]
+    assert "same-reference" in _linked(stmts)                    # the control: this one links
     if case == "amount":
         d.deposit = 999
-    elif case == "date":
-        d.date = dt.date(2026, 11, 12)
+    elif case == "late":
+        d.date = dt.date(2026, 11, 20)                            # more than PAIR_DAYS after
+    elif case == "early":
+        d.date = dt.date(2026, 11, 9)                             # credit BEFORE the debit
     elif case == "same_side":
         d.deposit, d.withdrawal = 0.0, 1000
     elif case == "same_account":
         stmts = [(ICICI, [w, d])]
     elif case == "three":
         stmts.append((CA, [_txn("ACME", "S1", deposit=1000)]))
-    classified = [(a, r, C.classify(r, [], statement_ledger=a)) for a, rows in stmts for r in rows]
-    assert all(cl.tier != "same-txn-id" for _a, _r, cl in BR._link_by_txn_id(classified))
+    assert "same-reference" not in _linked(stmts)
+
+
+def _ref_row(narr, ref="", **kw):
+    r = _row(narr, **kw)
+    r.ref = ref
+    return r
+
+
+def test_imps_reference_in_both_narrations_pairs_the_legs():
+    # Real shape (16 Nov 2026): the ICICI side names a payee "Pump" and an HDFC IFSC, the
+    # HDFC side names our ICICI account only as ICIC-XXXXXXXX4716; only the IMPS number
+    # (632013056841, zero-padded in HDFC's reference column) is common.
+    d = dt.date(2026, 11, 16)
+    ic = _ref_row("MMT/IMPS/632013056841/Pump/HDFC0000763", withdrawal=10000, date=d)
+    ca = _ref_row("IMPS-632013056841-VRIDDHI FUELS-ICIC-XXXXXXXX4716-PUMP", "0000632013056841",
+                  deposit=10000, date=d)
+    _, review, summary = _entries([(ICICI, [ic]), (CA, [ca])])
+    contras = [e for e in summary["entries"] if e["type"] == "Contra"]
+    assert [(c["account"], c["counter_ledger"], c["srclines"]) for c in contras] == [(ICICI, CA, 2)]
+    assert not review and summary["accounted_ok"]
+
+
+def test_a_masked_account_with_the_banks_ifsc_code_is_our_account():
+    cl = C.classify(_row("IMPS-632013056841-VRIDDHI FUELS-ICIC-XXXXXXXX4716-PUMP", deposit=10000),
+                    [], statement_ledger=CA)
+    assert cl.vtype == C.CONTRA and cl.counter_ledger == ICICI
+
+
+@pytest.mark.parametrize("token", ["59217010101010", "HDFC0000240", "CMS317673344411"])
+def test_account_numbers_and_ifsc_codes_never_link_lines(token):
+    # They appear in many unrelated narrations; only a transfer's own reference may link.
+    w = _ref_row(f"NEFT TO {token}", withdrawal=1000)
+    d = _ref_row(f"NEFT FROM {token}", deposit=1000)
+    tiers = _linked([(ICICI_OD, [w]), (ICICI, [d])])
+    assert ("same-reference" in tiers) == (token == "CMS317673344411")
+
+
+def test_a_leg_already_known_to_go_elsewhere_is_not_relinked():
+    w = _ref_row("IB FUNDS TRANSFER DR-50200110712542-VRIDDHI FUELS 5555555555", withdrawal=1000)
+    d = _ref_row("ACME 5555555555", deposit=1000)
+    assert "same-reference" not in _linked([(CA, [w]), (ICICI, [d])])      # w names the HDFC OD: veto
+
+
+def test_closed_hdfc_od_makes_hdfc_unambiguous_afterwards():
+    narr = "RTGS/ICICR42026111400506531/HDFC0000763/Vriddhi Fuels"
+    during = C.classify(_row(narr, withdrawal=1415000, date=dt.date(2026, 11, 14)), [], statement_ledger=ICICI)
+    after = C.classify(_row(narr, withdrawal=1415000, date=dt.date(2026, 11, 19)), [], statement_ledger=ICICI)
+    assert during.vtype == C.CONTRA and during.counter_ledger is None      # C/A or OD: pair it
+    assert after.vtype == C.CONTRA and after.counter_ledger == CA          # OD is closed: C/A
+    # A bank where we still hold two open accounts stays ambiguous.
+    other = C.classify(_row("NEFT/ICIC0000468/Vriddhi Fuels", withdrawal=5, date=dt.date(2026, 12, 1)),
+                       [], statement_ledger=CA)
+    assert other.counter_ledger is None
+
+
+def test_a_zero_running_balance_is_a_balance(tmp_path):
+    # HDFC OD cleared to nil: the Closing Balance cell is 0.0 — not "no balance".
+    p = _xlsx(tmp_path, [
+        ["Date", "Narration", "Chq./Ref.No.", "Value Dt", "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"],
+        ["12/11/26", "IB FUNDS TRANSFER DR-1", "A", "12/11/26", 1480041.0, "", 19959.0],
+        ["13/11/26", "INTEREST DEBITED", "B", "12/11/26", 19959.0, "", 0.0],
+        ["16/11/26", "IB FUNDS TRANSFER CR-1", "C", "16/11/26", "", 10000.0, 10000.0],
+        ["18/11/26", "IB FUNDS TRANSFER DR-1", "D", "18/11/26", 10000.0, "", 0.0],
+    ])
+    rows, summary = S.parse_excel(p)
+    assert summary["reconciles"] and summary["first_break"] is None
+    assert [r.reconciles for r in rows] == [True] * 4 and rows[2].deposit == 10000.0
+
+
+def test_iocl_short_name_payments_are_left_to_the_pad_tool():
+    for narr in ("INF/NEFT/IN42631754863070/SBIN0009995/IOCL", "NEFT-IOCL LTD-OD ACCOUNT",
+                 "RTGS/ICICR42026111200504505/SBIN0009995/INDIAN OIL CORPORATION LTD OD C"):
+        cl = C.classify(_row(narr, withdrawal=150000), [], statement_ledger=ICICI)
+        assert cl.skip, narr
+    # money coming IN from IOCL, or a name that merely contains the letters, isn't skipped
+    assert not C.classify(_row("INF/NEFT/X/IOCL REFUND", deposit=1), [], statement_ledger=ICICI).skip
+    assert not C.classify(_row("NEFT-BIOCLEAN FARMS", withdrawal=5), [], statement_ledger=ICICI).skip
+
+
+def test_a_saved_pick_never_posts_an_iocl_line_a_second_time():
+    w = _row("INF/NEFT/IN42631754863070/SBIN0009995/IOCL", withdrawal=150000)
+    key = BR.entry_key(ICICI, w.date, w.amount, w.narration)
+    _, review, summary = _entries([(ICICI, [w])], resolved={key: "M/s Indian Oil Corporation Limited"})
+    assert not summary["entries"] and summary["skipped_iocl"] == 1 and summary["accounted_ok"]
+
+
+def test_hand_resolved_transfer_legs_meet_their_other_leg_instead_of_doubling():
+    # The 16 Nov 2026 duplicate: C/A -> OD Rs 10,000. The C/A leg names the OD; the user
+    # picked "HDFC C/A" for the OD leg by hand. That must still be ONE voucher.
+    d = dt.date(2026, 11, 16)
+    ca = _row("IB FUNDS TRANSFER DR-50200110712542-VRIDDHI FUELS", withdrawal=10000, date=d)
+    od = _row("IB FUNDS TRANSFER CR-59217010101010-VRIDDHI FUELS", deposit=10000, date=d)
+    key = BR.entry_key(OD, od.date, od.amount, od.narration)
+    _, review, summary = _entries([(CA, [ca]), (OD, [od])], resolved={key: CA})
+    contras = [e for e in summary["entries"] if e["type"] == "Contra"]
+    assert [(c["account"], c["counter_ledger"], c["srclines"]) for c in contras] == [(CA, OD, 2)]
+    assert not review and summary["accounted_ok"]
+
+
+def test_a_resolved_deposit_with_no_other_leg_still_posts():
+    od = _row("IB FUNDS TRANSFER CR-X", deposit=10000)
+    key = BR.entry_key(OD, od.date, od.amount, od.narration)
+    _, review, summary = _entries([(OD, [od])], resolved={key: CA})
+    (e,) = summary["entries"]
+    assert (e["type"], e["account"], e["counter_ledger"], e["direction"]) == ("Contra", OD, CA, "credit")
+    assert not review
+
+
+def test_a_transfer_resolved_to_the_statements_own_account_is_ignored():
+    w = _row("PAYMENT TO SOMEONE", withdrawal=500)
+    key = BR.entry_key(CA, w.date, w.amount, w.narration)
+    _, review, summary = _entries([(CA, [w])], resolved={key: CA})
+    assert not summary["entries"] and len(review) == 1                    # back to "needs a ledger"
 
 
 def test_statement_reads_the_bank_transaction_id(tmp_path):

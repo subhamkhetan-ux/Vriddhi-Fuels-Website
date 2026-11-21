@@ -17,6 +17,7 @@ and is easy to extend per bank.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass
 
@@ -37,6 +38,11 @@ OWN_ACCOUNTS = {
 _BANK_LEDGERS = set(OWN_ACCOUNTS.values()) | {"Cash"}
 
 _BUILTIN_ACCOUNTS = dict(OWN_ACCOUNTS)
+
+# An account closed after a date: nothing dated later can involve it, so from then
+# on it no longer makes its bank's IFSC ambiguous. (HDFC OD: cleared and closed
+# on 18-Nov-2026 when the working-capital limit moved to ICICI.)
+CLOSED_AFTER = {"50200110712542": dt.date(2026, 11, 18)}
 
 
 def configure_accounts(extra: dict | None = None) -> None:
@@ -108,6 +114,20 @@ _IFSC_BANK = {
     "INDB": r"INDUSIND", "IDFB": r"IDFC", "FDRL": r"FEDERAL", "AUBL": r"AU SMALL|AU BANK",
 }
 _IFSC = re.compile(r"\b([A-Z]{4})0[A-Z0-9]{6}")
+
+
+def _ifsc_own(code: str, day) -> str | None:
+    """Our only account at the bank an IFSC code names — counting only accounts
+    still open on ``day`` — or None when there are none or several."""
+    if code in _IFSC_TO_OWN:
+        return _IFSC_TO_OWN[code]
+    bank = _IFSC_BANK.get(code)
+    if not bank or day is None:
+        return None
+    live = [led for acct, led in OWN_ACCOUNTS.items()
+            if re.search(rf"\b(?:{bank})\b", led.upper())
+            and not (acct in CLOSED_AFTER and day > CLOSED_AFTER[acct])]
+    return live[0] if len(live) == 1 else None
 configure_accounts()                    # apply the one-account-per-bank rule to the built-ins
 
 # Staff — any bank payment to one of these posts to the single Salary ledger.
@@ -177,10 +197,12 @@ def _own_account_tag(narration: str, exclude: str | None) -> str | None:
     for acct, ledger in OWN_ACCOUNTS.items():
         if ledger == exclude:
             continue
-        for bank in _IFSC_BANK.values():
+        for code, bank in _IFSC_BANK.items():
             if not re.search(rf"\b(?:{bank})\b", ledger.upper()):
                 continue
-            for m in re.finditer(rf"(?<![A-Z])(?:{bank})\s*(?:C/?A|O/?D|CC|SB|SA|A/?C)?"
+            # The bank may be written in full (ICICICA4716) or as its 4-letter IFSC
+            # code (ICIC-XXXXXXXX4716, as an IMPS names the sender's account).
+            for m in re.finditer(rf"(?<![A-Z])(?:{bank}|{code})\s*(?:C/?A|O/?D|CC|SB|SA|A/?C)?"
                                  rf"[\s/:-]*X*(\d{{4,}})(?!\d)", up):
                 if re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", re.sub(r"\s", "", m.group(0))):
                     continue                 # an IFSC (HDFC0001819), not an account
@@ -274,7 +296,8 @@ def classify(row, customers, aliases=None, statement_ledger=None):
     # 0. Payments to IOCL are already posted by the IOCL PAD tool (its "Customer
     #    ECollection" journals). Skip them so the two tools never double-count —
     #    verified: every bank->IOCL payment matches a PAD ECollection by date+amount.
-    if not row.is_credit and re.search(r"INDIAN OIL", up):
+    #    The short name counts too: a NEFT to IOCL reads "…/SBIN0009995/IOCL".
+    if not row.is_credit and re.search(r"INDIAN OIL|\bIOCL\b", up):
         return Classification(
             PAYMENT, "M/s Indian Oil Corporation Limited", "Indian Oil Corporation",
             "iocl-pad", [], skip=True,
@@ -300,7 +323,7 @@ def classify(row, customers, aliases=None, statement_ledger=None):
             led = OWN_ACCOUNTS["50200110712542"]
         else:
             m = _IFSC.search(up)
-            led = _IFSC_TO_OWN.get(m.group(1)) if m else None
+            led = _ifsc_own(m.group(1), row.date) if m else None
             if led == statement_ledger:          # can't be a transfer to itself
                 led = None
         return Classification(CONTRA, led, "Self transfer (own accounts)",

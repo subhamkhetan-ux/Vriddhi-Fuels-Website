@@ -525,6 +525,12 @@ class Handler(BaseHTTPRequestHandler):
             ledger = (body.get("ledger") or "").strip()
             key = (body.get("key") or "").strip()
             tier = body.get("tier") or ""
+            row = next((r for r in _LAST.get("review", []) if r.get("key") == key), None)
+            if ledger and row and ledger == row.get("account"):
+                # "The other account" can't be the statement's own account — that
+                # would post a transfer from an account to itself.
+                return self._json({"error": f"{ledger} is this statement's own account — "
+                                   "pick the OTHER account of the transfer"}, 400)
             if ledger:
                 # Always resolve THIS transaction, so the row leaves review and
                 # enters the export — this is what makes force-review / unpaired
