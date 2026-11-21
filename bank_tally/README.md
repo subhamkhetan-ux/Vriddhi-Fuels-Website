@@ -29,8 +29,16 @@ counterparties that become aliases.
 ## How the counter-ledger is decided (per the owner's choice)
 
 1. **Contra** — a transfer naming another own account (`OWN_ACCOUNTS` in
-   `classify.py`) → that account's ledger.
-2. **Payment rules** — narration keywords (`INDIAN OIL`, `CBDT`, `SALARY`,
+   `classify.py`) → that account's ledger. The account may be named by its full
+   number, by bank + last digits (`ICICICA4716`, `ICIC-XXXXXXXX4716`), or not at
+   all: the two legs of a transfer between two of our accounts are also paired
+   when they carry the **same reference** (ICICI "Tran. Id", an IMPS number, a
+   NEFT/RTGS UTR, a net-banking reference), the same amount, and land within two
+   days (`run._link_by_txn_id`). An account that has been closed (`CLOSED_AFTER`
+   in `classify.py`, e.g. the HDFC OD after 18-Nov-2026) stops making its bank's
+   IFSC ambiguous for later dates.
+2. **Payment rules** — narration keywords (`INDIAN OIL` / `IOCL` — skipped, the
+   PAD tool posts them — `CBDT`, `SALARY`,
    credit card, electricity) → fixed ledgers.
 3. **Receipt** — the remitter, parsed from the narration and resolved to a
    customer ledger by the proven payments matcher (`agent/matcher.py`) with

@@ -251,7 +251,9 @@ def parse_excel(path: str) -> tuple[list[BankRow], dict]:
         bal_cell = cell("balance")
         raw_rows.append({
             "date": date, "wd": wd, "dep": dep, "amt": amt,
-            "bal": _balance(bal_cell), "has_bal": str(bal_cell or "").strip() != "",
+            # A balance of exactly 0 (an OD cleared to nil) is a balance, not a blank.
+            "bal": _balance(bal_cell),
+            "has_bal": bal_cell is not None and str(bal_cell).strip() != "",
             "narration": str(cell("narration") or "").strip(),
             "ref": str(cell("ref") or "").strip(),
             "txn_id": str(cell("txn_id") or "").strip()})

@@ -19,6 +19,7 @@ A statement is ``(bank_ledger, rows)`` where ``rows`` come from
 from __future__ import annotations
 
 import hashlib
+import re
 
 from . import classify as C
 from . import generate as G
@@ -97,33 +98,77 @@ def _pair_contras(items):
     return pairs, leftovers
 
 
+_IFSC_FULL = re.compile(r"[A-Z]{4}0[A-Z0-9]{6}")
+
+
+def _ref_tokens(row) -> set:
+    """What a line carries that its other leg will carry too: the bank's own
+    transaction id (ICICI "Tran. Id") and any long reference in the narration or
+    reference column — an IMPS number (632013056841), a NEFT/RTGS UTR
+    (HDFCR52026111284973374), a net-banking reference. HDFC pads references with
+    zeros, so leading zeros are ignored. Account numbers and IFSC codes name
+    parties, not a transfer, so they are left out."""
+    own = {a.lstrip("0") for a in C.OWN_ACCOUNTS}
+    toks = set()
+    if getattr(row, "txn_id", ""):
+        toks.add("ID:" + row.txn_id)
+    for t in re.findall(r"[A-Z0-9]{9,}", f"{row.narration or ''} {row.ref or ''}".upper()):
+        if sum(ch.isdigit() for ch in t) < 6 or _IFSC_FULL.fullmatch(t) or t.lstrip("0") in own:
+            continue
+        toks.add(t.lstrip("0"))
+    return toks
+
+
 def _link_by_txn_id(classified):
-    """Two own accounts' statements showing the SAME bank transaction id (ICICI's
-    "Tran. Id") — one a withdrawal, the other a same-day deposit of the same
-    amount — are the two legs of one transfer between them, whatever the
-    narrations say (``…/ICICICA4716`` on one side, ``…/VRIDDHI FUELS`` on the
-    other). Both are made a Contra naming the other account, so they pair.
-    Only an exact one-withdrawal/one-deposit match counts; a line already
-    posted elsewhere (``skip``, the IOCL PAD) is left alone. Returns the list
-    with those classifications replaced."""
-    groups = {}
-    for i, (acct, row, cl) in enumerate(classified):
-        if getattr(row, "txn_id", ""):
-            groups.setdefault(row.txn_id, []).append(i)
-    out = list(classified)
-    for idxs in groups.values():
+    """Two own accounts' lines that carry the SAME reference (see ``_ref_tokens``)
+    — one a withdrawal, the other a deposit of the same amount landing the same
+    day (or up to ``PAIR_DAYS`` later) — are the two legs of one transfer between
+    those accounts, whatever the narrations say (``…/ICICICA4716`` on one side,
+    ``…/VRIDDHI FUELS`` on the other; ``…/Pump/HDFC0000763`` against
+    ``…-ICIC-XXXXXXXX4716-PUMP``). Money cannot leave one of our accounts and
+    arrive in another unless it moved between them. Both are made a Contra
+    naming the other account, so they pair.
+
+    Only an exact match counts: the reference must be on exactly two lines, a
+    line may not fit two partners, and a leg already known to be a transfer to
+    some other account is left alone, as is a line already posted elsewhere
+    (``skip``, the IOCL PAD). Returns the list with those classifications
+    replaced."""
+    by_tok = {}
+    for i, (_acct, row, _cl) in enumerate(classified):
+        for t in _ref_tokens(row):
+            by_tok.setdefault(t, []).append(i)
+    partners = {}                                   # line -> set of partner lines
+    for idxs in by_tok.values():
         if len(idxs) != 2:
             continue
-        (a1, r1, c1), (a2, r2, c2) = (classified[i] for i in idxs)
-        if (a1 == a2 or r1.is_credit == r2.is_credit or c1.skip or c2.skip
-                or abs(r1.amount - r2.amount) >= 0.01 or r1.date != r2.date):
+        a, b = idxs
+        (a1, r1, c1), (a2, r2, c2) = classified[a], classified[b]
+        if r1.is_credit:                            # make (a, r1) the withdrawal
+            a, b, (a1, r1, c1), (a2, r2, c2) = b, a, (a2, r2, c2), (a1, r1, c1)
+        if (a1 == a2 or not r2.is_credit or r1.is_credit or c1.skip or c2.skip
+                or abs(r1.amount - r2.amount) >= 0.01 or not (r1.date and r2.date)
+                or not 0 <= (r2.date - r1.date).days <= PAIR_DAYS):
             continue
-        for i, other in ((idxs[0], a2), (idxs[1], a1)):
-            acct, row, cl = out[i]
+        partners.setdefault(a, set()).add(b)
+        partners.setdefault(b, set()).add(a)
+    out = list(classified)
+    for a, others in partners.items():
+        if len(others) != 1:
+            continue
+        b = next(iter(others))
+        if partners.get(b) != {a}:
+            continue                                # b has another candidate: ambiguous
+        legs = ((a, classified[a], classified[b][0]), (b, classified[b], classified[a][0]))
+        # A leg already known to go to some OTHER account vetoes the whole pair.
+        if any(cl.vtype == C.CONTRA and cl.counter_ledger not in (None, other)
+               for _i, (_acct, _row, cl), other in legs):
+            continue
+        for i, (acct, row, cl), other in legs:
             if cl.vtype == C.CONTRA and cl.counter_ledger == other:
-                continue
+                continue                            # already says so
             out[i] = (acct, row, C.Classification(
-                C.CONTRA, other, cl.counterparty_raw, "same-txn-id", [other]))
+                C.CONTRA, other, cl.counterparty_raw, "same-reference", [other]))
     return out
 
 
@@ -243,15 +288,28 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
 
     # --- Per-transaction resolutions (a ledger the user picked in review) win
     #     over classification, so force-review / unpaired-transfer rows resolve. -
-    handled = set()
+    #     Two things are never honoured: a line the IOCL PAD tool posts (a saved
+    #     pick must not post it a second time), and "the other account" being the
+    #     statement's own account (a transfer to itself). A pick of one of our bank
+    #     accounts is NOT posted on its own: that leg joins the pairing below, so it
+    #     meets the other account's leg instead of making a second voucher for the
+    #     same transfer.
+    handled, resolved_legs, reclass = set(), set(), {}
     for acct, row, cl in classified:
         k = keys[id(row)]
-        if k not in resolved:
+        if k not in resolved or cl.skip:
+            continue
+        led = resolved[k]
+        if led == acct:
+            continue
+        if led in BANK_LEDGERS and led != "Cash":
+            reclass[id(row)] = C.Classification(
+                C.CONTRA, led, "Self transfer (own accounts)", "resolved", [led])
+            resolved_legs.add(id(row))
             continue
         handled.add(id(row))
-        led = resolved[k]
         ymd = _ymd(row.date)
-        if led in BANK_LEDGERS:                 # transfer -> Contra
+        if led in BANK_LEDGERS:                 # cash -> Contra
             if row.is_credit:                   # money in: source(Cr)=led, dest(Dr)=acct
                 xml = G.make_contra(ymd, row.amount, led, acct, row.narration)
                 add_entry("Contra", xml, acct, row.date, row.amount, "credit",
@@ -268,11 +326,14 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             xml = G.make_payment(ymd, row.amount, acct, led, row.narration)
             add_entry("Payment", xml, acct, row.date, row.amount, "debit",
                       row.narration, led, row.index, key=keys[id(row)])
-    classified = [(a, r, c) for a, r, c in classified if id(r) not in handled]
+    classified = [(a, r, reclass.get(id(r), c)) for a, r, c in classified
+                  if id(r) not in handled]
 
     # A line whose amount doesn't tie to the statement's running balance was not
-    # read reliably — never post it automatically; it goes to review.
-    unreliable = [(a, r, c) for a, r, c in classified if not r.reconciles and not c.skip]
+    # read reliably — never post it automatically; it goes to review. (Unless the
+    # user has already resolved it by hand.)
+    unreliable = [(a, r, c) for a, r, c in classified
+                  if not r.reconciles and not c.skip and id(r) not in resolved_legs]
     for acct, row, cl in unreliable:
         review.append(_review_row(acct, row, cl, "amount doesn't tie to the statement's "
                                   "running balance — check it in the statement",
@@ -306,6 +367,12 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         if (not r.is_credit) and dest and dest != acct:
             xml = G.make_contra(_ymd(r.date), r.amount, acct, dest, r.narration)
             add_entry("Contra", xml, acct, r.date, r.amount, "debit", r.narration,
+                      dest, r.index, key=it["key"])
+        elif r.is_credit and dest and dest != acct and id(r) in resolved_legs:
+            # A deposit the user pointed at another account, whose other leg isn't
+            # in this run: post it (money in: the other account Cr, this one Dr).
+            xml = G.make_contra(_ymd(r.date), r.amount, dest, acct, r.narration)
+            add_entry("Contra", xml, acct, r.date, r.amount, "credit", r.narration,
                       dest, r.index, key=it["key"])
         else:
             leftover_reviewed.append(it)
