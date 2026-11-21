@@ -31,7 +31,6 @@ Private Const CB_FIRST As Long = 4               ' first data row on Bill Setup
 Private Const CB_FONT As String = "Times New Roman"
 Private Const CB_PIC_HEAD As String = "CB_Letterhead"
 Private Const CB_PIC_STAMP As String = "CB_Stamp"
-Private Const CB_ACROSS As Long = 7                 ' xlCenterAcrossSelection
 
 ' the period's bills (filled by CB_Collect)
 Private nRow As Long
@@ -477,6 +476,9 @@ Private Function CB_Page(out As Worksheet, ws As Worksheet, ByVal p As Long, ByV
         out.Cells(r, 2).Value = Format(rDate(idx(i)), "dd/mm/yy")
         out.Cells(r, 3).Value = rBill(idx(i))
         out.Cells(r, 4).Value = rVeh(idx(i))
+        On Error Resume Next
+        out.Range(out.Cells(r, 2), out.Cells(r, 4)).IndentLevel = 1   ' off the left border
+        On Error GoTo 0
         CB_Number out.Cells(r, 5), Round(rQty(idx(i)), 2), "General"     ' 1500, 2891.6
         CB_Number out.Cells(r, 6), rRate(idx(i)), "0.00"
         out.Cells(r, 7).Value = CB_Indian(rAmt(idx(i))): out.Cells(r, 7).HorizontalAlignment = xlRight
@@ -501,7 +503,7 @@ Private Function CB_Page(out As Worksheet, ws As Worksheet, ByVal p As Long, ByV
     Next i
     r = r + 2
     ' the stamp, then the footer line
-    If Not CB_PastePicture(ws, CB_PIC_STAMP, out, r, 3) Then r = r + 3
+    If Not CB_PastePicture(ws, CB_PIC_STAMP, out, r, 4) Then r = r + 3
     CB_Line out, r, "B", "For VRIDDHI FUELS", 16
     CB_Line out, r, "F", "Signature of Customer", 16, False, True
     CB_Page = r + 1
@@ -535,7 +537,8 @@ Private Sub CB_Line(out As Worksheet, ByVal r As Long, ByVal col As String, ByVa
     Dim c As Range
     If across Then
         Set c = out.Range(out.Cells(r, 2), out.Cells(r, 7))
-        c.HorizontalAlignment = CB_ACROSS
+        c.Merge                                   ' B:G as one cell, centred
+        c.HorizontalAlignment = xlCenter
         Set c = out.Cells(r, 2)
     Else
         Set c = out.Range(col & r)
@@ -619,7 +622,9 @@ End Sub
 Private Function CB_Export(out As Worksheet, ByVal pdf As String) As Boolean
     On Error GoTo Fail
     CB_PageSetup out
-    out.ExportAsFixedFormat Type:=xlTypePDF, Filename:=pdf, Quality:=xlQualityStandard, OpenAfterPublish:=False
+    ' as Module1's ExportRangePdf (the way the statements' PDFs are saved on the Mac)
+    out.Range("B1:G" & CLng(out.Range("Z1").Value)).ExportAsFixedFormat Type:=xlTypePDF, Filename:=pdf, _
+        Quality:=xlQualityStandard, OpenAfterPublish:=False
     CB_Export = True
     Exit Function
 Fail:
@@ -640,6 +645,13 @@ Public Sub CB_PageSetup(out As Worksheet)
         .LeftMargin = Application.InchesToPoints(0.5): .RightMargin = Application.InchesToPoints(0.5)
         .TopMargin = Application.InchesToPoints(0.4): .BottomMargin = Application.InchesToPoints(0.4)
     End With
+    ' no sheet name or page number printed on the bill
+    On Error Resume Next
+    With out.PageSetup
+        .LeftHeader = "": .CenterHeader = "": .RightHeader = ""
+        .LeftFooter = "": .CenterFooter = "": .RightFooter = ""
+    End With
+    On Error GoTo 0
     On Error Resume Next
     Application.PrintCommunication = True
     On Error GoTo 0
