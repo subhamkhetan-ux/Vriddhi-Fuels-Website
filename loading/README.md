@@ -72,6 +72,19 @@ switch to flip there. (It reads each tanker's last sale through
 `loading_tanker_fill()`: re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
 once for that.)
 
+**Previous day.** Right under *Loaded now* on a desktop — and on a phone,
+after the tanker cards and before *Recent* — a card for the **last closed
+business day** (the one End Day, or the 7:30 AM auto close, last ended; its
+date is on the card): per tanker the **litres loaded** (with the number of
+loadings) and the **litres sent for sale** (with the number of trips), the
+totals, and when the day ended. **OD15AF5510** is left out, as in *Loaded
+now*. Everyone sees the card; **📤 Save as image / PDF** (admins only) makes
+a one- or few-page A4 picture on the letterhead, in the app's light or dark
+look: the business day, tiles for loaded and sold, the per-tanker table with
+its total, then every sale (when, tanker, sold to, litres). The litres sold
+are the litres *sent for sale* — these are our own records, not for
+customers (the customer pictures below show invoiced litres).
+
 Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
 **History** and the export, so the full account of what went into each tanker and
 when it was sent out is preserved.

@@ -444,6 +444,25 @@
   .loadsum .ls-row.full .ls-n b::after{content:" ✓";color:var(--green-d,#12804a)}
   .loadsum .ls-n{font-size:12.5px;color:var(--muted);font-weight:600;text-align:right;min-width:62px;font-variant-numeric:tabular-nums}
   .loadsum .ls-n b{font-family:var(--display);font-size:14px;color:var(--ink);font-weight:700}
+  /* "Previous day": the last closed business day — the same card, a table of loaded / sold per tanker */
+  #prevDayD{display:none}
+  @media (min-width:900px){ #prevDayD{display:block} #prevDayM{display:none} }
+  .prevsum .ps-d{text-transform:none;letter-spacing:0;color:var(--ink);font-size:13px;font-weight:700}
+  .prevsum .ps-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);align-items:center;column-gap:10px;padding:7px 0}
+  .prevsum .ps-row+.ps-row{border-top:1px solid var(--line)}
+  .prevsum .ps-row.ps-cols{font-size:10.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;padding:7px 0 3px;border-top:0}
+  .prevsum .ps-cols span+span,.prevsum .ps-n{text-align:right}
+  .prevsum .ps-cols+.ps-row{border-top:0}
+  .prevsum .ps-row .plate{font-size:11px;padding:3px 6px;justify-self:start}
+  .prevsum .ps-n{font-size:12.5px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25}
+  .prevsum .ps-n b{font-family:var(--display);font-size:14px;color:var(--ink);font-weight:700}
+  .prevsum .ps-n small{display:block;font-size:11px;color:var(--faint);font-weight:600}
+  .prevsum .ps-n.none{color:var(--faint)}
+  .prevsum .ps-total{border-top:2px solid var(--line)!important;font-family:var(--display);font-size:13px;font-weight:800;color:var(--ink)}
+  .prevsum .ps-total .ps-l b{color:var(--good)}
+  .prevsum .ps-total .ps-s b{color:var(--amber-d)}
+  .prevsum .ps-foot{font-size:11.5px;color:var(--muted);font-weight:600;padding:6px 0 2px}
+  .prevsum .slipchip{margin:4px 0 6px}
   .loadsum .ls-trip{grid-column:1 / -1;justify-self:start;margin-top:4px;font-size:11.5px;font-weight:700;color:var(--amber-d);
     background:var(--accent-soft);border-radius:999px;padding:2px 9px}
   .flag .fbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -1107,6 +1126,7 @@
       <div id="endDayWrap"></div>
       <div id="invBanner"></div>
       <div id="loadSum"></div>
+      <div id="prevDayD"></div>
       </div>
 
       <div class="home-main">
@@ -1115,6 +1135,7 @@
       </div>
 
       <div class="home-side">
+      <div id="prevDayM"></div>
       <div class="sectitle">Recent
         <button class="lnk" id="toHist">View all ›</button>
       </div>
@@ -2555,6 +2576,7 @@ function renderHome(){
   renderEndDay();
   renderTankers();
   renderLoadSum();
+  renderPrevDay();
   invoiceWatch(false);   // admins: what needs fixing in the invoices, at the top
   const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
@@ -2629,6 +2651,58 @@ function renderLoadSum(){
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     for(const i of box.querySelectorAll('.ls-bar i')){ i.style.setProperty('--p',i.dataset.p); LS_PREV[i.dataset.plate]=Number(i.dataset.p); }
   }));
+}
+/* "Previous day": what the last closed business day (End Day, or the 7:30 AM
+   auto close) loaded and sold — per tanker, with each sale. The records are
+   the History screen's (groupKey / bizDate); OD15AF5510 is left out as in the
+   Loaded now card. Shown to everyone; saving it as a picture / PDF is admin
+   only (as the Reports are). The litres sold are the litres sent for sale. */
+function prevDaySummary(){
+  const day=lastCloseDate(); if(!day || !window.Slip) return null;
+  const evs=LOG.filter(e=>!isOpen(e) && bizDate(e)===day);
+  const t=Slip.dayTotals(evs, VEHICLES.map(v=>v.plate), SUM_EXCLUDE);
+  return { day:day, closedAt:CLOSES[CLOSES.length-1].ts, rows:t.rows, sales:t.sales, totals:t.totals };
+}
+function endedText(ts){
+  const dl=dayLabel(ts), w=/^(Today|Yesterday)$/.test(dl) ? dl.toLowerCase() : dl;
+  return "Ended "+w+" at "+timeLabel(ts);
+}
+function prevDayHTML(s){
+  const T=s.totals, none='<span class="ps-n none">—</span>', pl=(n,w)=>n+" "+w+(n===1?"":"s");
+  let h='<div class="loadsum prevsum"><div class="ls-h"><span>Previous day</span><span class="ps-d">'+esc(keyLabel(s.day))+'</span></div>';
+  if(!T.loadings && !T.trips) return h+'<div class="ps-foot">Nothing was loaded or sold. '+esc(endedText(s.closedAt))+'.</div></div>';
+  h+='<div class="ps-row ps-cols"><span>Tanker</span><span>Loaded</span><span>Sold</span></div>';
+  s.rows.forEach(r=>{
+    h+='<div class="ps-row"><span class="plate">'+esc(fmtPlate(r.plate))+'</span>'
+      +(r.loaded ? '<span class="ps-n"><b>'+fmt(r.loaded)+'</b> L<small>'+pl(r.loadings,"loading")+'</small></span>' : none)
+      +(r.sold ? '<span class="ps-n"><b>'+fmt(r.sold)+'</b> L<small>'+pl(r.trips,"trip")+'</small></span>' : none)+'</div>';
+  });
+  h+='<div class="ps-row ps-total"><span>Total</span>'
+    +'<span class="ps-n ps-l"><b>'+fmt(T.loaded)+'</b> L<small>'+pl(T.loadings,"loading")+'</small></span>'
+    +'<span class="ps-n ps-s"><b>'+fmt(T.sold)+'</b> L<small>'+pl(T.trips,"trip")+'</small></span></div>'
+    +'<div class="ps-foot">'+esc(endedText(s.closedAt))+'</div>'
+    +'<button class="slipchip adm" data-prevsave>📤 Save as image / PDF</button></div>';
+  return h;
+}
+function renderPrevDay(){
+  const s=prevDaySummary(), html=s ? prevDayHTML(s) : "";
+  ["#prevDayD","#prevDayM"].forEach(id=>{
+    const b=$(id); if(!b) return;
+    b.innerHTML=html;
+    b.querySelectorAll("[data-prevsave]").forEach(x=>{ x.onclick=openDaySummary; });
+  });
+}
+function openDaySummary(){
+  if(!adminOnly()) return;
+  const s=prevDaySummary(); if(!s) return;
+  const p=s.day.split("-").map(Number), wd=new Date(p[0],p[1]-1,p[2]).toLocaleDateString("en-IN",{weekday:"short"});
+  const lab=keyLabel(s.day), T=s.totals, endD=new Date(s.closedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  const fp=x=>Object.assign({}, x, { plate:fmtPlate(x.plate) });
+  openSlip({ head:"Day summary", sub:lab+" · loaded "+fmt(T.loaded)+" L · sold "+fmt(T.sold)+" L",
+    note:"The last business day: litres loaded and litres sent for sale, per tanker, with each sale. "+SUM_EXCLUDE.join(", ")+" is left out. For our own records — not for customers.",
+    name:"Day-summary-"+s.day.replace(/-/g,""),
+    make:()=>Slip.daySummary({ dark:slipDark(), dayLabel:wd+", "+lab, ref:dmy(s.day), ended:"Ended "+endD+", "+timeLabel(s.closedAt),
+      rows:s.rows.map(fp), sales:s.sales.map(fp), totals:T }) });
 }
 function renderTankers(){
   if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }
