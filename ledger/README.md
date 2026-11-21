@@ -397,7 +397,7 @@ The workbooks are reused month after month, so each month is **kept in the
 app** once brought in (`ledger_register`: `dsr:YYYY-MM`, `stock:YYYY-MM`,
 `dipchart`, and `tanklog` — every morning's stock, added to by each import,
 never replaced — plus what's typed: `dips:YYYY-MM`, `adjust:YYYY-MM`); pick a month at the top of the table. The Mac's sync sends
-the three workbooks (see *Day to day*), or **Import workbooks…** on the tab
+the three workbooks (see *Day to day*), or — without the Mac, from an iPhone too — **Import → Import E-DSR, Stock Register, DIP Chart** (one, two or all three at once, from Files / iCloud Drive / Google Drive; each recognised by its sheets) or **Import workbooks…** on the tab
 (several at once; which is which is worked out from their sheets). Needs
 `supabase/ledger-schema.sql` re-run once. The demo has a made-up month.
 

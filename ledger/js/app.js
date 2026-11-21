@@ -654,6 +654,11 @@ const typedNumber = (v, { min = 0, max = 1e7 } = {}) => {
   return Math.round(n * 100) / 100;
 };
 
+// The file pickers' list for Excel workbooks: extensions and their types —
+// iPhone / iPad Safari matches files by type, and greys out an .xlsm that
+// only an extension names
+const XL_ACCEPT = '.xlsx,.xlsm,.xls,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
+
 // one of the three workbooks, read here and kept -> what it brought in, in words
 async function importRegisterFile(file) {
   const XLSX = await loadSheetJS();
@@ -684,7 +689,7 @@ async function viewRegister(tab, month, keep = false) {
   const all = await registerAll();
   const today = localToday();
   const months = [...new Set(Object.keys(all).filter((k) => /^(dsr|stock):/.test(k)).map((k) => k.slice(-7)))].sort().reverse();
-  const importBox = `<label class="file"><input type="file" id="reg-file" accept=".xlsx,.xlsm,.xls" multiple><span class="btn ghost small">Import workbooks…</span></label>`;
+  const importBox = `<label class="file"><input type="file" id="reg-file" accept="${XL_ACCEPT}" multiple><span class="btn ghost small">Import workbooks…</span></label>`;
   const tabs = `<nav class="chips view-chips" aria-label="Register">${[['', 'Daily Stock Register'], ['stock', 'Stock Register']].map(([k, name]) => `<a class="chip${k === tab ? ' on' : ''}" href="#/register${k ? `/${k}` : ''}${month ? `?m=${month}` : ''}"${k === tab ? ' aria-current="page"' : ''}>${name}</a>`).join('')}</nav>`;
   const bindImport = () => document.getElementById('reg-file')?.addEventListener('change', (e) => guard(async () => {
     const files = [...e.target.files];
@@ -2138,19 +2143,25 @@ async function viewImport() {
     <section class="card" id="daybook-card">
       <h2>Import sales — Tally DayBook</h2>
       <p class="muted">HSD, MS and XG credit vouchers are added, and <b>Tally is the source of truth</b>: a bill already in the app takes the DayBook's date, customer, vehicle, litres, rate and amount — so importing a corrected DayBook again corrects the app. What you typed against a bill here (unit, PO, TDS, shortage, remarks) stays.</p>
-      <label class="file"><input type="file" id="daybook-file" accept=".xls,.xlsx,.xlsm,.csv"><span class="btn">Choose DayBook file</span></label>
+      <label class="file"><input type="file" id="daybook-file" accept="${XL_ACCEPT},.csv,text/csv"><span class="btn">Choose DayBook file</span></label>
       <div id="daybook-out"></div>
     </section>
     <section class="card" id="master">
       <h2>Upload Master Ledger</h2>
       <p class="muted">Copies sales, payments, customers, opening balances, the Bulk sheets' PO lists and what you typed against each bulk bill. The file is read on this device and isn't changed.</p>
-      <label class="file"><input type="file" id="master-file" accept=".xlsm,.xlsx"><span class="btn ghost">Choose Master Ledger.xlsm</span></label>
+      <label class="file"><input type="file" id="master-file" accept="${XL_ACCEPT}"><span class="btn ghost">Choose Master Ledger.xlsm</span></label>
       <div id="master-out"></div>
+    </section>
+    <section class="card" id="register-files">
+      <h2>Import E-DSR, Stock Register, DIP Chart</h2>
+      <p class="muted">For <a href="#/register">Register</a> — from this phone or computer, when the Mac isn't there to sync them. Pick one, two or all three at once (from Files, iCloud Drive, Google Drive …); each is recognised by its sheets. The files are read on this device and aren't changed.</p>
+      <label class="file"><input type="file" id="reg-file-import" accept="${XL_ACCEPT}" multiple><span class="btn ghost">Choose E-DSR / Stock Register / DIP Chart</span></label>
+      <div id="reg-out-import"></div>
     </section>
     <section class="card" id="tanker-billing">
       <h2>Import Tanker Billing workbook</h2>
       <p class="muted">For <a href="#/quotes">Quotes</a>: the customers (they become the Tanker Master too), price tiers, IOCL RSP, XtraPower figures, the Quotation Maker's inputs, both sheets' wording, letterheads and stamps, and the PI Log. The file is read on this device and isn't changed.</p>
-      <label class="file"><input type="file" id="tb-file-import" accept=".xlsm,.xlsx"><span class="btn ghost">Choose Tanker Billing.xlsm</span></label>
+      <label class="file"><input type="file" id="tb-file-import" accept="${XL_ACCEPT}"><span class="btn ghost">Choose Tanker Billing.xlsm</span></label>
       <div id="tb-out-import"></div>
     </section>
     <section class="card">
@@ -2162,6 +2173,24 @@ async function viewImport() {
   document.getElementById('daybook-file').addEventListener('change', (e) => e.target.files[0] && daybookChosen(e.target.files[0], e.target));
   main().querySelector('[data-pick-daybook]')?.addEventListener('click', () => document.getElementById('daybook-file').click());
   document.getElementById('master-file').addEventListener('change', (e) => e.target.files[0] && masterChosen(e.target.files[0], e.target));
+  // E-DSR / Stock Register / DIP Chart from this device: each one recognised and brought in
+  document.getElementById('reg-file-import').addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    const out = document.getElementById('reg-out-import');
+    guard(async () => {
+      const done = [];
+      const failed = [];
+      for (const f of files) {
+        out.innerHTML = loadingHtml(`Reading ${f.name}…`);
+        try { done.push(await importRegisterFile(f)); } catch (err) { failed.push(`${f.name}: ${(err && err.message) || err}`); }
+      }
+      out.innerHTML = `${done.length ? `<p class="good-text">Brought in: ${done.map(esc).join(' · ')} — see <a href="#/register">Register</a>.</p>` : ''}
+        ${failed.length ? `<p class="bad-text">${failed.map(esc).join('<br>')}</p>` : ''}`;
+      if (done.length) toast(`Brought in: ${done.join(' · ')}.`);
+    });
+  });
   bindTankerImport('tb-file-import', 'tb-out-import');
   // the workbooks the Mac uploaded: listed here; one picked on Home is opened straight away
   const ups = await macUploadsList();
@@ -4766,7 +4795,7 @@ function quotesHead(d, tab) {
     : 'Import the <b>Tanker Billing</b> workbook: the app reads its Quotation Maker and Proforma Invoice sheets — layout, wording and formulas — its customers and tables, and its PI Log.';
   return `<section class="card">
     <div class="quote-head"><h2>Quotes</h2>
-      <label class="file"><input type="file" id="tb-file" accept=".xlsm,.xlsx"><span class="btn ${tb ? 'ghost small' : ''}">${tb ? 'Import again' : 'Import Tanker Billing.xlsm'}</span></label></div>
+      <label class="file"><input type="file" id="tb-file" accept="${XL_ACCEPT}"><span class="btn ${tb ? 'ghost small' : ''}">${tb ? 'Import again' : 'Import Tanker Billing.xlsm'}</span></label></div>
     <p class="muted small">${info}</p>
     <nav class="chips">${QUOTE_TABS.map(([k, href, name]) => `<a class="chip${k === tab ? ' on' : ''}" href="${href}">${name}</a>`).join('')}</nav>
     <div id="tb-out"></div>
