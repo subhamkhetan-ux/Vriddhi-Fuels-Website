@@ -9051,6 +9051,27 @@
       },
       "queued_at": "2026-11-23T10:00:29.677677+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "6f6700de7783f373",
+      "gmail_msg_id": "1882654408528380385",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "23/11/26",
+      "date_serial": 46349,
+      "amount": 60444.0,
+      "raw_payer": "ANIMESH BUILDERS",
+      "customer": "Animesh Builders",
+      "candidates": [
+        "Animesh Builders"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-23T13:15:41.406012+00:00",
+      "status": "matched"
     }
   ]
 }
