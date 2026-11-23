@@ -9030,6 +9030,27 @@
       },
       "queued_at": "2026-11-23T09:45:25.836635+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "d0a84406311993e0",
+      "gmail_msg_id": "1882642463519463321",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "23/11/26",
+      "date_serial": 46349,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-23T10:00:29.677677+00:00",
+      "status": "matched"
     }
   ]
 }
