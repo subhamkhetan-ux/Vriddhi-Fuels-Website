@@ -9153,6 +9153,34 @@
       },
       "queued_at": "2026-11-24T06:00:26.575693+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "d1d25ab426384841",
+      "gmail_msg_id": "1882734523861341415",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "24/11/26",
+      "date_serial": 46350,
+      "amount": 36800.0,
+      "raw_payer": "H",
+      "customer": null,
+      "candidates": [
+        "Pine Labs Nodal Account",
+        "A.K.V. Logistics",
+        "Aryan Ispat & Power Private Ltd.",
+        "Harnoor Logistics Private Limited",
+        "Bkd Logistics Private Limited",
+        "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd",
+        "Bhaskar Earthmover Private Limited",
+        "Harish Iron Store"
+      ],
+      "match_tier": "ambiguous",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-24T10:30:23.783495+00:00",
+      "status": "review"
     }
   ]
 }
