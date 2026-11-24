@@ -8945,7 +8945,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T03:15:30.884727+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "158236c955b038bf",
@@ -8966,7 +8968,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T08:15:48.119041+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "1fb731c28f375ece",
@@ -8987,7 +8991,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T08:45:26.806278+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "00ec0c850075841d",
@@ -9008,7 +9014,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T09:30:27.519719+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "de8613a9ad460691",
@@ -9029,7 +9037,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T09:45:25.836635+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "d0a84406311993e0",
@@ -9050,7 +9060,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T10:00:29.677677+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "6f6700de7783f373",
@@ -9071,7 +9083,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T13:15:41.406012+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "9e7a446246556deb",
@@ -9092,7 +9106,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-23T17:45:33.452919+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     },
     {
       "entry_id": "475f9fc4df6a05e5",
@@ -9113,7 +9129,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-24T03:15:27.308471+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-24T03:30:22.728830+00:00"
     }
   ]
 }
