@@ -9132,6 +9132,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-24T03:30:22.728830+00:00"
+    },
+    {
+      "entry_id": "5abb6d16445b4e6a",
+      "gmail_msg_id": "1882717418710815537",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/11/2026",
+      "date_serial": 46350,
+      "amount": 700000.0,
+      "raw_payer": "DURAMASS CONCRETE SOLUTION PRIVATE CO",
+      "customer": "Duramass Concrete Solution Private Co",
+      "candidates": [
+        "Duramass Concrete Solution Private Co"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-24T06:00:26.575693+00:00",
+      "status": "matched"
     }
   ]
 }
