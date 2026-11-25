@@ -9208,6 +9208,48 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-25T04:00:29.963109+00:00"
+    },
+    {
+      "entry_id": "f7aec0d07e939a68",
+      "gmail_msg_id": "1882819483277835318",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "25/11/26",
+      "date_serial": 46351,
+      "amount": 1192802.0,
+      "raw_payer": "HARNOOR LOGISTICS PRIV",
+      "customer": "Harnoor Logistics Private Limited",
+      "candidates": [
+        "Harnoor Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-25T09:00:33.346196+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "5876a2ca13b90d88",
+      "gmail_msg_id": "1882819504175286003",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "25/11/26",
+      "date_serial": 46351,
+      "amount": 1192806.0,
+      "raw_payer": "SMC POWER GENERATION L",
+      "customer": "M/s Smc Power Generation Ltd.",
+      "candidates": [
+        "M/s Smc Power Generation Ltd."
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-25T09:00:33.346995+00:00",
+      "status": "matched"
     }
   ]
 }
