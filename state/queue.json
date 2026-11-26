@@ -9386,6 +9386,27 @@
       },
       "queued_at": "2026-11-26T08:30:33.939224+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "ff7fe009b1a454cf",
+      "gmail_msg_id": "1882915281321033538",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "26/11/26",
+      "date_serial": 46352,
+      "amount": 4000000.0,
+      "raw_payer": "DBL SIARMAL",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-26T10:15:44.360403+00:00",
+      "status": "matched"
     }
   ]
 }
