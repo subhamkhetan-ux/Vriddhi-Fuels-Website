@@ -9344,6 +9344,27 @@
       },
       "queued_at": "2026-11-26T05:15:30.535231+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "f583fd4f87391823",
+      "gmail_msg_id": "1882905269843219080",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "26/11/26",
+      "date_serial": 46352,
+      "amount": 397600.0,
+      "raw_payer": "MAA MEDHAPAT FIRM",
+      "customer": "Maa Medhapat Firm",
+      "candidates": [
+        "Maa Medhapat Firm"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-26T07:45:25.248323+00:00",
+      "status": "matched"
     }
   ]
 }
