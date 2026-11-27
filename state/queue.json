@@ -9526,6 +9526,27 @@
       },
       "queued_at": "2026-11-27T11:15:31.522004+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "afb4252177fbafe7",
+      "gmail_msg_id": "1883033462174257151",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "27/11/26",
+      "date_serial": 46353,
+      "amount": 5000.0,
+      "raw_payer": "JYOTI RANJ",
+      "customer": "JYOTI RANJAN DASH",
+      "candidates": [
+        "JYOTI RANJAN DASH"
+      ],
+      "match_tier": "info_scan",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-27T17:45:23.074015+00:00",
+      "status": "matched"
     }
   ]
 }
