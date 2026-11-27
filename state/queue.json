@@ -9343,7 +9343,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-26T05:15:30.535231+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "f583fd4f87391823",
@@ -9364,7 +9366,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-26T07:45:25.248323+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "405c828932819daa",
@@ -9385,7 +9389,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-26T08:30:33.939224+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "ff7fe009b1a454cf",
@@ -9406,7 +9412,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-26T10:15:44.360403+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "9639306be08334e5",
@@ -9427,7 +9435,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-26T12:30:23.653827+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "91b1a093fdb37a2e",
@@ -9448,7 +9458,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-27T01:45:21.566214+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     },
     {
       "entry_id": "0b5c68391994116b",
@@ -9469,7 +9481,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-27T02:15:24.971754+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-27T03:00:31.371523+00:00"
     }
   ]
 }
