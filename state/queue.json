@@ -9632,6 +9632,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-11-28T06:45:25.361213+00:00"
+    },
+    {
+      "entry_id": "90d1e0d5fcdd7c0a",
+      "gmail_msg_id": "1883110963672757167",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "28/11/26",
+      "date_serial": 46354,
+      "amount": 100000.0,
+      "raw_payer": "mail. Please do not reply.\r",
+      "customer": "Swagat Sundar Mohanty",
+      "candidates": [
+        "Swagat Sundar Mohanty"
+      ],
+      "match_tier": "info_scan",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-28T14:15:22.357032+00:00",
+      "status": "matched"
     }
   ]
 }
