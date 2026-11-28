@@ -9568,6 +9568,37 @@
       },
       "queued_at": "2026-11-28T02:15:26.631166+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "2eb7ae14d99e420f",
+      "gmail_msg_id": "1883066720785652180",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "28/11/26",
+      "date_serial": 46354,
+      "amount": 10000.0,
+      "raw_payer": "mail. Please do not reply.\r",
+      "customer": null,
+      "candidates": [
+        "Swagat Sundar Mohanty",
+        "Pine Labs Nodal Account",
+        "A.K.V. Logistics",
+        "Aryan Ispat & Power Private Ltd.",
+        "Bkd Logistics Private Limited",
+        "Bhaskar Earthmover Private Limited",
+        "Sunil Kumar Khetan Transaction",
+        "Fleet Card Posting"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false,
+        "amount_hint": "Swagat Sundar Mohanty"
+      },
+      "queued_at": "2026-11-28T02:30:26.472954+00:00",
+      "error": "could not extract: payer",
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 10,000.00 on 28-Nov-26. Info: UPI*MANAS KUMA*XX5124@ybl*Payment fr*State Bank*41.\r\n\r\nThe Available Balance in your account is Rs. 1,33,715.45.\r\n\r\nIn case you have not done this transaction, please call on 00914071403333  from your registered mobile number.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
+      "status": "review"
     }
   ]
 }
